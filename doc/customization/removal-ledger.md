@@ -98,7 +98,7 @@
 - 风险：编辑器、导入器或测试可能间接引用 2D 类型。
 - 验证命令：`scons profile=misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py -j8`
 - 验证结果：editor 构建不允许使用 `disable_physics_2d`；该选项只能用于 export template。当前阶段不做 export template 工作，因此挂起。
-- 下一步：等重新启动 export template 裁剪后再评估。
+- 下一步：暂不硬删除。等重新启动 export template 裁剪后，再判断是否作为可选 2D 支持保留。
 
 ### 2D 导航
 
@@ -110,7 +110,7 @@
 - 风险：类注册、文档生成、编辑器节点列表可能引用。
 - 验证命令：`scons profile=misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py -j8`
 - 验证结果：editor 构建不允许使用 `disable_navigation_2d`；该选项只能用于 export template。当前阶段不做 export template 工作，因此挂起。
-- 下一步：等重新启动 export template 裁剪后再评估。
+- 下一步：暂不硬删除。等重新启动 export template 裁剪后，再判断是否作为可选 2D 支持保留。
 
 ### VR / XR / WebXR / Mobile VR
 
@@ -132,4 +132,15 @@
 - 相关 SCons 选项：暂无直接等价选项
 - 裁剪理由：编辑器希望专注 3D。
 - 风险：Godot 编辑器大量 UI、资源预览和 Control 仍依赖 2D/CanvasItem 概念。
-- 下一步：先使用 editor feature profile 或小范围入口隐藏，不直接删源码。当前阶段这类编辑器体验裁剪比 SCons 构建裁剪更重要。
+- 下一步：先使用 editor feature profile 或小范围入口隐藏，不直接删源码。当前阶段这类编辑器体验裁剪比 SCons 构建裁剪更重要；未来再判断是否保留为可选 2D 入口。
+
+### C# / .NET / Mono 支持
+
+- 状态：保留
+- 类型：脚本支持 / 编辑器功能 / 构建支持
+- 上游路径：`modules/mono`、相关 C# 编辑器和构建入口
+- 相关 SCons 选项：暂不设置
+- 裁剪理由：当前核心目标是 3D 编辑器体验，C# 不是早期定制重点。
+- 保留理由：C# 以后可能作为可选脚本支持提供给独立开发者和小团队；同时它可能影响脚本调试、项目生成、构建流程和官方同步判断。
+- 风险：硬删除后回滚成本高，且容易和官方更新、编辑器脚本支持、文档示例产生长期冲突。
+- 下一步：暂不硬删除，也不主动做功能裁剪。以后如果要改为可选支持，先单独评估依赖、构建入口、编辑器入口和回滚方式。

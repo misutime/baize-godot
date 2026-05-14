@@ -48,6 +48,10 @@
 
     很多看似 2D 或通用的系统被编辑器、UI、导入器或调试工具依赖。比如 Control/UI、Resource、Variant、Image、Input、Audio 不能粗暴删除。
 
+6. 暂时不硬删除 2D 和 C# 支持。
+
+    当前核心目标仍然是 3D 编辑器体验，但 2D 和 C# 以后可能作为可选支持保留。没有明确决策前，只允许隐藏入口、降低优先级或记录候选项，不物理删除相关源码、模块和编辑器功能。
+
 ## 功能分级
 
 ### A 级：核心保留
@@ -67,13 +71,14 @@
 - GUI/Control：编辑器依赖强，不能整体删除，但可评估高级控件。
 - 多语言文本：早期保留高级文本服务，后续可评估 fallback text server。
 - 导出系统：当前阶段不做 export template 相关工作，先保持上游默认状态，不裁剪、不验证、不维护发布模板。
+- C# / .NET / Mono 支持：当前不是核心目标，但可能作为可选脚本支持保留；暂不硬删除相关代码和编辑器功能。
 - Multiplayer / WebSocket / WebRTC：如果项目不做网络游戏，可进入候选裁剪。
 - AAA 写实项目专用或重型团队流程相关入口：默认低优先级，除非它也明显改善中小型风格化 3D 项目。
 
 ### C 级：优先候选裁剪
 
-- 2D 专用编辑器工作区和 CanvasItem 编辑工具。
-- 2D 物理和 2D 导航运行时。当前阶段不处理，因为它们只能用于 export template 裁剪，不能用于 editor 构建。
+- 2D 专用编辑器工作区和 CanvasItem 编辑工具。当前只评估隐藏或弱化入口，不硬删除源码。
+- 2D 物理和 2D 导航运行时。当前阶段不处理，因为它们只能用于 export template 裁剪，不能用于 editor 构建；未来确认是否作为可选 2D 支持保留。
 - VR/XR 相关模块，例如 OpenXR、Mobile VR、WebXR。
 - AAA 写实、重型多人、大型团队协作专用入口。
 - 各平台专属的可选额外依赖。比如 Windows 的 AccessKit、ANGLE、D3D12 依赖，macOS 的可选系统集成或额外打包依赖。平台发布链本身默认保留。
@@ -165,6 +170,8 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 3. 网络和音视频可选模块。
 4. 2D 编辑器插件。
 5. 2D 运行时服务。当前阶段不处理，等重新启动 export template 工作后再评估。
+
+注意：2D 和 C# 支持目前不进入硬裁剪推荐顺序。以后如果要改变这个边界，需要先更新本文件和 `removal-ledger.md`，再做独立验证。
 
 ## 每次定制提交的检查清单
 
