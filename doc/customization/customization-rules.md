@@ -2,47 +2,61 @@
 
 ## 项目定位
 
-我们要做的是一个基于 Godot 的 3D 游戏开发定制引擎。它不是通用 Godot 的完整替代品，也不是只给某一个游戏项目用的最小运行时。
+我们要做的是一个基于 Godot 的中小型风格化 3D 游戏开发定制引擎。它不是通用 Godot 的完整替代品，也不是只给某一个游戏项目用的最小运行时，更不是面向 AAA 写实大项目的全能引擎。
+
+目标用户：
+
+- 青少年/新手入门 3D 游戏开发者。
+- 独立开发者、个人开发者和小团队。
+- 想做中小规模、非写实、风格化 3D 游戏的人。
 
 优先服务对象：
 
-- 3D 游戏编辑器工作流。
-- 3D 场景、材质、动画、光照、后处理和导入管线。
+- 清晰、少干扰、适合新手理解的 3D 游戏编辑器工作流。
+- 中小型 3D 场景、风格化材质、动画、光照、后处理和导入管线。
 - 3D 物理、导航、碰撞、调试工具。
 - Windows 和 macOS 桌面编辑器开发、本地调试。
 - 后续可同步 Godot 官方更新的长期分支。
+
+不优先服务：
+
+- AAA 写实渲染制作流程。
+- 大型开放世界和超大团队协作流程。
+- 专业影视、建筑可视化、数字孪生等非游戏工作流。
+- VR/XR 专用项目。
+- 以复杂网络架构为核心的大型多人在线项目。
 
 ## 裁剪原则
 
 1. 先隐藏，再禁用，后删除。
 
-   当前阶段只做 editor 定制。编辑器可用的 SCons 裁剪选项很少，主路线应是 editor feature profile、默认工作区、插件/菜单隐藏和小范围源码定制。SCons 只用于少数 editor 可用开关，例如 VR/XR、可选依赖。只有当一个功能长期不需要、依赖边界清楚、验证充分、台账完整时，才允许物理删除源码。
+    当前阶段只做 editor 定制。编辑器可用的 SCons 裁剪选项很少，主路线应是 editor feature profile、默认工作区、插件/菜单隐藏和小范围源码定制。SCons 只用于少数 editor 可用开关，例如 VR/XR、可选依赖。只有当一个功能长期不需要、依赖边界清楚、验证充分、台账完整时，才允许物理删除源码。
 
 2. 先保留编辑器可用性。
 
-   这个项目第一目标是 3D 开发体验，不是最小运行时。任何裁剪如果会破坏 Project Manager、Inspector、SceneTree、资源导入、3D Viewport 或脚本调试，都需要降级为候选项。
+    这个项目第一目标是 3D 开发体验，不是最小运行时。任何裁剪如果会破坏 Project Manager、Inspector、SceneTree、资源导入、3D Viewport 或脚本调试，都需要降级为候选项。
 
 3. 保持补丁可同步。
 
-   能通过配置解决的，不改上游源码。必须改源码时，改动要小，位置要集中，注释说明“这是 3D 定制引擎裁剪点”。
+    能通过配置解决的，不改上游源码。必须改源码时，改动要小，位置要集中，注释说明“这是 3D 定制引擎裁剪点”。
 
 4. 删除必须可追溯。
 
-   每个删除或禁用项都要进入 `removal-ledger.md`。记录不完整时，不允许合入。
+    每个删除或禁用项都要进入 `removal-ledger.md`。记录不完整时，不允许合入。
 
 5. 不把“与 3D 无关”简单等同于“可以删”。
 
-   很多看似 2D 或通用的系统被编辑器、UI、导入器或调试工具依赖。比如 Control/UI、Resource、Variant、Image、Input、Audio 不能粗暴删除。
+    很多看似 2D 或通用的系统被编辑器、UI、导入器或调试工具依赖。比如 Control/UI、Resource、Variant、Image、Input、Audio 不能粗暴删除。
 
 ## 功能分级
 
 ### A 级：核心保留
 
 - 3D 节点和场景系统：Node3D、Camera3D、Light3D、MeshInstance3D、Skeleton3D 等。
-- 3D 渲染：Vulkan/RD、材质、Shader、Environment、后处理。
+- 3D 渲染：Vulkan/RD、材质、Shader、Environment、后处理，优先服务风格化和非写实美术。
 - 资源系统：Resource、PackedScene、Image、Texture、Mesh、Animation。
 - 编辑器核心：Project Manager、SceneTree、Inspector、FileSystem、Import Dock、3D Viewport。
-- 3D 导入：glTF、FBX、材质贴图、骨骼动画、网格优化。
+- 3D 导入：glTF、FBX、材质贴图、骨骼动画、网格优化，优先保证常见 DCC 到引擎的入门链路顺畅。
 - 3D 物理和导航：PhysicsServer3D、Jolt 或 GodotPhysics3D、NavigationServer3D。
 - 脚本和扩展：GDScript、GDExtension、ClassDB、Variant。
 - 基础平台：Windows、macOS、Android、iOS、Web、文件系统、输入、线程、网络基础能力。
@@ -54,12 +68,14 @@
 - 多语言文本：早期保留高级文本服务，后续可评估 fallback text server。
 - 导出系统：当前阶段不做 export template 相关工作，先保持上游默认状态，不裁剪、不验证、不维护发布模板。
 - Multiplayer / WebSocket / WebRTC：如果项目不做网络游戏，可进入候选裁剪。
+- AAA 写实项目专用或重型团队流程相关入口：默认低优先级，除非它也明显改善中小型风格化 3D 项目。
 
 ### C 级：优先候选裁剪
 
 - 2D 专用编辑器工作区和 CanvasItem 编辑工具。
 - 2D 物理和 2D 导航运行时。当前阶段不处理，因为它们只能用于 export template 裁剪，不能用于 editor 构建。
 - VR/XR 相关模块，例如 OpenXR、Mobile VR、WebXR。
+- AAA 写实、重型多人、大型团队协作专用入口。
 - 各平台专属的可选额外依赖。比如 Windows 的 AccessKit、ANGLE、D3D12 依赖，macOS 的可选系统集成或额外打包依赖。平台发布链本身默认保留。
 - 示例、测试、文档中与发行无关的大型资源，注意不要影响上游同步。
 

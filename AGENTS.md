@@ -35,11 +35,11 @@
 
 Godot 3D 定制引擎长期规则:
 
-- 项目目标是基于 Godot 维护一个专注 3D 游戏开发的定制引擎。所有裁剪、改名、删除和同步判断，都优先服务 3D 编辑器、3D 运行时、3D 资源管线，以及 Windows/macOS 桌面开发体验。
+- 项目目标是基于 Godot 维护一个面向中小型风格化 3D 游戏开发的定制引擎。目标用户是青少年/新手入门者、独立开发者、个人开发者和小团队，主要服务中小规模、非写实、风格化 3D 项目。所有裁剪、改名、删除和同步判断，都优先服务清晰易懂的 3D 编辑器体验、轻量 3D 工作流、风格化 3D 资源管线，以及 Windows/macOS 桌面开发体验。
 - 当前 editor 阶段的裁剪优先级是：先用 editor feature profile、编辑器默认入口、插件/菜单隐藏和小范围源码定制来聚焦 3D；SCons 构建选项只用于少数 editor 可用开关，例如 VR/XR、可选依赖。确认长期不需要且有回滚记录后，再考虑删除源码。
 - 每次删除或禁用功能前，必须先在 `doc/customization/removal-ledger.md` 记录：范围、理由、上游路径、依赖影响、回滚方式、同步策略和验证命令。
 - 所有与 Godot 官方同步相关的判断，必须参考 `doc/customization/upstream-sync-policy.md`。遇到官方更新触及已裁剪区域时，不要默认丢弃，也不要默认合入，先按台账判断是否仍有价值。
-- 当前阶段只专注编辑器开发定制，不做 export template 相关裁剪、构建、打包和发布模板维护。默认保留 3D 编辑器所需基础能力：Node3D、3D 渲染、材质和 Shader、Animation、Navigation3D、Physics3D、导入能力、GDExtension、资源系统、编辑器 Inspector、SceneTree、ProjectSettings、调试和性能分析入口。
-- 默认候选裁剪方向包括：2D 专用编辑器工作区、CanvasItem 编辑工具、VR/XR、无关音视频格式、多人网络，以及各平台的可选额外依赖。2D 物理和 2D 导航属于 export template 裁剪项，当前阶段挂起。Android、iOS、Web 发布链默认保留，不作为裁剪目标。
+- 当前阶段只专注编辑器开发定制，不做 export template 相关裁剪、构建、打包和发布模板维护。默认保留中小型风格化 3D 编辑器所需基础能力：Node3D、3D 渲染、风格化材质和 Shader、Animation、Navigation3D、Physics3D、glTF/FBX 等常用导入能力、GDExtension、资源系统、编辑器 Inspector、SceneTree、ProjectSettings、调试和性能分析入口。
+- 默认候选裁剪方向包括：2D 专用编辑器工作区、CanvasItem 编辑工具、VR/XR、AAA 写实工作流专用入口、重型多人网络、无关音视频格式，以及各平台的可选额外依赖。2D 物理和 2D 导航属于 export template 裁剪项，当前阶段挂起。Android、iOS、Web 发布链默认保留，不作为裁剪目标。
 - 修改 Godot 上游源码时，尽量保持补丁小、边界清晰、可重放。不要把定制逻辑散落到无关文件里；如果需要长期保留定制，优先集中到明确的配置、构建选项、定制目录或有注释的入口。
 - 每次完成定制变更后，至少记录一次验证：能否编译编辑器、能否启动 Project Manager、能否打开一个 3D 项目、核心 3D 场景能否运行。
