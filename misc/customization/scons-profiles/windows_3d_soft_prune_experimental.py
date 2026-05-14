@@ -1,4 +1,4 @@
-# Windows 3D soft-prune experimental profile.
+# Windows 3D editor soft-prune experimental profile.
 # Usage:
 #   scons profile=misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py -j8
 #
@@ -11,10 +11,6 @@ dev_build = "yes"
 
 accesskit = "no"
 angle = "no"
-
-# 2D runtime prune candidates.
-disable_physics_2d = "yes"
-disable_navigation_2d = "yes"
 
 # VR/XR prune candidates. Web platform itself is kept; this only tests WebXR.
 disable_xr = "yes"

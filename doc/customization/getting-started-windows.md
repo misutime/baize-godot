@@ -128,37 +128,12 @@ scons platform=windows d3d12=no accesskit=no angle=no -j8
 scons platform=windows accesskit=no angle=no -j8
 ```
 
-## 6. 导出模板构建
+## 6. 导出模板
 
-编辑器用于开发项目，导出模板用于打包游戏。后续如果要测试我们定制引擎导出的 Windows 游戏，需要构建 template。
-
-调试导出模板：
-
-```powershell
-scons platform=windows target=template_debug d3d12=no accesskit=no angle=no -j8
-```
-
-发布导出模板：
-
-```powershell
-scons platform=windows target=template_release d3d12=no accesskit=no angle=no -j8
-```
-
-如果已经安装 D3D12 依赖，就去掉 `d3d12=no`：
-
-```powershell
-scons platform=windows target=template_debug accesskit=no angle=no -j8
-scons platform=windows target=template_release accesskit=no angle=no -j8
-```
+当前阶段不做 export template 相关工作。先专注编辑器开发定制，不维护打包游戏用的模板构建命令。
 
 ## 7. production 构建
 
 真正面向发布时，可以考虑 `production=yes`。它会更偏向正式发布配置，通常会更慢，排查问题也没 `dev_build=yes` 方便。
 
-普通发布模板示例：
-
-```powershell
-scons platform=windows target=template_release production=yes accesskit=no angle=no -j8
-```
-
-早期定制阶段不建议默认使用 `production=yes`。先保证开发构建和普通模板构建稳定，再单独验证 production 构建。
+普通发布模板以后再单独建立规则。当前阶段不要把 `production=yes` 或 `target=template_release` 作为日常验证命令。

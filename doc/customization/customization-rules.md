@@ -9,15 +9,14 @@
 - 3D 游戏编辑器工作流。
 - 3D 场景、材质、动画、光照、后处理和导入管线。
 - 3D 物理、导航、碰撞、调试工具。
-- Windows 和 macOS 桌面开发、本地调试、桌面 3D 发布链。
-- Android、iOS、Web 的 3D 发布链。
+- Windows 和 macOS 桌面编辑器开发、本地调试。
 - 后续可同步 Godot 官方更新的长期分支。
 
 ## 裁剪原则
 
-1. 先禁用，后删除。
+1. 先隐藏，再禁用，后删除。
 
-   优先使用 SCons 选项、模块开关、build profile、editor feature profile。只有当一个功能长期不需要、依赖边界清楚、验证充分、台账完整时，才允许物理删除源码。
+   当前阶段只做 editor 定制。编辑器可用的 SCons 裁剪选项很少，主路线应是 editor feature profile、默认工作区、插件/菜单隐藏和小范围源码定制。SCons 只用于少数 editor 可用开关，例如 VR/XR、可选依赖。只有当一个功能长期不需要、依赖边界清楚、验证充分、台账完整时，才允许物理删除源码。
 
 2. 先保留编辑器可用性。
 
@@ -53,13 +52,13 @@
 - 音频系统：保留基础播放，格式支持可按项目需要减少。
 - GUI/Control：编辑器依赖强，不能整体删除，但可评估高级控件。
 - 多语言文本：早期保留高级文本服务，后续可评估 fallback text server。
-- 导出系统：保留 Windows、macOS、Android、iOS、Web。平台导出链不是当前裁剪目标。
+- 导出系统：当前阶段不做 export template 相关工作，先保持上游默认状态，不裁剪、不验证、不维护发布模板。
 - Multiplayer / WebSocket / WebRTC：如果项目不做网络游戏，可进入候选裁剪。
 
 ### C 级：优先候选裁剪
 
 - 2D 专用编辑器工作区和 CanvasItem 编辑工具。
-- 2D 物理和 2D 导航运行时。
+- 2D 物理和 2D 导航运行时。当前阶段不处理，因为它们只能用于 export template 裁剪，不能用于 editor 构建。
 - VR/XR 相关模块，例如 OpenXR、Mobile VR、WebXR。
 - 各平台专属的可选额外依赖。比如 Windows 的 AccessKit、ANGLE、D3D12 依赖，macOS 的可选系统集成或额外打包依赖。平台发布链本身默认保留。
 - 示例、测试、文档中与发行无关的大型资源，注意不要影响上游同步。
@@ -90,25 +89,32 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 .\bin\godot.windows.editor.dev.x86_64.exe --version
 ```
 
-### 第 1 阶段：软裁剪
+### 第 1 阶段：编辑器软裁剪
 
-目标：用构建参数和配置关闭明显不需要的功能，不删除源码。
+目标：只针对 editor，让编辑器体验先聚焦 3D，不删除源码。
 
-候选：
+构建层可用项很少，当前只保留：
 
 - `d3d12=no`
 - `accesskit=no`
 - `angle=no`
-- `disable_physics_2d=yes`
-- `module_navigation_2d_enabled=no`
 - `module_openxr_enabled=no`
 - `module_webxr_enabled=no`
 - `module_mobile_vr_enabled=no`
 
+编辑器体验层优先项：
+
+- 隐藏或弱化 2D 工作区入口。
+- 默认打开 3D 工作区。
+- 隐藏 VR/XR 相关菜单、节点、项目设置入口。
+- 整理项目管理器和新建项目默认模板，让它更像 3D 专用引擎。
+
 要求：
 
-- 每增加一个禁用项，都要独立构建验证。
+- 每增加一个构建禁用项，都要独立构建验证。
+- 每增加一个编辑器体验隐藏项，都要记录影响范围和手动验证步骤。
 - 失败时记录依赖原因，不硬删。
+- 不做 export template 相关裁剪；`disable_physics_2d`、`disable_navigation_2d` 这类只能用于模板构建的选项暂时挂起。
 
 ### 第 2 阶段：编辑器体验裁剪
 
@@ -141,8 +147,8 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 1. VR/XR 相关模块。
 2. 明确不服务 3D 发布链的可选模块。
 3. 网络和音视频可选模块。
-4. 2D 运行时服务。
-5. 2D 编辑器插件。
+4. 2D 编辑器插件。
+5. 2D 运行时服务。当前阶段不处理，等重新启动 export template 工作后再评估。
 
 ## 每次定制提交的检查清单
 
@@ -152,7 +158,7 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 - 是否保留了官方更新同步判断依据？
 - 是否跑过至少一次构建或给出明确未验证原因？
 
-## 软裁剪晋升规则
+## 编辑器裁剪晋升规则
 
 `soft-prune` 是实验场，`dev` 是正式开发基线。
 
@@ -166,3 +172,10 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 6. 如果已经硬裁剪源码，正式构建仍应回到 `dev` preset。硬裁剪后的源码本身应该让 `dev` 构建自然通过，而不是长期依赖实验 profile。
 
 不要直接把 `soft-prune` 当成日常开发配置。它可以同时包含多个风险项，适合验证影响，不适合作为团队稳定基线。
+
+编辑器体验裁剪项的生命周期：
+
+1. 先用配置、feature profile 或小范围代码隐藏入口。
+2. 记录到 `removal-ledger.md`。
+3. 手动验证 Project Manager、3D Viewport、Inspector、资源导入、场景运行。
+4. 稳定后再考虑是否删除对应插件或菜单代码。

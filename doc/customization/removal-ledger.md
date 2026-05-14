@@ -90,33 +90,39 @@
 
 ### 2D 物理
 
-- 状态：候选
+- 状态：挂起
 - 类型：运行时系统
 - 上游路径：`servers/physics_2d`、相关 scene 2D 节点
 - 相关 SCons 选项：`disable_physics_2d=yes`
 - 裁剪理由：3D 专用引擎通常不需要 2D 物理。
 - 风险：编辑器、导入器或测试可能间接引用 2D 类型。
-- 下一步：单独构建验证，不和其他裁剪混在一起。
+- 验证命令：`scons profile=misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py -j8`
+- 验证结果：editor 构建不允许使用 `disable_physics_2d`；该选项只能用于 export template。当前阶段不做 export template 工作，因此挂起。
+- 下一步：等重新启动 export template 裁剪后再评估。
 
 ### 2D 导航
 
-- 状态：候选
+- 状态：挂起
 - 类型：模块 / 运行时系统
 - 上游路径：`modules/navigation_2d`、`servers/navigation_2d`
-- 相关 SCons 选项：`module_navigation_2d_enabled=no`
+- 相关 SCons 选项：`disable_navigation_2d=yes`
 - 裁剪理由：3D 专用引擎优先保留 Navigation3D。
 - 风险：类注册、文档生成、编辑器节点列表可能引用。
-- 下一步：先软禁用并验证 3D 导航不受影响。
+- 验证命令：`scons profile=misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py -j8`
+- 验证结果：editor 构建不允许使用 `disable_navigation_2d`；该选项只能用于 export template。当前阶段不做 export template 工作，因此挂起。
+- 下一步：等重新启动 export template 裁剪后再评估。
 
 ### VR / XR / WebXR / Mobile VR
 
-- 状态：候选
+- 状态：软禁用实验中
 - 类型：模块 / 平台功能
 - 上游路径：`modules/openxr`、`modules/webxr`、`modules/mobile_vr`
-- 相关 SCons 选项：`module_openxr_enabled=no`、`module_webxr_enabled=no`、`module_mobile_vr_enabled=no`
+- 相关 SCons 选项：`disable_xr=yes`、`module_openxr_enabled=no`、`module_webxr_enabled=no`、`module_mobile_vr_enabled=no`
 - 裁剪理由：当前目标是普通 3D 游戏开发，不做 VR/XR。注意 Web 平台本身保留，候选裁剪的是 WebXR，不是 Web 导出链。
 - 风险：3D 渲染路径可能有共享代码，删除源码前必须检查依赖。
-- 下一步：先用模块开关禁用。
+- 验证命令：`.\misc\customization\build-windows.ps1 -Preset prune-vr-xr -Jobs 8`
+- 验证结果：Windows editor dev 构建已通过。第一次不带 `d3d12=no` 的构建失败，原因是正在运行的 Godot 占用 `bin\D3D12Core.dll`，不是 VR/XR 裁剪错误；关闭编辑器后重新运行 `scons profile=misc/customization/scons-profiles/windows_3d_prune_vr_xr.py -j8` 构建通过，版本输出 `4.7.beta.custom_build.255a71746`。历史试验中曾在 `target=template_debug` 中和 2D 物理/导航组合软裁剪一起构建通过，但当前阶段不做 export template 工作，此结果不作为当前阶段晋升依据。
+- 下一步：启动编辑器并打开 3D 项目做手动验证；如果通过，再考虑晋升到正式 `dev` profile 或进入硬裁剪评估。
 
 ### 2D 编辑器工作区
 
@@ -126,4 +132,4 @@
 - 相关 SCons 选项：暂无直接等价选项
 - 裁剪理由：编辑器希望专注 3D。
 - 风险：Godot 编辑器大量 UI、资源预览和 Control 仍依赖 2D/CanvasItem 概念。
-- 下一步：先使用 editor feature profile 隐藏，不直接删源码。
+- 下一步：先使用 editor feature profile 或小范围入口隐藏，不直接删源码。当前阶段这类编辑器体验裁剪比 SCons 构建裁剪更重要。

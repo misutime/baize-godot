@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("dev", "dev-no-d3d12", "soft-prune")]
+    [ValidateSet("dev", "dev-no-d3d12", "prune-vr-xr", "soft-prune")]
     [string] $Preset = "dev",
 
     [int] $Jobs = 8,
@@ -16,6 +16,7 @@ $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 $ProfileMap = @{
     "dev" = "misc/customization/scons-profiles/windows_3d_dev.py"
     "dev-no-d3d12" = "misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py"
+    "prune-vr-xr" = "misc/customization/scons-profiles/windows_3d_prune_vr_xr.py"
     "soft-prune" = "misc/customization/scons-profiles/windows_3d_soft_prune_experimental.py"
 }
 
