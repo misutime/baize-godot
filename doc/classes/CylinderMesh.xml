@@ -21,7 +21,7 @@
 			[b]Note:[/b] If [member top_radius] is [code]0.0[/code], cap generation is always skipped even if [member cap_top] is [code]true[/code].
 		</member>
 		<member name="height" type="float" setter="set_height" getter="get_height" default="2.0">
-			Full height of the cylinder.
+			Full height of the cylinder along the Z axis.
 		</member>
 		<member name="radial_segments" type="int" setter="set_radial_segments" getter="get_radial_segments" default="64">
 			Number of radial segments on the cylinder. Higher values result in a more detailed cylinder/cone at the cost of performance.

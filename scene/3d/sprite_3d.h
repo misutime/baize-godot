@@ -75,7 +75,7 @@ private:
 	Color modulate = Color(1, 1, 1, 1);
 	int render_priority = 0;
 
-	Vector3::Axis axis = Vector3::AXIS_Z;
+	Vector3::Axis axis = Vector3::AXIS_Y;
 	real_t pixel_size = 0.01;
 	AABB aabb;
 

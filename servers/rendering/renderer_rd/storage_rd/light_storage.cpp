@@ -616,7 +616,8 @@ void LightStorage::light_instance_set_shadow_transform(RID p_light_instance, con
 	ERR_FAIL_INDEX(p_pass, 6);
 
 	light_instance->shadow_transform[p_pass].camera = p_projection;
-	light_instance->shadow_transform[p_pass].transform = p_transform;
+	// 阴影贴图也由 RD 的旧灯光协议消费，必须和普通灯光方向使用同一套坐标转换。
+	light_instance->shadow_transform[p_pass].transform = CoordinateSystem3D::scene_to_legacy_z_forward_transform(p_transform);
 	light_instance->shadow_transform[p_pass].farplane = p_far;
 	light_instance->shadow_transform[p_pass].split = p_split;
 	light_instance->shadow_transform[p_pass].bias_scale = p_bias_scale;

@@ -10174,11 +10174,23 @@ void Node3DEditor::clear() {
 	grid_init_draw = false;
 }
 
+Vector3 Node3DEditor::_get_preview_sun_light_direction() const {
+	const real_t altitude = -sun_rotation.x;
+	const real_t azimuth = Math::PI - sun_rotation.y;
+	const real_t horizontal = Math::cos(altitude);
+
+	// 预览太阳的方向表示“物体指向太阳”的方向：+X 右、+Y 前、+Z 上。
+	return Vector3(
+			Math::sin(azimuth) * horizontal,
+			Math::cos(azimuth) * horizontal,
+			Math::sin(altitude))
+			.normalized();
+}
+
 void Node3DEditor::_sun_direction_draw() {
 	sun_direction->draw_rect(Rect2(Vector2(), sun_direction->get_size()), Color(1, 1, 1, 1));
-	Vector3 z_axis = preview_sun->get_transform().basis.get_column(Vector3::AXIS_Z);
-	z_axis = get_editor_viewport(0)->camera->get_camera_transform().basis.xform_inv(z_axis);
-	sun_direction_material->set_shader_parameter("sun_direction", Vector3(z_axis.x, -z_axis.y, z_axis.z));
+	Vector3 sun_direction_in_camera = get_editor_viewport(0)->camera->get_camera_transform().basis.xform_inv(_get_preview_sun_light_direction());
+	sun_direction_material->set_shader_parameter("sun_direction", Vector3(sun_direction_in_camera.x, -sun_direction_in_camera.z, -sun_direction_in_camera.y));
 	Color color = sun_color->get_pick_color() * sun_energy->get_value();
 	sun_direction_material->set_shader_parameter("sun_color", Vector3(color.r, color.g, color.b));
 }
@@ -10192,7 +10204,10 @@ void Node3DEditor::_preview_settings_changed() {
 		sun_rotation.x = Math::deg_to_rad(-sun_angle_altitude->get_value());
 		sun_rotation.y = Math::deg_to_rad(180.0 - sun_angle_azimuth->get_value());
 		Transform3D t;
-		t.basis = Basis::from_euler(Vector3(sun_rotation.x, sun_rotation.y, 0));
+		const Vector3 sun_light_direction = _get_preview_sun_light_direction();
+		const Vector3 sun_forward = -sun_light_direction;
+		const Vector3 sun_up = Math::abs(sun_forward.dot(Vector3::UP)) > 0.999 ? Vector3::RIGHT : Vector3::UP;
+		t.basis = Basis::looking_at(sun_forward, sun_up);
 		preview_sun->set_transform(t);
 		sun_direction->queue_redraw();
 		preview_sun->set_param(Light3D::PARAM_ENERGY, sun_energy->get_value());

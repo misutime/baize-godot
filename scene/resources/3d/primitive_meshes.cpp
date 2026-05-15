@@ -32,6 +32,7 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/math/coordinate_system.h"
 #include "core/math/math_funcs.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
@@ -44,6 +45,38 @@
 #include <thirdparty/misc/polypartition.h>
 
 #define PADDING_REF_SIZE 1024.0
+
+static void _convert_legacy_primitive_arrays_to_scene(Array &p_arr) {
+	// 内置 PrimitiveMesh 的生成算法大多仍按 Godot 旧坐标写成：X 右、Y 上、-Z 前。
+	// 输出前统一转成当前场景坐标：X 右、Y 前、Z 上，避免每个网格各自手写轴交换。
+	Vector<Vector3> vertices = p_arr[RSE::ARRAY_VERTEX];
+	Vector<Vector3> normals = p_arr[RSE::ARRAY_NORMAL];
+	Vector<float> tangents = p_arr[RSE::ARRAY_TANGENT];
+
+	{
+		Vector3 *w = vertices.ptrw();
+		for (int i = 0; i < vertices.size(); i++) {
+			w[i] = CoordinateSystem3D::legacy_z_forward_to_scene_local(w[i]);
+		}
+	}
+	{
+		Vector3 *w = normals.ptrw();
+		for (int i = 0; i < normals.size(); i++) {
+			w[i] = CoordinateSystem3D::legacy_z_forward_to_scene_local(w[i]);
+		}
+	}
+
+	for (int i = 0; i + 3 < tangents.size(); i += 4) {
+		Vector3 tangent = CoordinateSystem3D::legacy_z_forward_to_scene_local(Vector3(tangents[i], tangents[i + 1], tangents[i + 2]));
+		tangents.write[i] = tangent.x;
+		tangents.write[i + 1] = tangent.y;
+		tangents.write[i + 2] = tangent.z;
+	}
+
+	p_arr[RSE::ARRAY_VERTEX] = vertices;
+	p_arr[RSE::ARRAY_NORMAL] = normals;
+	p_arr[RSE::ARRAY_TANGENT] = tangents;
+}
 
 /**
   PrimitiveMesh
@@ -612,6 +645,8 @@ void CapsuleMesh::create_mesh_array(Array &p_arr, const float radius, const floa
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void CapsuleMesh::_bind_methods() {
@@ -727,6 +762,9 @@ void BoxMesh::_create_mesh_array(Array &p_arr) const {
 }
 
 void BoxMesh::create_mesh_array(Array &p_arr, Vector3 size, int subdivide_w, int subdivide_h, int subdivide_d, bool p_add_uv2, const float p_uv2_padding) {
+	// 对外 size 使用当前坐标语义：X 宽、Y 深、Z 高；旧生成算法内部仍以 Y 为高。
+	size = Vector3(size.x, size.z, size.y);
+
 	int i, j, prevrow, thisrow, point;
 	float x, y, z;
 	float onethird = 1.0 / 3.0;
@@ -968,6 +1006,8 @@ void BoxMesh::create_mesh_array(Array &p_arr, Vector3 size, int subdivide_w, int
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void BoxMesh::_bind_methods() {
@@ -1272,6 +1312,8 @@ void CylinderMesh::create_mesh_array(Array &p_arr, float top_radius, float botto
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void CylinderMesh::_bind_methods() {
@@ -1613,6 +1655,9 @@ void PrismMesh::_update_lightmap_size() {
 }
 
 void PrismMesh::_create_mesh_array(Array &p_arr) const {
+	// 对外 size 使用当前坐标语义：X 宽、Y 深、Z 高；旧生成算法内部仍以 Y 为高。
+	const Vector3 size = Vector3(this->size.x, this->size.z, this->size.y);
+
 	int i, j, prevrow, thisrow, point;
 	float x, y, z;
 	float onethird = 1.0 / 3.0;
@@ -1875,6 +1920,8 @@ void PrismMesh::_create_mesh_array(Array &p_arr) const {
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void PrismMesh::_bind_methods() {
@@ -2090,6 +2137,8 @@ void SphereMesh::create_mesh_array(Array &p_arr, float radius, float height, int
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void SphereMesh::_bind_methods() {
@@ -2301,6 +2350,8 @@ void TorusMesh::_create_mesh_array(Array &p_arr) const {
 		p_arr[RSE::ARRAY_TEX_UV2] = Vector<Vector2>(uv2s);
 	}
 	p_arr[RSE::ARRAY_INDEX] = Vector<int>(indices);
+
+	_convert_legacy_primitive_arrays_to_scene(p_arr);
 }
 
 void TorusMesh::_bind_methods() {

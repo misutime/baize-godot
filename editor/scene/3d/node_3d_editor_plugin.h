@@ -901,6 +901,7 @@ private:
 
 	bool sun_environ_updating = false;
 
+	Vector3 _get_preview_sun_light_direction() const;
 	void _sun_direction_draw();
 	void _sun_direction_input(const Ref<InputEvent> &p_event);
 	void _sun_direction_set_altitude(float p_altitude);

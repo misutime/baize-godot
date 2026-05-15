@@ -254,7 +254,7 @@ private:
 	int subdivide_w = 0;
 	int subdivide_d = 0;
 	Vector3 center_offset;
-	Orientation orientation = FACE_Y;
+	Orientation orientation = FACE_Z;
 
 protected:
 	static void _bind_methods();
@@ -289,7 +289,7 @@ class QuadMesh : public PlaneMesh {
 
 public:
 	QuadMesh() {
-		set_orientation(FACE_Z);
+		set_orientation(FACE_Y);
 		set_size(Size2(1, 1));
 	}
 };
