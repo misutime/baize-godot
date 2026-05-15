@@ -68,8 +68,8 @@ void MeshEditor::_notification(int p_what) {
 
 void MeshEditor::_update_rotation() {
 	Transform3D t;
-	t.basis.rotate(Vector3(0, 1, 0), -rot_y);
-	t.basis.rotate(Vector3(1, 0, 0), -rot_x);
+	t.basis.rotate(Vector3::UP, -rot_y);
+	t.basis.rotate(t.basis.get_column(Vector3::AXIS_X).normalized(), -rot_x);
 	rotation->set_transform(t);
 }
 
@@ -113,7 +113,7 @@ MeshEditor::MeshEditor() {
 	viewport->set_msaa_3d(Viewport::MSAA_4X);
 	set_stretch(true);
 	camera = memnew(Camera3D);
-	camera->set_transform(Transform3D(Basis(), Vector3(0, 0, 1.1)));
+	camera->set_transform(Transform3D(Basis(), Vector3(0, -1.1, 0)));
 	camera->set_perspective(45, 0.1, 10);
 	viewport->add_child(camera);
 
@@ -123,11 +123,11 @@ MeshEditor::MeshEditor() {
 	}
 
 	light1 = memnew(DirectionalLight3D);
-	light1->set_transform(Transform3D().looking_at(Vector3(-1, -1, -1), Vector3(0, 1, 0)));
+	light1->set_transform(Transform3D().looking_at(Vector3(-1, -1, -1), Vector3::UP));
 	viewport->add_child(light1);
 
 	light2 = memnew(DirectionalLight3D);
-	light2->set_transform(Transform3D().looking_at(Vector3(0, 1, 0), Vector3(0, 0, 1)));
+	light2->set_transform(Transform3D().looking_at(Vector3(0, 1, 0), Vector3::UP));
 	light2->set_color(Color(0.7, 0.7, 0.7));
 	viewport->add_child(light2);
 

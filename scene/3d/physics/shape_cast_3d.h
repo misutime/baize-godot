@@ -46,7 +46,7 @@ class ShapeCast3D : public Node3D {
 
 	Ref<Shape3D> shape;
 	RID shape_rid;
-	Vector3 target_position = Vector3(0, -1, 0);
+	Vector3 target_position = Vector3(0, 0, -1);
 
 	HashSet<RID> exclude;
 	real_t margin = 0.0;

@@ -519,11 +519,11 @@ void NavMap3D::_update_rvo_obstacles_tree_2d() {
 
 		for (const Vector3 &_obstacle_vertex : _obstacle_vertices) {
 #ifdef TOOLS_ENABLED
-			if (_obstacle_vertex.y != 0) {
-				WARN_PRINT_ONCE("Y coordinates of static obstacle vertices are ignored. Please use obstacle position Y to change elevation of obstacle.");
+			if (_obstacle_vertex.z != 0) {
+				WARN_PRINT_ONCE("Z coordinates of static obstacle vertices are ignored. Please use obstacle position Z to change elevation of obstacle.");
 			}
 #endif
-			rvo_2d_vertices.push_back(RVO2D::Vector2(_obstacle_vertex.x + _obstacle_position.x, _obstacle_vertex.z + _obstacle_position.z));
+			rvo_2d_vertices.push_back(RVO2D::Vector2(_obstacle_vertex.x + _obstacle_position.x, _obstacle_vertex.y + _obstacle_position.y));
 		}
 
 		const size_t obstacleNo = raw_obstacles.size();
@@ -532,7 +532,7 @@ void NavMap3D::_update_rvo_obstacles_tree_2d() {
 			RVO2D::Obstacle2D *rvo_2d_obstacle = new RVO2D::Obstacle2D();
 			rvo_2d_obstacle->point_ = rvo_2d_vertices[i];
 			rvo_2d_obstacle->height_ = _obstacle_height;
-			rvo_2d_obstacle->elevation_ = _obstacle_position.y;
+			rvo_2d_obstacle->elevation_ = _obstacle_position.z;
 
 			rvo_2d_obstacle->avoidance_layers_ = _obstacle_avoidance_layers;
 
@@ -652,8 +652,8 @@ void NavMap3D::dispatch_callbacks() {
 
 void NavMap3D::_update_merge_rasterizer_cell_dimensions() {
 	merge_rasterizer_cell_size.x = cell_size * merge_rasterizer_cell_scale;
-	merge_rasterizer_cell_size.y = cell_height * merge_rasterizer_cell_scale;
-	merge_rasterizer_cell_size.z = cell_size * merge_rasterizer_cell_scale;
+	merge_rasterizer_cell_size.y = cell_size * merge_rasterizer_cell_scale;
+	merge_rasterizer_cell_size.z = cell_height * merge_rasterizer_cell_scale;
 }
 
 int NavMap3D::get_region_connections_count(NavRegion3D *p_region) const {

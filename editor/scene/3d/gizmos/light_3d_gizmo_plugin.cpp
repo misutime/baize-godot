@@ -114,9 +114,9 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 	if (p_id == 0) {
 		if (Object::cast_to<SpotLight3D>(light)) {
 			Vector3 ra, rb;
-			Geometry3D::get_closest_points_between_segments(Vector3(), Vector3(0, 0, -4096), s[0], s[1], ra, rb);
+			Geometry3D::get_closest_points_between_segments(Vector3(), Vector3(0, 4096, 0), s[0], s[1], ra, rb);
 
-			float d = -ra.z;
+			float d = ra.y;
 			if (Node3DEditor::get_singleton()->is_snap_enabled()) {
 				d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
 			}
@@ -127,7 +127,7 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 
 			light->set_param(Light3D::PARAM_RANGE, d);
 		} else if (Object::cast_to<OmniLight3D>(light)) {
-			Plane cp = Plane(p_camera->get_transform().basis.get_column(2), gt.origin);
+			Plane cp = Plane(p_camera->get_transform().basis.get_column(1), gt.origin);
 
 			Vector3 inters;
 			if (cp.intersects_ray(ray_from, ray_dir, &inters)) {
@@ -140,18 +140,18 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 			}
 
 		} else if (Object::cast_to<AreaLight3D>(light)) {
-			Vector3 cfv = p_camera->get_transform().basis.get_column(2);
+			Vector3 cfv = p_camera->get_transform().basis.get_column(1);
 			float cf_dot_lr = cfv.dot(gt.basis.get_column(0));
 			const float min_cos_angle = 0.001; // if cosine of angle between cam forward and the edited light axis is less than this, we don't move the gizmo at all to prevent unstable results
 
 			if (Math::abs(cf_dot_lr) < 1.0 - min_cos_angle) {
-				float cf_dot_lf = cfv.dot(gt.basis.get_column(2));
-				float cf_dot_lu = cfv.dot(gt.basis.get_column(1));
+				float cf_dot_lf = cfv.dot(gt.basis.get_column(1));
+				float cf_dot_lu = cfv.dot(gt.basis.get_column(2));
 				Plane p;
 				if (Math::abs(cf_dot_lf) > Math::abs(cf_dot_lu)) { // we are looking directly onto the light, use light plane
-					p = Plane(gt.basis.get_column(2), gt.origin);
-				} else { // we see the light at an angle, use plane normal to light up
 					p = Plane(gt.basis.get_column(1), gt.origin);
+				} else { // we see the light at an angle, use plane normal to light up
+					p = Plane(gt.basis.get_column(2), gt.origin);
 				}
 				Vector3 inters;
 				if (p.intersects_ray(ray_from, ray_dir, &inters)) {
@@ -172,16 +172,16 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 			float a = _find_closest_angle_to_half_pi_arc(s[0], s[1], light->get_param(Light3D::PARAM_RANGE), gt);
 			light->set_param(Light3D::PARAM_SPOT_ANGLE, CLAMP(a, 0.01, 89.99));
 		} else if (Object::cast_to<AreaLight3D>(light)) {
-			Vector3 cfv = p_camera->get_transform().basis.get_column(2);
-			float cf_dot_lu = cfv.dot(gt.basis.get_column(1));
+			Vector3 cfv = p_camera->get_transform().basis.get_column(1);
+			float cf_dot_lu = cfv.dot(gt.basis.get_column(2));
 			const float min_cos_angle = 0.001; // if cosine of angle between cam forward and the edited light axis is less than this, we don't move the gizmo at all to prevent unstable results
 
 			if (Math::abs(cf_dot_lu) < 1.0 - min_cos_angle) {
-				float cf_dot_lf = cfv.dot(gt.basis.get_column(2));
+				float cf_dot_lf = cfv.dot(gt.basis.get_column(1));
 				float cf_dot_lr = cfv.dot(gt.basis.get_column(0));
 				Plane p;
 				if (Math::abs(cf_dot_lf) > Math::abs(cf_dot_lr)) { // we are looking directly onto the light, use light plane
-					p = Plane(gt.basis.get_column(2), gt.origin);
+					p = Plane(gt.basis.get_column(1), gt.origin);
 				} else { // we see the light at an angle, use plane normal to light right
 					p = Plane(gt.basis.get_column(0), gt.origin);
 				}
@@ -189,7 +189,7 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 				if (p.intersects_ray(ray_from, ray_dir, &inters)) {
 					Vector3 inv = gi.xform(inters); // point local to light
 
-					float b = inv.y;
+					float b = inv.z;
 					if (b >= 0) {
 						AreaLight3D *al = Object::cast_to<AreaLight3D>(light);
 						Vector2 area_size = al->get_area_size();
@@ -260,13 +260,13 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			const float arrow_length = 1.5;
 
 			Vector3 arrow[arrow_points] = {
-				Vector3(0, 0, -1),
-				Vector3(0, 0.8, 0),
-				Vector3(0, 0.3, 0),
-				Vector3(0, 0.3, arrow_length),
-				Vector3(0, -0.3, arrow_length),
-				Vector3(0, -0.3, 0),
-				Vector3(0, -0.8, 0)
+				Vector3(0, 1, 0),
+				Vector3(0, 0, 0.8),
+				Vector3(0, 0, 0.3),
+				Vector3(0, -arrow_length, 0.3),
+				Vector3(0, -arrow_length, -0.3),
+				Vector3(0, 0, -0.3),
+				Vector3(0, 0, -0.8)
 			};
 
 			int arrow_sides = 2;
@@ -275,10 +275,10 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 			for (int i = 0; i < arrow_sides; i++) {
 				for (int j = 0; j < arrow_points; j++) {
-					Basis ma(Vector3(0, 0, 1), Math::PI * i / arrow_sides);
+					Basis ma(Vector3(0, 1, 0), Math::PI * i / arrow_sides);
 
-					Vector3 v1 = arrow[j] - Vector3(0, 0, arrow_length);
-					Vector3 v2 = arrow[(j + 1) % arrow_points] - Vector3(0, 0, arrow_length);
+					Vector3 v1 = arrow[j] - Vector3(0, -arrow_length, 0);
+					Vector3 v2 = arrow[(j + 1) % arrow_points] - Vector3(0, -arrow_length, 0);
 
 					lines.push_back(ma.xform(v1));
 					lines.push_back(ma.xform(v2));
@@ -355,25 +355,25 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 				const Point2 a = Vector2(Math::sin(ra), Math::cos(ra)) * w;
 				const Point2 b = Vector2(Math::sin(rb), Math::cos(rb)) * w;
 
-				points_primary.push_back(Vector3(a.x, a.y, -d));
-				points_primary.push_back(Vector3(b.x, b.y, -d));
+				points_primary.push_back(Vector3(a.x, d, a.y));
+				points_primary.push_back(Vector3(b.x, d, b.y));
 
 				if (i % 15 == 0) {
 					// Draw 8 lines from the cone origin to the sides of the circle
-					points_secondary.push_back(Vector3(a.x, a.y, -d));
+					points_secondary.push_back(Vector3(a.x, d, a.y));
 					points_secondary.push_back(Vector3());
 				}
 			}
 
-			points_primary.push_back(Vector3(0, 0, -r));
+			points_primary.push_back(Vector3(0, r, 0));
 			points_primary.push_back(Vector3());
 
 			p_gizmo->add_lines(points_primary, material_primary, false, color);
 			p_gizmo->add_lines(points_secondary, material_secondary, false, color);
 
 			Vector<Vector3> handles = {
-				Vector3(0, 0, -r),
-				Vector3(w, 0, -d)
+				Vector3(0, r, 0),
+				Vector3(w, d, 0)
 			};
 
 			p_gizmo->add_handles(handles, get_material("handles"));
@@ -394,20 +394,20 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float b = area_size.y;
 
 			// Draw rectangle
-			points.push_back(Vector3(-a / 2, b / 2, 0));
-			points.push_back(Vector3(a / 2, b / 2, 0));
-			points.push_back(Vector3(a / 2, b / 2, 0));
-			points.push_back(Vector3(a / 2, -b / 2, 0));
-			points.push_back(Vector3(a / 2, -b / 2, 0));
-			points.push_back(Vector3(-a / 2, -b / 2, 0));
-			points.push_back(Vector3(-a / 2, -b / 2, 0));
-			points.push_back(Vector3(-a / 2, b / 2, 0));
+			points.push_back(Vector3(-a / 2, 0, b / 2));
+			points.push_back(Vector3(a / 2, 0, b / 2));
+			points.push_back(Vector3(a / 2, 0, b / 2));
+			points.push_back(Vector3(a / 2, 0, -b / 2));
+			points.push_back(Vector3(a / 2, 0, -b / 2));
+			points.push_back(Vector3(-a / 2, 0, -b / 2));
+			points.push_back(Vector3(-a / 2, 0, -b / 2));
+			points.push_back(Vector3(-a / 2, 0, b / 2));
 
 			p_gizmo->add_lines(points, material, false, color);
 
 			Vector<Vector3> handles = {
 				Vector3(a / 2, 0, 0),
-				Vector3(0, b / 2, 0)
+				Vector3(0, 0, b / 2)
 			};
 
 			p_gizmo->add_handles(handles, get_material("handles"));
@@ -427,8 +427,8 @@ float Light3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_fr
 	for (int i = 0; i < arc_test_points; i++) {
 		float a = i * Math::PI * 0.5 / arc_test_points;
 		float an = (i + 1) * Math::PI * 0.5 / arc_test_points;
-		Vector3 p = Vector3(Math::cos(a), 0, -Math::sin(a)) * p_arc_radius;
-		Vector3 n = Vector3(Math::cos(an), 0, -Math::sin(an)) * p_arc_radius;
+		Vector3 p = Vector3(Math::cos(a), Math::sin(a), 0) * p_arc_radius;
+		Vector3 n = Vector3(Math::cos(an), Math::sin(an), 0) * p_arc_radius;
 
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(p, n, p_from, p_to, ra, rb);
@@ -441,6 +441,6 @@ float Light3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_fr
 	}
 
 	//min_p = p_arc_xform.affine_inverse().xform(min_p);
-	float a = (Math::PI * 0.5) - Vector2(min_p.x, -min_p.z).angle();
+	float a = (Math::PI * 0.5) - Vector2(min_p.x, min_p.y).angle();
 	return Math::rad_to_deg(a);
 }

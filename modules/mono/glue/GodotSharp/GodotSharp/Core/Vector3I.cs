@@ -342,12 +342,12 @@ namespace Godot
         private static readonly Vector3I _zero = new Vector3I(0, 0, 0);
         private static readonly Vector3I _one = new Vector3I(1, 1, 1);
 
-        private static readonly Vector3I _up = new Vector3I(0, 1, 0);
-        private static readonly Vector3I _down = new Vector3I(0, -1, 0);
+        private static readonly Vector3I _up = new Vector3I(0, 0, 1);
+        private static readonly Vector3I _down = new Vector3I(0, 0, -1);
         private static readonly Vector3I _right = new Vector3I(1, 0, 0);
         private static readonly Vector3I _left = new Vector3I(-1, 0, 0);
-        private static readonly Vector3I _forward = new Vector3I(0, 0, -1);
-        private static readonly Vector3I _back = new Vector3I(0, 0, 1);
+        private static readonly Vector3I _forward = new Vector3I(0, 1, 0);
+        private static readonly Vector3I _back = new Vector3I(0, -1, 0);
 
         /// <summary>
         /// Min vector, a vector with all components equal to <see cref="int.MinValue"/>. Can be used as a negative integer equivalent of <see cref="Vector3.Inf"/>.
@@ -374,12 +374,12 @@ namespace Godot
         /// <summary>
         /// Up unit vector.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3I(0, 1, 0)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3I(0, 0, 1)</c>.</value>
         public static Vector3I Up { get { return _up; } }
         /// <summary>
         /// Down unit vector.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3I(0, -1, 0)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3I(0, 0, -1)</c>.</value>
         public static Vector3I Down { get { return _down; } }
         /// <summary>
         /// Right unit vector. Represents the local direction of right,
@@ -397,13 +397,13 @@ namespace Godot
         /// Forward unit vector. Represents the local direction of forward,
         /// and the global direction of north.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3I(0, 0, -1)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3I(0, 1, 0)</c>.</value>
         public static Vector3I Forward { get { return _forward; } }
         /// <summary>
         /// Back unit vector. Represents the local direction of back,
         /// and the global direction of south.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3I(0, 0, 1)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3I(0, -1, 0)</c>.</value>
         public static Vector3I Back { get { return _back; } }
 
         /// <summary>

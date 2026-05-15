@@ -618,8 +618,8 @@ namespace Godot
 
         /// <summary>
         /// Creates a <see cref="Basis"/> with a rotation such that the forward
-        /// axis (-Z) points towards the <paramref name="target"/> position.
-        /// The up axis (+Y) points as close to the <paramref name="up"/> vector
+        /// axis (+Y) points towards the <paramref name="target"/> position.
+        /// The up axis (+Z) points as close to the <paramref name="up"/> vector
         /// as possible while staying perpendicular to the forward axis.
         /// The resulting Basis is orthonormalized.
         /// The <paramref name="target"/> and <paramref name="up"/> vectors
@@ -629,7 +629,7 @@ namespace Godot
         /// <param name="up">The relative up direction.</param>
         /// <param name="useModelFront">
         /// If true, then the model is oriented in reverse,
-        /// towards the model front axis (+Z, Vector3.ModelFront),
+        /// towards the model front axis (+Y, Vector3.ModelFront),
         /// which is more useful for orienting 3D models.
         /// </param>
         /// <returns>The resulting basis matrix.</returns>
@@ -646,18 +646,18 @@ namespace Godot
                 throw new ArgumentException("The vector can't be zero.", nameof(up));
             }
 #endif
-            Vector3 column2 = target.Normalized();
-            if (!useModelFront)
+            Vector3 column1 = target.Normalized();
+            if (useModelFront)
             {
-                column2 = -column2;
+                column1 = -column1;
             }
-            Vector3 column0 = up.Value.Cross(column2);
+            Vector3 column0 = column1.Cross(up.Value);
             if (column0.IsZeroApprox())
             {
-                throw new ArgumentException("Target and up vectors are colinear. This is not advised as it may cause unwanted rotation around local Z axis.");
+                throw new ArgumentException("Target and up vectors are colinear. This is not advised as it may cause unwanted rotation around local Y axis.");
             }
             column0.Normalize();
-            Vector3 column1 = column2.Cross(column0);
+            Vector3 column2 = column0.Cross(column1);
             return new Basis(column0, column1, column2);
         }
 

@@ -111,7 +111,7 @@ void Path3DGizmo::set_handle(int p_id, bool p_secondary, Camera3D *p_camera, con
 	const Transform3D gi = gt.affine_inverse();
 	const Vector3 ray_from = p_camera->project_ray_origin(p_point);
 	const Vector3 ray_dir = p_camera->project_ray_normal(p_point);
-	const Plane p = Plane(p_camera->get_transform().basis.get_column(2), gt.xform(original));
+	const Plane p = Plane(p_camera->get_transform().basis.get_column(Vector3::AXIS_Y), gt.xform(original));
 
 	// Primary handles: position.
 	if (!p_secondary) {
@@ -218,8 +218,8 @@ void Path3DGizmo::set_handle(int p_id, bool p_secondary, Camera3D *p_camera, con
 			const int idx = info.point_idx;
 			const Vector3 position = c->get_point_position(idx);
 			const Basis posture = c->get_point_baked_posture(idx);
-			const Vector3 tangent = -posture.get_column(2);
-			const Vector3 up = posture.get_column(1);
+			const Vector3 tangent = posture.get_column(Vector3::AXIS_Y);
+			const Vector3 up = posture.get_column(Vector3::AXIS_Z);
 			const Plane tilt_plane_global = gt.xform(Plane(tangent, position));
 
 			Vector3 intersection;
@@ -397,8 +397,8 @@ void Path3DGizmo::redraw() {
 		for (int i = 0; i < sample_count; i++) {
 			const Vector3 p1 = r[i].origin;
 			const Vector3 side = r[i].basis.get_column(0);
-			const Vector3 up = r[i].basis.get_column(1);
-			const Vector3 forward = r[i].basis.get_column(2);
+			const Vector3 forward = r[i].basis.get_column(1);
+			const Vector3 up = r[i].basis.get_column(2);
 
 			// Collision segments.
 			if (i != sample_count - 1) {
@@ -488,7 +488,7 @@ void Path3DGizmo::redraw() {
 					_secondary_handles_info.write[handle_idx] = info;
 
 					const Basis posture = c->get_point_baked_posture(idx, true);
-					const Vector3 up = posture.get_column(1);
+					const Vector3 up = posture.get_column(Vector3::AXIS_Z);
 					secondary_handle_points.append(pos + up * disk_size);
 					tilt_handle_lines.append(pos);
 					tilt_handle_lines.append(pos + up * disk_size);
@@ -497,7 +497,7 @@ void Path3DGizmo::redraw() {
 				// Tilt disk.
 				{
 					const Basis posture = c->get_point_baked_posture(idx, false);
-					const Vector3 up = posture.get_column(1);
+					const Vector3 up = posture.get_column(Vector3::AXIS_Z);
 					const Vector3 side = posture.get_column(0);
 
 					PackedVector3Array disk;
@@ -720,7 +720,7 @@ EditorPlugin::AfterGUIInput Path3DEditorPlugin::forward_3d_gui_input(Camera3D *p
 					return EditorPlugin::AFTER_GUI_INPUT_STOP;
 				}
 
-				Plane p(p_camera->get_transform().basis.get_column(2), origin);
+				Plane p(p_camera->get_transform().basis.get_column(Vector3::AXIS_Y), origin);
 
 				Vector3 inters;
 				if (p.intersects_ray(ray_from, ray_dir, &inters)) {
@@ -740,7 +740,7 @@ EditorPlugin::AfterGUIInput Path3DEditorPlugin::forward_3d_gui_input(Camera3D *p
 				real_t dist_to_p = viewport->point_to_screen(gt.xform(c->get_point_position(i))).distance_to(mbpos);
 				real_t dist_to_p_out = viewport->point_to_screen(gt.xform(c->get_point_position(i) + c->get_point_out(i))).distance_to(mbpos);
 				real_t dist_to_p_in = viewport->point_to_screen(gt.xform(c->get_point_position(i) + c->get_point_in(i))).distance_to(mbpos);
-				real_t dist_to_p_up = viewport->point_to_screen(gt.xform(c->get_point_position(i) + c->get_point_baked_posture(i, true).get_column(1) * disk_size)).distance_to(mbpos);
+				real_t dist_to_p_up = viewport->point_to_screen(gt.xform(c->get_point_position(i) + c->get_point_baked_posture(i, true).get_column(Vector3::AXIS_Z) * disk_size)).distance_to(mbpos);
 
 				// Find the offset and point index of the place to break up.
 				// Also check for the control points.
@@ -973,7 +973,7 @@ void Path3DEditorPlugin::_notification(int p_what) {
 						inters = result.position;
 						hit_something = true;
 					} else {
-						Plane p(_edit.gizmo_camera->get_transform().basis.get_column(2), _edit.origin);
+						Plane p(_edit.gizmo_camera->get_transform().basis.get_column(Vector3::AXIS_Y), _edit.origin);
 						if (p.intersects_ray(ray_params.from, _edit.click_ray_dir, &inters)) {
 							hit_something = true;
 						}

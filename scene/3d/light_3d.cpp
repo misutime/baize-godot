@@ -176,7 +176,7 @@ AABB Light3D::get_aabb() const {
 		}
 
 		real_t size = Math::sin(cone_angle_rad) * cone_slant_height;
-		return AABB(Vector3(-size, -size, -cone_slant_height), Vector3(2 * size, 2 * size, cone_slant_height));
+		return AABB(Vector3(-size, 0, -size), Vector3(2 * size, cone_slant_height, 2 * size));
 	} else if (type == RSE::LIGHT_AREA) {
 		float len = param[PARAM_RANGE];
 
@@ -184,7 +184,7 @@ AABB Light3D::get_aabb() const {
 		float width = l->get_area_size().x / 2.0 + len;
 		float height = l->get_area_size().y / 2.0 + len;
 
-		return AABB(-Vector3(width, height, 0), Vector3(width * 2, height * 2, -len));
+		return AABB(Vector3(-width, 0, -height), Vector3(width * 2, len, height * 2));
 	}
 
 	return AABB();

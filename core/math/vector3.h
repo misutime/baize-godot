@@ -229,16 +229,16 @@ struct [[nodiscard]] Vector3 {
 
 inline constexpr Vector3 Vector3::LEFT = { -1, 0, 0 };
 inline constexpr Vector3 Vector3::RIGHT = { 1, 0, 0 };
-inline constexpr Vector3 Vector3::UP = { 0, 1, 0 };
-inline constexpr Vector3 Vector3::DOWN = { 0, -1, 0 };
-inline constexpr Vector3 Vector3::FORWARD = { 0, 0, -1 };
-inline constexpr Vector3 Vector3::BACK = { 0, 0, 1 };
+inline constexpr Vector3 Vector3::UP = { 0, 0, 1 };
+inline constexpr Vector3 Vector3::DOWN = { 0, 0, -1 };
+inline constexpr Vector3 Vector3::FORWARD = { 0, 1, 0 };
+inline constexpr Vector3 Vector3::BACK = { 0, -1, 0 };
 inline constexpr Vector3 Vector3::MODEL_LEFT = { 1, 0, 0 };
 inline constexpr Vector3 Vector3::MODEL_RIGHT = { -1, 0, 0 };
 inline constexpr Vector3 Vector3::MODEL_TOP = { 0, 1, 0 };
 inline constexpr Vector3 Vector3::MODEL_BOTTOM = { 0, -1, 0 };
-inline constexpr Vector3 Vector3::MODEL_FRONT = { 0, 0, 1 };
-inline constexpr Vector3 Vector3::MODEL_REAR = { 0, 0, -1 };
+inline constexpr Vector3 Vector3::MODEL_FRONT = { 0, 1, 0 };
+inline constexpr Vector3 Vector3::MODEL_REAR = { 0, -1, 0 };
 
 Vector3 Vector3::cross(const Vector3 &p_with) const {
 	Vector3 ret(

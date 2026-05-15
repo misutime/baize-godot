@@ -223,7 +223,7 @@ void main() {
 	cube_normal = normalize(cube_normal);
 #endif
 
-	vec2 panorama_coords = vec2(atan2_approx(cube_normal.x, -cube_normal.z), acos_approx(cube_normal.y));
+	vec2 panorama_coords = vec2(atan2_approx(cube_normal.x, -cube_normal.y), acos_approx(cube_normal.z));
 
 	if (panorama_coords.x < 0.0) {
 		panorama_coords.x += M_PI * 2.0;

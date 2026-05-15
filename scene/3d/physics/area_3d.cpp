@@ -820,7 +820,7 @@ Area3D::Area3D() :
 	audio_bus = SceneStringName(Master);
 	reverb_bus = SceneStringName(Master);
 	set_gravity(9.8);
-	set_gravity_direction(Vector3(0, -1, 0));
+	set_gravity_direction(Vector3(0, 0, -1));
 	set_monitoring(true);
 	set_monitorable(true);
 }

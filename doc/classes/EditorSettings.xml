@@ -433,7 +433,7 @@
 			The grid size in units. Higher values prevent the grid from appearing "cut off" at certain angles, but make the grid more demanding to render. Depending on the camera's position, the grid may not be fully visible since a shader is used to fade it progressively.
 		</member>
 		<member name="editors/3d/grid_xy_plane" type="bool" setter="" getter="">
-			If [code]true[/code], renders the grid on the XY plane in perspective view. This can be useful for 3D side-scrolling games.
+			If [code]true[/code], renders the grid on the XY plane in perspective view. This is the default ground grid when Z is the up axis.
 		</member>
 		<member name="editors/3d/grid_xz_plane" type="bool" setter="" getter="">
 			If [code]true[/code], renders the grid on the XZ plane in perspective view.

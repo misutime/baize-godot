@@ -478,7 +478,7 @@ Vector<AudioFrame> AudioStreamPlayer3D::_update_panning() {
 
 		if (emission_angle_enabled) {
 			Vector3 listenertopos = global_pos - listener_node->get_global_transform().origin;
-			float c = listenertopos.normalized().dot(get_global_transform().basis.get_column(2).normalized()); //it's z negative
+			float c = listenertopos.normalized().dot(get_global_transform().basis.get_column(Vector3::AXIS_Y).normalized());
 			float angle = Math::rad_to_deg(Math::acos(c));
 			if (angle > emission_angle) {
 				db_att -= -emission_angle_filter_attenuation_db;

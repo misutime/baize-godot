@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  kinematic_collision_3d.h                                              */
+/*  coordinate_system.h                                                   */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,33 +30,29 @@
 
 #pragma once
 
-#include "core/object/ref_counted.h"
-#include "servers/physics_3d/physics_server_3d.h"
+#include "core/math/transform_3d.h"
 
-class KinematicCollision3D : public RefCounted {
-	GDCLASS(KinematicCollision3D, RefCounted);
+namespace CoordinateSystem3D {
 
-	ObjectID owner_id;
-	friend class PhysicsBody3D;
-	friend class CharacterBody3D;
-	PhysicsServer3D::MotionResult result;
+// 场景/API 对外使用 +Y 前、+Z 上；部分底层协议暂时仍使用 -Z 前、+Y 上。
+inline Vector3 scene_to_legacy_z_forward_local(const Vector3 &p_vector) {
+	return Vector3(p_vector.x, p_vector.z, -p_vector.y);
+}
 
-protected:
-	static void _bind_methods();
+inline Vector3 legacy_z_forward_to_scene_local(const Vector3 &p_vector) {
+	return Vector3(p_vector.x, -p_vector.z, p_vector.y);
+}
 
-public:
-	Vector3 get_travel() const;
-	Vector3 get_remainder() const;
-	int get_collision_count() const;
-	real_t get_depth() const;
-	Vector3 get_position(int p_collision_index = 0) const;
-	Vector3 get_normal(int p_collision_index = 0) const;
-	real_t get_angle(int p_collision_index = 0, const Vector3 &p_up_direction = Vector3::UP) const;
-	Object *get_local_shape(int p_collision_index = 0) const;
-	Object *get_collider(int p_collision_index = 0) const;
-	ObjectID get_collider_id(int p_collision_index = 0) const;
-	RID get_collider_rid(int p_collision_index = 0) const;
-	Object *get_collider_shape(int p_collision_index = 0) const;
-	int get_collider_shape_index(int p_collision_index = 0) const;
-	Vector3 get_collider_velocity(int p_collision_index = 0) const;
-};
+inline Basis scene_to_legacy_z_forward_basis(const Basis &p_basis) {
+	Basis legacy_basis;
+	legacy_basis.set_columns(p_basis.get_column(Vector3::AXIS_X), p_basis.get_column(Vector3::AXIS_Z), -p_basis.get_column(Vector3::AXIS_Y));
+	return legacy_basis;
+}
+
+inline Transform3D scene_to_legacy_z_forward_transform(const Transform3D &p_transform) {
+	Transform3D legacy_transform = p_transform;
+	legacy_transform.basis = scene_to_legacy_z_forward_basis(p_transform.basis);
+	return legacy_transform;
+}
+
+} // namespace CoordinateSystem3D

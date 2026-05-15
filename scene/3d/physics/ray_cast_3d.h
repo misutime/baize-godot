@@ -48,7 +48,7 @@ class RayCast3D : public Node3D {
 	Vector3 collision_normal;
 	int collision_face_index = -1;
 
-	Vector3 target_position = Vector3(0, -1, 0);
+	Vector3 target_position = Vector3(0, 0, -1);
 	HashSet<RID> exclude;
 
 	uint32_t collision_mask = 1;

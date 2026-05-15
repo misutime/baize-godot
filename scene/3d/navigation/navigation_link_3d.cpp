@@ -126,7 +126,7 @@ void NavigationLink3D::_update_debug_mesh() {
 	}
 
 	const Vector3 link_segment = end_position - start_position;
-	const Vector3 up = Vector3(0.0, 1.0, 0.0);
+	const Vector3 up = Vector3::UP;
 	const float arror_len = 0.5;
 
 	{

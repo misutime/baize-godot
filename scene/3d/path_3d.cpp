@@ -132,8 +132,8 @@ void Path3D::_update_debug_mesh() {
 
 		const Vector3 p1 = r.origin;
 		const Vector3 side = r.basis.get_column(0);
-		const Vector3 up = r.basis.get_column(1);
-		const Vector3 forward = r.basis.get_column(2);
+		const Vector3 forward = r.basis.get_column(1);
+		const Vector3 up = r.basis.get_column(2);
 
 		// Path3D as a ribbon.
 		ribbon_ptr[i] = p1;
@@ -293,10 +293,10 @@ void PathFollow3D::update_transform() {
 		t.origin = pos;
 	} else {
 		t = c->sample_baked_with_rotation(progress, cubic, false);
-		Vector3 tangent = -t.basis.get_column(2); // Retain tangent for applying tilt.
+		Vector3 tangent = t.basis.get_column(1); // Retain tangent for applying tilt.
 		t = PathFollow3D::correct_posture(t, rotation_mode);
 
-		// Switch Z+ and Z- if necessary.
+		// Switch model front if necessary.
 		if (use_model_front) {
 			t.basis *= Basis::from_scale(Vector3(-1.0, 1.0, -1.0));
 		}
@@ -312,7 +312,7 @@ void PathFollow3D::update_transform() {
 
 	// Apply offset and scale.
 	Vector3 scale = get_transform().basis.get_scale();
-	t.translate_local(Vector3(h_offset, v_offset, 0));
+	t.translate_local(Vector3(h_offset, 0, v_offset));
 	t.basis.scale_local(scale);
 
 	set_transform(t);
@@ -381,9 +381,9 @@ Transform3D PathFollow3D::correct_posture(Transform3D p_transform, PathFollow3D:
 		// Clear rotation.
 		t.basis = Basis();
 	} else if (p_rotation_mode == PathFollow3D::ROTATION_ORIENTED) {
-		Vector3 tangent = -t.basis.get_column(2);
+		Vector3 tangent = t.basis.get_column(1);
 
-		// Y-axis points up by default.
+		// Z-axis points up by default.
 		t.basis = Basis::looking_at(tangent);
 	} else {
 		// Lock some euler axes.

@@ -531,4 +531,15 @@ TEST_CASE("[Vector3] Finite number checks") {
 	}
 }
 
+TEST_CASE("[Vector3][CoordinateSystem] Direction constants use X right, Y forward, Z up") {
+	// 坐标系迁移哨兵：新 3D 世界约定为 +X 向右、+Y 向前、+Z 向上。
+	CHECK_MESSAGE(Vector3::RIGHT == Vector3(1, 0, 0), "Vector3 RIGHT should keep +X as right.");
+	CHECK_MESSAGE(Vector3::LEFT == Vector3(-1, 0, 0), "Vector3 LEFT should keep -X as left.");
+	CHECK_MESSAGE(Vector3::FORWARD == Vector3(0, 1, 0), "Vector3 FORWARD should become +Y.");
+	CHECK_MESSAGE(Vector3::BACK == Vector3(0, -1, 0), "Vector3 BACK should become -Y.");
+	CHECK_MESSAGE(Vector3::UP == Vector3(0, 0, 1), "Vector3 UP should become +Z.");
+	CHECK_MESSAGE(Vector3::DOWN == Vector3(0, 0, -1), "Vector3 DOWN should become -Z.");
+	CHECK_MESSAGE(Vector3::RIGHT.cross(Vector3::FORWARD) == Vector3::UP, "The new basis should stay right-handed.");
+}
+
 } // namespace TestVector3

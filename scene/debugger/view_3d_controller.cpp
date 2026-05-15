@@ -43,13 +43,13 @@ using namespace View3DControllerConsts;
 Transform3D View3DController::_to_camera_transform(const Cursor &p_cursor) const {
 	Transform3D camera_transform;
 	camera_transform.translate_local(p_cursor.pos);
-	camera_transform.basis.rotate(Vector3(1, 0, 0), -p_cursor.x_rot);
-	camera_transform.basis.rotate(Vector3(0, 1, 0), -p_cursor.y_rot);
+	camera_transform.basis.rotate(Vector3::UP, -p_cursor.y_rot);
+	camera_transform.basis.rotate(camera_transform.basis.get_column(Vector3::AXIS_X).normalized(), -p_cursor.x_rot);
 
 	if (orthogonal) {
-		camera_transform.translate_local(0, 0, (zfar - znear) / 2.0);
+		camera_transform.translate_local(0, -(zfar - znear) / 2.0, 0);
 	} else {
-		camera_transform.translate_local(0, 0, p_cursor.distance);
+		camera_transform.translate_local(0, -p_cursor.distance, 0);
 	}
 
 	return camera_transform;
@@ -335,12 +335,12 @@ void View3DController::cursor_pan(const Ref<InputEventWithModifiers> &p_event, c
 	Transform3D camera_transform;
 
 	camera_transform.translate_local(cursor.pos);
-	camera_transform.basis.rotate(Vector3(1, 0, 0), -cursor.x_rot);
-	camera_transform.basis.rotate(Vector3(0, 1, 0), -cursor.y_rot);
+	camera_transform.basis.rotate(Vector3::UP, -cursor.y_rot);
+	camera_transform.basis.rotate(camera_transform.basis.get_column(Vector3::AXIS_X).normalized(), -cursor.x_rot);
 	Vector3 translation(
 			(invert_x_axis ? -1 : 1) * -p_relative.x * pan_speed,
-			(invert_y_axis ? -1 : 1) * p_relative.y * pan_speed,
-			0);
+			0,
+			(invert_y_axis ? -1 : 1) * p_relative.y * pan_speed);
 	translation *= cursor.distance / DISTANCE_DEFAULT;
 	camera_transform.translate_local(translation);
 	cursor.pos = camera_transform.origin;
@@ -385,9 +385,9 @@ void View3DController::cursor_orbit(const Ref<InputEventWithModifiers> &p_event,
 			if (Math::abs(x_rot_snapped) < snap_threshold) {
 				// Only switch to ortho for 90-degree views.
 				if (Math::abs(y_rot_wrapped) < snap_threshold) {
-					new_view_type = VIEW_TYPE_FRONT;
-				} else if (Math::abs(Math::abs(y_rot_wrapped) - Math::PI) < snap_threshold) {
 					new_view_type = VIEW_TYPE_REAR;
+				} else if (Math::abs(Math::abs(y_rot_wrapped) - Math::PI) < snap_threshold) {
+					new_view_type = VIEW_TYPE_FRONT;
 				} else if (Math::abs(y_rot_wrapped - Math::PI / 2.0) < snap_threshold) {
 					new_view_type = VIEW_TYPE_LEFT;
 				} else if (Math::abs(y_rot_wrapped + Math::PI / 2.0) < snap_threshold) {
@@ -493,7 +493,7 @@ void View3DController::update_camera(const real_t p_delta) {
 		}
 
 		if (freelook) {
-			Vector3 forward = _to_camera_transform(cursor_interp).basis.xform(Vector3(0, 0, -1));
+			Vector3 forward = _to_camera_transform(cursor_interp).basis.get_column(Vector3::AXIS_Y);
 			cursor_interp.pos = cursor_interp.eye_pos + forward * cursor_interp.distance;
 		} else {
 			cursor_interp.pos = old_camera_cursor.pos.lerp(cursor.pos, MIN(1.f, p_delta * (1 / translation_inertia)));
@@ -528,11 +528,11 @@ void View3DController::update_freelook(const float p_delta) {
 
 	Vector3 forward;
 	if (freelook_scheme == FREELOOK_FULLY_AXIS_LOCKED) {
-		// Forward/backward keys will always go straight forward/backward, never moving on the Y axis.
-		forward = Vector3(0, 0, -1).rotated(Vector3(0, 1, 0), camera_transform.get_basis().get_euler().y);
+		// Forward/backward keys will always go straight forward/backward, never moving on the Z axis.
+		forward = Vector3::FORWARD.rotated(Vector3::UP, camera_transform.get_basis().get_euler().z);
 	} else {
 		// Forward/backward keys will be relative to the camera pitch.
-		forward = camera_transform.basis.xform(Vector3(0, 0, -1));
+		forward = camera_transform.basis.get_column(Vector3::AXIS_Y);
 	}
 
 	const Vector3 right = camera_transform.basis.xform(Vector3(1, 0, 0));
@@ -540,10 +540,10 @@ void View3DController::update_freelook(const float p_delta) {
 	Vector3 up;
 	if (freelook_scheme == View3DController::FREELOOK_PARTIALLY_AXIS_LOCKED || freelook_scheme == View3DController::FREELOOK_FULLY_AXIS_LOCKED) {
 		// Up/down keys will always go up/down regardless of camera pitch.
-		up = Vector3(0, 1, 0);
+		up = Vector3::UP;
 	} else {
 		// Up/down keys will be relative to the camera pitch.
-		up = camera_transform.basis.xform(Vector3(0, 1, 0));
+		up = camera_transform.basis.get_column(Vector3::AXIS_Z);
 	}
 
 	Vector3 direction;
@@ -716,7 +716,7 @@ void View3DController::set_freelook_enabled(const bool p_enabled) {
 
 	if (freelook) {
 		// Make sure eye_pos is synced, because freelook referential is eye pos rather than orbit pos.
-		Vector3 forward = to_camera_transform().basis.xform(Vector3(0, 0, -1));
+		Vector3 forward = to_camera_transform().basis.get_column(Vector3::AXIS_Y);
 		cursor.eye_pos = cursor.pos - cursor.distance * forward;
 		// Also sync the interpolated cursor's eye_pos, otherwise switching to freelook will be trippy if inertia is active.
 		cursor_interp.eye_pos = cursor.eye_pos;

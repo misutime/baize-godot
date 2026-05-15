@@ -325,9 +325,9 @@ void NavigationAgent3D::_notification(int p_what) {
 					if (avoidance_enabled) {
 						if (!use_3d_avoidance) {
 							if (keep_y_velocity) {
-								stored_y_velocity = velocity.y;
+								stored_y_velocity = velocity.z;
 							}
-							velocity.y = 0.0;
+							velocity.z = 0.0;
 						}
 						NavigationServer3D::get_singleton()->agent_set_velocity(agent, velocity);
 					}
@@ -728,7 +728,7 @@ Vector3 NavigationAgent3D::get_next_path_position() {
 		ERR_FAIL_NULL_V_MSG(agent_parent, Vector3(), "The agent has no parent.");
 		return agent_parent->get_global_position();
 	} else {
-		return navigation_path[navigation_path_index] - Vector3(0, path_height_offset, 0);
+		return navigation_path[navigation_path_index] - Vector3(0, 0, path_height_offset);
 	}
 }
 
@@ -765,7 +765,7 @@ Vector3 NavigationAgent3D::_get_final_position() const {
 	if (navigation_path.is_empty()) {
 		return Vector3();
 	}
-	return navigation_path[navigation_path.size() - 1] - Vector3(0, path_height_offset, 0);
+	return navigation_path[navigation_path.size() - 1] - Vector3(0, 0, path_height_offset);
 }
 
 void NavigationAgent3D::set_velocity_forced(Vector3 p_velocity) {
@@ -785,7 +785,7 @@ void NavigationAgent3D::set_velocity(const Vector3 p_velocity) {
 void NavigationAgent3D::_avoidance_done(Vector3 p_new_velocity) {
 	safe_velocity = p_new_velocity;
 	if (!use_3d_avoidance) {
-		safe_velocity.y = stored_y_velocity;
+		safe_velocity.z = stored_y_velocity;
 	}
 	emit_signal(SNAME("velocity_computed"), safe_velocity);
 }
@@ -826,8 +826,8 @@ void NavigationAgent3D::_update_navigation() {
 
 			Vector3 segment_a = navigation_path[navigation_path_index - 1];
 			Vector3 segment_b = navigation_path[navigation_path_index];
-			segment_a.y -= path_height_offset;
-			segment_b.y -= path_height_offset;
+			segment_a.z -= path_height_offset;
+			segment_b.z -= path_height_offset;
 			Vector3 p = Geometry3D::get_closest_point_to_segment(origin, segment_a, segment_b);
 			if (origin.distance_to(p) >= path_max_distance) {
 				// To faraway, reload path
@@ -918,7 +918,7 @@ void NavigationAgent3D::_move_to_next_waypoint() {
 
 bool NavigationAgent3D::_is_within_waypoint_distance(const Vector3 &p_origin) const {
 	const Vector<Vector3> &navigation_path = navigation_result->get_path();
-	Vector3 waypoint = navigation_path[navigation_path_index] - Vector3(0, path_height_offset, 0);
+	Vector3 waypoint = navigation_path[navigation_path_index] - Vector3(0, 0, path_height_offset);
 	return p_origin.distance_to(waypoint) < path_desired_distance;
 }
 

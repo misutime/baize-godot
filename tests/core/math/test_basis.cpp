@@ -398,4 +398,13 @@ TEST_CASE("[Basis] Is rotation checks") {
 			"Edge case: Basis with all zeroes should return false for is_rotation, because it is not just a rotation (has a scale of 0).");
 }
 
+TEST_CASE("[Basis][CoordinateSystem] looking_at uses local +Y as forward and +Z as up") {
+	// 坐标系迁移哨兵：普通 3D 节点看向目标时，本地 +Y 应成为前方。
+	const Basis basis = Basis::looking_at(Vector3(0, 1, 0), Vector3(0, 0, 1));
+
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_X).is_equal_approx(Vector3(1, 0, 0)), "Local +X should point right.");
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_Y).is_equal_approx(Vector3(0, 1, 0)), "Local +Y should point forward.");
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_Z).is_equal_approx(Vector3(0, 0, 1)), "Local +Z should point up.");
+}
+
 } // namespace TestBasis

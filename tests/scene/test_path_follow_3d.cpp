@@ -258,37 +258,37 @@ TEST_CASE("[SceneTree][PathFollow3D] Calculate forward vector") {
 	path_follow_3d->set_rotation_mode(PathFollow3D::RotationMode::ROTATION_ORIENTED);
 
 	path_follow_3d->set_progress(-50);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(0);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(50);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(100);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(100 + dist_cube_100 / 2);
-	CHECK(is_equal_approx(Vector3(-0.577348, -0.577348, 0.577348), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0.577348, 0.577348, -0.577348), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(100 + dist_cube_100 - 0.01);
-	CHECK(is_equal_approx(Vector3(-0.577348, -0.577348, 0.577348), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0.577348, 0.577348, -0.577348), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(250 + dist_cube_100);
-	CHECK(is_equal_approx(Vector3(0, 0, -1), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0, 0, 1), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(400 + dist_cube_100 - 0.01);
-	CHECK(is_equal_approx(Vector3(0, 0, -1), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0, 0, 1), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(400 + 1.5 * dist_cube_100);
-	CHECK(is_equal_approx(Vector3(0.577348, 0.577348, 0.577348), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-0.577348, -0.577348, -0.577348), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(400 + 2 * dist_cube_100 - 0.01);
-	CHECK(is_equal_approx(Vector3(0.577348, 0.577348, 0.577348), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-0.577348, -0.577348, -0.577348), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress(500 + 2 * dist_cube_100);
-	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	memdelete(path);
 }
@@ -311,31 +311,31 @@ TEST_CASE("[SceneTree][PathFollow3D] Calculate forward vector with degenerate cu
 	path_follow_3d->set_rotation_mode(PathFollow3D::RotationMode::ROTATION_ORIENTED);
 
 	path_follow_3d->set_progress_ratio(0.00);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.25);
-	CHECK(is_equal_approx(Vector3(0, 0, 1), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0, 0, -1), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.50);
-	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.75);
-	CHECK(is_equal_approx(Vector3(0, 0, -1), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0, 0, 1), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(1.00);
-	CHECK(is_equal_approx(Vector3(-1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(1, 0, 0), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.125);
-	CHECK(is_equal_approx(Vector3(-0.688375, 0, 0.725355), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0.688375, 0, -0.725355), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.375);
-	CHECK(is_equal_approx(Vector3(0.688375, 0, 0.725355), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-0.688375, 0, -0.725355), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.625);
-	CHECK(is_equal_approx(Vector3(0.688375, 0, -0.725355), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(-0.688375, 0, 0.725355), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	path_follow_3d->set_progress_ratio(0.875);
-	CHECK(is_equal_approx(Vector3(-0.688375, 0, -0.725355), path_follow_3d->get_transform().get_basis().get_column(2)));
+	CHECK(is_equal_approx(Vector3(0.688375, 0, 0.725355), path_follow_3d->get_transform().get_basis().get_column(1)));
 
 	memdelete(path);
 }

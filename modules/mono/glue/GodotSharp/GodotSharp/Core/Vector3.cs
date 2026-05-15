@@ -817,19 +817,19 @@ namespace Godot
         private static readonly Vector3 _one = new Vector3(1, 1, 1);
         private static readonly Vector3 _inf = new Vector3(Mathf.Inf, Mathf.Inf, Mathf.Inf);
 
-        private static readonly Vector3 _up = new Vector3(0, 1, 0);
-        private static readonly Vector3 _down = new Vector3(0, -1, 0);
+        private static readonly Vector3 _up = new Vector3(0, 0, 1);
+        private static readonly Vector3 _down = new Vector3(0, 0, -1);
         private static readonly Vector3 _right = new Vector3(1, 0, 0);
         private static readonly Vector3 _left = new Vector3(-1, 0, 0);
-        private static readonly Vector3 _forward = new Vector3(0, 0, -1);
-        private static readonly Vector3 _back = new Vector3(0, 0, 1);
+        private static readonly Vector3 _forward = new Vector3(0, 1, 0);
+        private static readonly Vector3 _back = new Vector3(0, -1, 0);
 
         private static readonly Vector3 _modelLeft = new Vector3(1, 0, 0);
         private static readonly Vector3 _modelRight = new Vector3(-1, 0, 0);
-        private static readonly Vector3 _modelTop = new Vector3(0, 1, 0);
-        private static readonly Vector3 _modelBottom = new Vector3(0, -1, 0);
-        private static readonly Vector3 _modelFront = new Vector3(0, 0, 1);
-        private static readonly Vector3 _modelRear = new Vector3(0, 0, -1);
+        private static readonly Vector3 _modelTop = new Vector3(0, 0, 1);
+        private static readonly Vector3 _modelBottom = new Vector3(0, 0, -1);
+        private static readonly Vector3 _modelFront = new Vector3(0, 1, 0);
+        private static readonly Vector3 _modelRear = new Vector3(0, -1, 0);
 
         /// <summary>
         /// Zero vector, a vector with all components set to <c>0</c>.
@@ -850,12 +850,12 @@ namespace Godot
         /// <summary>
         /// Up unit vector.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3(0, 1, 0)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3(0, 0, 1)</c>.</value>
         public static Vector3 Up { get { return _up; } }
         /// <summary>
         /// Down unit vector.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3(0, -1, 0)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3(0, 0, -1)</c>.</value>
         public static Vector3 Down { get { return _down; } }
         /// <summary>
         /// Right unit vector. Represents the local direction of right,
@@ -873,13 +873,13 @@ namespace Godot
         /// Forward unit vector. Represents the local direction of forward,
         /// and the global direction of north.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3(0, 0, -1)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3(0, 1, 0)</c>.</value>
         public static Vector3 Forward { get { return _forward; } }
         /// <summary>
         /// Back unit vector. Represents the local direction of back,
         /// and the global direction of south.
         /// </summary>
-        /// <value>Equivalent to <c>new Vector3(0, 0, 1)</c>.</value>
+        /// <value>Equivalent to <c>new Vector3(0, -1, 0)</c>.</value>
         public static Vector3 Back { get { return _back; } }
 
         /// <summary>

@@ -31,6 +31,7 @@
 #include "light_storage.h"
 
 #include "core/config/project_settings.h"
+#include "core/math/coordinate_system.h"
 #include "core/math/geometry_3d.h"
 #include "core/os/os.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
@@ -597,7 +598,8 @@ void LightStorage::light_instance_set_transform(RID p_light_instance, const Tran
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL(light_instance);
 
-	light_instance->transform = p_transform;
+	// 场景层 Light3D 使用 +Y 前、+Z 上；RD 渲染灯光协议仍按旧的 -Z 前、+Y 上消费。
+	light_instance->transform = CoordinateSystem3D::scene_to_legacy_z_forward_transform(p_transform);
 }
 
 void LightStorage::light_instance_set_aabb(RID p_light_instance, const AABB &p_aabb) {

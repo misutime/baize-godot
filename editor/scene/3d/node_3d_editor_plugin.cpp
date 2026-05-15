@@ -251,11 +251,11 @@ void ViewportNavigationControl::_update_navigation() {
 
 			Vector3 forward;
 			if (viewport->view_3d_controller->get_freelook_scheme() == View3DController::FreelookScheme::FREELOOK_FULLY_AXIS_LOCKED) {
-				// Forward/backward keys will always go straight forward/backward, never moving on the Y axis.
-				forward = Vector3(0, 0, delta_normalized.y).rotated(Vector3(0, 1, 0), viewport->camera->get_rotation().y);
+				// Forward/backward keys will always go straight forward/backward, never moving on the Z axis.
+				forward = Vector3(0, delta_normalized.y, 0).rotated(Vector3::UP, viewport->camera->get_rotation().z);
 			} else {
 				// Forward/backward keys will be relative to the camera pitch.
-				forward = viewport->camera->get_transform().basis.xform(Vector3(0, 0, delta_normalized.y));
+				forward = viewport->camera->get_transform().basis.xform(Vector3(0, delta_normalized.y, 0));
 			}
 
 			const Vector3 right = viewport->camera->get_transform().basis.xform(Vector3(delta_normalized.x, 0, 0));
@@ -305,11 +305,11 @@ void ViewportRotationControl::_notification(int p_what) {
 		case NOTIFICATION_ENTER_TREE: {
 			axis_menu_options.clear();
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_RIGHT);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_TOP);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_FRONT);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_LEFT);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_BOTTOM);
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_REAR);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_TOP);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_LEFT);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_FRONT);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_BOTTOM);
 
 			axis_colors.clear();
 			axis_colors.push_back(get_theme_color(SNAME("axis_x_color"), EditorStringName(Editor)));
@@ -408,30 +408,29 @@ void ViewportRotationControl::_get_sorted_axis(Vector<Axis2D> &r_axis) {
 
 	for (int i = 0; i < 3; ++i) {
 		Vector3 axis_3d = camera_basis.get_column(i);
-		Vector2 axis_vector = Vector2(axis_3d.x, -axis_3d.y) * radius;
+		Vector2 axis_vector = Vector2(axis_3d.x, -axis_3d.z) * radius;
 
-		if (Math::abs(axis_3d.z) < 1.0) {
+		if (Math::abs(axis_3d.y) < 1.0) {
 			Axis2D pos_axis;
 			pos_axis.axis = i;
 			pos_axis.screen_point = center + axis_vector;
-			pos_axis.z_axis = axis_3d.z;
+			pos_axis.z_axis = axis_3d.y;
 			pos_axis.is_positive = true;
 			r_axis.push_back(pos_axis);
 
 			Axis2D neg_axis;
 			neg_axis.axis = i + 3;
 			neg_axis.screen_point = center - axis_vector;
-			neg_axis.z_axis = -axis_3d.z;
+			neg_axis.z_axis = -axis_3d.y;
 			neg_axis.is_positive = false;
 			r_axis.push_back(neg_axis);
 		} else {
 			// Special case when the camera is aligned with one axis.
 			Axis2D axis;
-			axis.axis = i + (axis_3d.z <= 0 ? 0 : 3);
+			axis.axis = i + (axis_3d.y <= 0 ? 0 : 3);
 			axis.screen_point = center;
 			axis.z_axis = 1.0;
-			// Invert display style to fix aligned axis rendering.
-			axis.is_positive = (axis_3d.z > 0);
+			axis.is_positive = axis_3d.y <= 0;
 			r_axis.push_back(axis);
 		}
 	}
@@ -672,7 +671,7 @@ Vector3 Node3DEditorViewport::get_ray_pos(const Vector2 &p_pos) const {
 }
 
 Vector3 Node3DEditorViewport::_get_camera_normal() const {
-	return -_get_camera_transform().basis.get_column(2);
+	return _get_camera_transform().basis.get_column(Vector3::AXIS_Y);
 }
 
 Vector3 Node3DEditorViewport::get_ray(const Vector2 &p_pos) const {
@@ -1220,11 +1219,11 @@ Vector3 Node3DEditorViewport::_get_screen_to_space(const Vector3 &p_vector3) {
 
 	Transform3D camera_transform;
 	camera_transform.translate_local(view_3d_controller->cursor.pos);
-	camera_transform.basis.rotate(Vector3(1, 0, 0), -view_3d_controller->cursor.x_rot);
-	camera_transform.basis.rotate(Vector3(0, 1, 0), -view_3d_controller->cursor.y_rot);
-	camera_transform.translate_local(0, 0, view_3d_controller->cursor.distance);
+	camera_transform.basis.rotate(Vector3::UP, -view_3d_controller->cursor.y_rot);
+	camera_transform.basis.rotate(camera_transform.basis.get_column(Vector3::AXIS_X).normalized(), -view_3d_controller->cursor.x_rot);
+	camera_transform.translate_local(0, -view_3d_controller->cursor.distance, 0);
 
-	return camera_transform.xform(Vector3(((p_vector3.x / get_size().width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / get_size().height)) * 2.0 - 1.0) * screen_he.y, -(get_znear() + p_vector3.z)));
+	return camera_transform.xform(Vector3(((p_vector3.x / get_size().width) * 2.0 - 1.0) * screen_he.x, get_znear() + p_vector3.z, ((1.0 - (p_vector3.y / get_size().height)) * 2.0 - 1.0) * screen_he.y));
 }
 
 Vector<Plane> Node3DEditorViewport::_build_screen_frustum(const Point2 &p_min, const Point2 &p_max) {
@@ -2147,7 +2146,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 
 						if (!use_origin_snap) {
 							vertex_snap_dragging = true;
-							Vector3 cam_normal = camera->get_global_transform().basis.get_column(2);
+							Vector3 cam_normal = camera->get_global_transform().basis.get_column(Vector3::AXIS_Y);
 							vertex_snap_drag_plane = Plane(cam_normal, vertex_snap_source);
 						} else {
 							if (has_subgizmos) {
@@ -4396,7 +4395,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_FRONT: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = 0;
+			view_3d_controller->cursor.y_rot = Math::PI;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Front View."), 2);
@@ -4405,7 +4404,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_REAR: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = Math::PI;
+			view_3d_controller->cursor.y_rot = 0;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Rear View."), 2);
@@ -4444,7 +4443,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 
 				Transform3D xform = camera_transform;
 				if (view_3d_controller->is_orthogonal()) {
-					Vector3 offset = camera_transform.basis.xform(Vector3(0, 0, view_3d_controller->cursor.distance));
+					Vector3 offset = camera_transform.basis.xform(Vector3(0, -view_3d_controller->cursor.distance, 0));
 					xform.origin = view_3d_controller->cursor.pos + offset;
 				} else {
 					xform.scale_basis(sp->get_scale());
@@ -4765,8 +4764,11 @@ void Node3DEditorViewport::_sync_cursor_from_transform(const Transform3D &p_tran
 	const Basis basis = p_transform.basis;
 
 	view_3d_controller->cursor.eye_pos = p_transform.origin;
-	view_3d_controller->cursor.x_rot = -basis.get_euler().x;
-	view_3d_controller->cursor.y_rot = -basis.get_euler().y;
+	Vector3 forward = basis.get_column(Vector3::AXIS_Y).normalized();
+	view_3d_controller->cursor.x_rot = -Math::asin(CLAMP(forward.z, (real_t)-1.0, (real_t)1.0));
+	if (!Vector2(forward.x, forward.y).is_zero_approx()) {
+		view_3d_controller->cursor.y_rot = Math::atan2(forward.x, forward.y);
+	}
 	view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 	view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 
@@ -4774,7 +4776,7 @@ void Node3DEditorViewport::_sync_cursor_from_transform(const Transform3D &p_tran
 	if (view_3d_controller->is_orthogonal()) {
 		distance = (get_zfar() - get_znear()) / 2.0;
 	}
-	view_3d_controller->cursor.pos = p_transform.origin - basis.get_column(2) * distance;
+	view_3d_controller->cursor.pos = p_transform.origin + basis.get_column(Vector3::AXIS_Y) * distance;
 }
 
 void Node3DEditorViewport::_update_centered_labels() {
@@ -5045,12 +5047,12 @@ void Node3DEditorViewport::update_transform_gizmo_view() {
 		return;
 	}
 
-	const Vector3 camz = -camera_xform.get_basis().get_column(2).normalized();
-	const Vector3 camy = -camera_xform.get_basis().get_column(1).normalized();
-	const Plane p = Plane(camz, camera_xform.origin);
+	const Vector3 camera_forward = camera_xform.get_basis().get_column(Vector3::AXIS_Y).normalized();
+	const Vector3 camera_up = camera_xform.get_basis().get_column(Vector3::AXIS_Z).normalized();
+	const Plane p = Plane(camera_forward, camera_xform.origin);
 	const real_t gizmo_d = MAX(Math::abs(p.distance_to(xform.origin)), CMP_EPSILON);
-	const real_t d0 = camera->unproject_position(camera_xform.origin + camz * gizmo_d).y;
-	const real_t d1 = camera->unproject_position(camera_xform.origin + camz * gizmo_d + camy).y;
+	const real_t d0 = camera->unproject_position(camera_xform.origin + camera_forward * gizmo_d).y;
+	const real_t d1 = camera->unproject_position(camera_xform.origin + camera_forward * gizmo_d + camera_up).y;
 	const real_t dd = MAX(Math::abs(d0 - d1), CMP_EPSILON);
 
 	const real_t gizmo_size = EDITOR_GET("editors/3d/manipulator_gizmo_size");
@@ -5474,10 +5476,10 @@ Vector3 Node3DEditorViewport::_get_instance_position(const Point2 &p_pos, Node3D
 
 		// Use the Gram-Schmidt process to get an orthonormal Basis aligned with the surface normal.
 		const Vector3 bb_basis_x = result.normal;
-		Vector3 bb_basis_y = Vector3(0, 1, 0);
+		Vector3 bb_basis_y = Vector3::UP;
 		bb_basis_y = bb_basis_y - bb_basis_y.project(bb_basis_x);
 		if (bb_basis_y.is_zero_approx()) {
-			bb_basis_y = Vector3(0, 0, 1);
+			bb_basis_y = Vector3::FORWARD;
 			bb_basis_y = bb_basis_y - bb_basis_y.project(bb_basis_x);
 		}
 		bb_basis_y = bb_basis_y.normalized();
@@ -5498,9 +5500,9 @@ Vector3 Node3DEditorViewport::_get_instance_position(const Point2 &p_pos, Node3D
 
 	const bool is_orthogonal = camera->get_projection() == Camera3D::PROJECTION_ORTHOGONAL;
 
-	// The XZ plane.
+	// 默认落点使用 XY 地面；Z 是向上轴。
 	Vector3 intersection;
-	Plane plane(Vector3(0, 1, 0));
+	Plane plane(Vector3::UP);
 	if (plane.intersects_ray(world_pos, world_ray, &intersection)) {
 		if (is_orthogonal || world_pos.distance_to(intersection) <= MAX_DISTANCE) {
 			return intersection;
@@ -6470,7 +6472,7 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 
 				Transform3D cam_transform = view_3d_controller->to_camera_transform();
 				Vector3 cam_right = cam_transform.basis.get_column(0).normalized();
-				Vector3 cam_up = cam_transform.basis.get_column(1).normalized();
+				Vector3 cam_up = cam_transform.basis.get_column(Vector3::AXIS_Z).normalized();
 				Vector3 rotation_axis = cam_up * rotation_input.x + cam_right * rotation_input.y;
 
 				real_t rotation_angle = rotation_axis.length();
@@ -8505,11 +8507,11 @@ void fragment() {
 	{
 		//move gizmo
 
-		// Inverted zxy.
-		Vector3 ivec = Vector3(0, 0, -1);
-		Vector3 nivec = Vector3(-1, -1, 0);
+		// Gizmo meshes are authored in the new local convention: +Y is the forward/axis direction, +Z is up.
+		Vector3 ivec = Vector3::FORWARD;
+		Vector3 nivec = Vector3(-1, 0, -1);
 		Vector3 ivec2 = Vector3(-1, 0, 0);
-		Vector3 ivec3 = Vector3(0, -1, 0);
+		Vector3 ivec3 = Vector3(0, 0, -1);
 
 		for (int i = 0; i < 4; i++) {
 			Color col;
@@ -9069,7 +9071,7 @@ void Node3DEditor::_init_grid() {
 
 		if (orthogonal) {
 			camera_distance = camera->get_size() / 2.0;
-			Vector3 camera_direction = -camera->get_global_transform().get_basis().get_column(2);
+			Vector3 camera_direction = camera->get_global_transform().get_basis().get_column(Vector3::AXIS_Y);
 			Plane grid_plane = Plane(normal);
 			Vector3 intersection;
 			if (grid_plane.intersects_ray(camera_position, camera_direction, &intersection)) {

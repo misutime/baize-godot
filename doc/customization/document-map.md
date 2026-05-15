@@ -7,6 +7,8 @@
 | `README.md`                            | 定制文档入口，说明目录目标、当前阶段和最短构建命令。         | 第一次进入 `doc/customization/` 时读。                     |
 | `document-map.md`                      | 固定文档结构索引，用一句话说明每个文档的功能和目的。         | 找文档、加文档、重命名文档前读。                           |
 | `customization-rules.md`               | 记录 3D 定制引擎的总目标、裁剪原则、功能分级和阶段计划。     | 准备裁剪功能、调整项目方向、判断某功能是否该保留时读。     |
+| `coordinate-system-assessment.md`      | 评估把 3D 坐标体验改为 `X` 左右、`Y` 前后、`Z` 上下的范围、风险和推荐路线。 | 推进坐标系显示适配、评估是否改核心坐标语义前读。           |
+| `coordinate-system-migration-plan.md`  | 记录允许破坏兼容后，全面迁移到 `X` 左右、`Y` 前后、`Z` 上下的源码修改包、顺序和验证计划。 | 真正开始核心坐标系迁移、补测试、分阶段验收前读。           |
 | `removal-ledger.md`                    | 删除、禁用、隐藏功能的台账，记录理由、影响、回滚和同步策略。 | 每次软禁用、硬裁剪、恢复功能前后都要读和更新。             |
 | `upstream-sync-policy.md`              | 记录同步 Godot 官方更新时的合入、跳过和重测规则。            | 拉取官方更新、处理冲突、判断已裁剪区域是否要合入修复时读。 |
 | `build-profiles.md`                    | 记录构建 profile、软裁剪 profile、脚本 preset 和构建基线。   | 修改 SCons profile、切换构建方式、验证软裁剪影响时读。     |

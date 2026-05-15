@@ -187,8 +187,8 @@ void NavigationObstacle3D::_notification(int p_what) {
 				if (static_obstacle_debug_instance_rid.is_valid() && get_vertices().size() > 0) {
 					// Prevent non-positive scaling.
 					const Vector3 safe_scale = get_global_basis().get_scale().abs().maxf(0.001);
-					// Obstacles are projected to the xz-plane, so only rotation around the y-axis can be taken into account.
-					const Transform3D debug_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), get_global_rotation().y), get_global_position());
+					// 障碍物投影到 XY 平面，高度沿 +Z，所以只保留绕 Z 轴的旋转。
+					const Transform3D debug_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, get_global_rotation().z), get_global_position());
 
 					RS::get_singleton()->instance_set_transform(static_obstacle_debug_instance_rid, debug_transform);
 				}
@@ -275,16 +275,16 @@ void NavigationObstacle3D::set_vertices(const Vector<Vector3> &p_vertices) {
 	Vector2 *vertices_2d_ptrw = vertices_2d.ptrw();
 
 	for (int i = 0; i < vertices.size(); i++) {
-		vertices_2d_ptrw[i] = Vector2(vertices_ptr[i].x, vertices_ptr[i].z);
+		vertices_2d_ptrw[i] = Vector2(vertices_ptr[i].x, vertices_ptr[i].y);
 	}
 
 	vertices_are_clockwise = !Geometry2D::is_polygon_clockwise(vertices_2d); // Geometry2D is inverted.
 	vertices_are_valid = !Geometry2D::triangulate_polygon(vertices_2d).is_empty();
 
 	const Basis basis = is_inside_tree() ? get_global_basis() : get_basis();
-	const float rotation_y = is_inside_tree() ? get_global_rotation().y : get_rotation().y;
+	const float rotation_z = is_inside_tree() ? get_global_rotation().z : get_rotation().z;
 	const Vector3 safe_scale = basis.get_scale().abs().maxf(0.001);
-	const Transform3D safe_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), rotation_y), Vector3());
+	const Transform3D safe_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, rotation_z), Vector3());
 	NavigationServer3D::get_singleton()->obstacle_set_vertices(obstacle, safe_transform.xform(vertices));
 #ifdef DEBUG_ENABLED
 	_update_static_obstacle_debug();
@@ -334,7 +334,7 @@ void NavigationObstacle3D::set_height(real_t p_height) {
 	}
 
 	height = p_height;
-	const float scale_factor = MAX(Math::abs((is_inside_tree() ? get_global_basis() : get_basis()).get_scale().y), 0.001);
+	const float scale_factor = MAX(Math::abs((is_inside_tree() ? get_global_basis() : get_basis()).get_scale().z), 0.001);
 	NavigationServer3D::get_singleton()->obstacle_set_height(obstacle, scale_factor * height);
 
 #ifdef DEBUG_ENABLED
@@ -413,8 +413,8 @@ bool NavigationObstacle3D::get_carve_navigation_mesh() const {
 PackedStringArray NavigationObstacle3D::get_configuration_warnings() const {
 	PackedStringArray warnings = Node3D::get_configuration_warnings();
 
-	if (get_global_rotation().x != 0.0 || get_global_rotation().z != 0.0) {
-		warnings.push_back(RTR("NavigationObstacle3D only takes global rotation around the y-axis into account. Rotations around the x-axis or z-axis might lead to unexpected results."));
+	if (get_global_rotation().x != 0.0 || get_global_rotation().y != 0.0) {
+		warnings.push_back(RTR("NavigationObstacle3D only takes global rotation around the z-axis into account. Rotations around the x-axis or y-axis might lead to unexpected results."));
 	}
 
 	const Vector3 global_scale = get_global_basis().get_scale();
@@ -473,14 +473,14 @@ void NavigationObstacle3D::navmesh_parse_source_geometry(const Ref<NavigationMes
 
 		for (int i = 0; i < circle_points; i++) {
 			const float angle = i * circle_point_step;
-			circle_vertices_ptrw[i] = obstacle_circle_transform.xform(Vector3(Math::cos(angle) * obstacle_radius, 0.0, Math::sin(angle) * obstacle_radius));
+			circle_vertices_ptrw[i] = obstacle_circle_transform.xform(Vector3(Math::cos(angle) * obstacle_radius, Math::sin(angle) * obstacle_radius, 0.0));
 		}
 
 		p_source_geometry_data->add_projected_obstruction(obstruction_circle_vertices, elevation - obstacle_radius, scaling_max_value * obstacle_radius, obstacle->get_carve_navigation_mesh());
 	}
 
-	// Obstacles are projected to the xz-plane, so only rotation around the y-axis can be taken into account.
-	const Transform3D node_xform = p_source_geometry_data->root_node_transform * Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle->get_global_rotation().y), obstacle->get_global_position());
+	// 障碍物投影到 XY 平面，高度沿 +Z，所以只保留绕 Z 轴的旋转。
+	const Transform3D node_xform = p_source_geometry_data->root_node_transform * Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle->get_global_rotation().z), obstacle->get_global_position());
 
 	const Vector<Vector3> &obstacle_vertices = obstacle->get_vertices();
 
@@ -496,9 +496,9 @@ void NavigationObstacle3D::navmesh_parse_source_geometry(const Ref<NavigationMes
 
 	for (int i = 0; i < obstacle_vertices.size(); i++) {
 		obstruction_shape_vertices_ptrw[i] = node_xform.xform(obstacle_vertices_ptr[i]);
-		obstruction_shape_vertices_ptrw[i].y = 0.0;
+		obstruction_shape_vertices_ptrw[i].z = 0.0;
 	}
-	p_source_geometry_data->add_projected_obstruction(obstruction_shape_vertices, elevation, safe_scale.y * obstacle->get_height(), obstacle->get_carve_navigation_mesh());
+	p_source_geometry_data->add_projected_obstruction(obstruction_shape_vertices, elevation, safe_scale.z * obstacle->get_height(), obstacle->get_carve_navigation_mesh());
 }
 
 void NavigationObstacle3D::_update_map(RID p_map) {
@@ -518,10 +518,10 @@ void NavigationObstacle3D::_update_transform() {
 	const float scaling_max_value = safe_scale[safe_scale.max_axis_index()];
 	NavigationServer3D::get_singleton()->obstacle_set_radius(obstacle, scaling_max_value * radius);
 
-	// Apply modified node transform which only takes y-axis rotation into account to vertices.
-	const Transform3D safe_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), get_global_rotation().y), Vector3());
+	// Apply modified node transform which only takes z-axis rotation into account to vertices.
+	const Transform3D safe_transform = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, get_global_rotation().z), Vector3());
 	NavigationServer3D::get_singleton()->obstacle_set_vertices(obstacle, safe_transform.xform(vertices));
-	NavigationServer3D::get_singleton()->obstacle_set_height(obstacle, safe_scale.y * height);
+	NavigationServer3D::get_singleton()->obstacle_set_height(obstacle, safe_scale.z * height);
 }
 
 void NavigationObstacle3D::_update_use_3d_avoidance(bool p_use_3d_avoidance) {
@@ -677,7 +677,7 @@ void NavigationObstacle3D::_update_static_obstacle_debug() {
 		Vector3 next_point = vertices[(i + 1) % vertex_count];
 
 		Vector3 direction = next_point.direction_to(point);
-		Vector3 arrow_dir = direction.cross(Vector3(0.0, 1.0, 0.0));
+		Vector3 arrow_dir = direction.cross(Vector3::UP);
 		Vector3 edge_middle = point + ((next_point - point) * 0.5);
 
 		edge_vertex_array_ptrw[vertex_index++] = edge_middle;
@@ -686,11 +686,11 @@ void NavigationObstacle3D::_update_static_obstacle_debug() {
 		edge_vertex_array_ptrw[vertex_index++] = point;
 		edge_vertex_array_ptrw[vertex_index++] = next_point;
 
-		edge_vertex_array_ptrw[vertex_index++] = Vector3(point.x, height, point.z);
-		edge_vertex_array_ptrw[vertex_index++] = Vector3(next_point.x, height, next_point.z);
+		edge_vertex_array_ptrw[vertex_index++] = Vector3(point.x, point.y, height);
+		edge_vertex_array_ptrw[vertex_index++] = Vector3(next_point.x, next_point.y, height);
 
 		edge_vertex_array_ptrw[vertex_index++] = point;
-		edge_vertex_array_ptrw[vertex_index++] = Vector3(point.x, height, point.z);
+		edge_vertex_array_ptrw[vertex_index++] = Vector3(point.x, point.y, height);
 	}
 
 	Array edge_mesh_array;

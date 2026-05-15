@@ -943,8 +943,8 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	// -0.2 seems like a sensible default. -1.0 gives Blender-like behavior, 0.5 gives huge grids.
 	EDITOR_SETTING(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/grid_division_level_bias", -0.2, "-1.0,0.5,0.1")
 
-	_initial_set("editors/3d/grid_xz_plane", true);
-	_initial_set("editors/3d/grid_xy_plane", false);
+	_initial_set("editors/3d/grid_xz_plane", false);
+	_initial_set("editors/3d/grid_xy_plane", true);
 	_initial_set("editors/3d/grid_yz_plane", false);
 
 	// Use a lower default FOV for the 3D camera compared to the

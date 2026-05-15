@@ -113,6 +113,18 @@ TEST_SUITE("[Navigation3D]") {
 		navigation_server->free_rid(agent);
 	}
 
+	TEST_CASE("[NavigationServer3D][CoordinateSystem] Default map up uses +Z") {
+		// 坐标系迁移哨兵：3D 导航平面默认竖直方向应跟随新世界 +Z。
+		NavigationServer3D *navigation_server = NavigationServer3D::get_singleton();
+
+		RID map = navigation_server->map_create();
+		CHECK(map.is_valid());
+		CHECK_EQ(navigation_server->map_get_up(map), Vector3(0, 0, 1));
+
+		navigation_server->free_rid(map);
+		navigation_server->physics_process(0.0); // Give server some cycles to actually remove map.
+	}
+
 	TEST_CASE("[NavigationServer3D] Server should manage map properly") {
 		NavigationServer3D *navigation_server = NavigationServer3D::get_singleton();
 
@@ -403,7 +415,7 @@ TEST_SUITE("[Navigation3D]") {
 
 		navigation_server->agent_set_map(agent_2, map);
 		navigation_server->agent_set_avoidance_enabled(agent_2, true);
-		navigation_server->agent_set_position(agent_2, Vector3(2.5, 0, 0.5));
+		navigation_server->agent_set_position(agent_2, Vector3(2.5, 0.5, 0));
 		navigation_server->agent_set_radius(agent_2, 1);
 		navigation_server->agent_set_velocity(agent_2, Vector3(-1, 0, 0));
 		CallableMock agent_2_avoidance_callback_mock;
@@ -418,8 +430,8 @@ TEST_SUITE("[Navigation3D]") {
 		Vector3 agent_2_safe_velocity = agent_2_avoidance_callback_mock.function1_latest_arg0;
 		CHECK_MESSAGE(agent_1_safe_velocity.x > 0, "agent 1 should move a bit along desired velocity (+X)");
 		CHECK_MESSAGE(agent_2_safe_velocity.x < 0, "agent 2 should move a bit along desired velocity (-X)");
-		CHECK_MESSAGE(agent_1_safe_velocity.z < 0, "agent 1 should move a bit to the side so that it avoids agent 2");
-		CHECK_MESSAGE(agent_2_safe_velocity.z > 0, "agent 2 should move a bit to the side so that it avoids agent 1");
+		CHECK_MESSAGE(agent_1_safe_velocity.y < 0, "agent 1 should move a bit to the side so that it avoids agent 2");
+		CHECK_MESSAGE(agent_2_safe_velocity.y > 0, "agent 2 should move a bit to the side so that it avoids agent 1");
 
 		navigation_server->free_rid(agent_2);
 		navigation_server->free_rid(agent_1);
@@ -445,7 +457,7 @@ TEST_SUITE("[Navigation3D]") {
 
 		navigation_server->obstacle_set_map(obstacle_1, map);
 		navigation_server->obstacle_set_avoidance_enabled(obstacle_1, true);
-		navigation_server->obstacle_set_position(obstacle_1, Vector3(2.5, 0, 0.5));
+		navigation_server->obstacle_set_position(obstacle_1, Vector3(2.5, 0.5, 0));
 		navigation_server->obstacle_set_radius(obstacle_1, 1);
 
 		CHECK_EQ(agent_1_avoidance_callback_mock.function1_calls, 0);
@@ -453,7 +465,7 @@ TEST_SUITE("[Navigation3D]") {
 		CHECK_EQ(agent_1_avoidance_callback_mock.function1_calls, 1);
 		Vector3 agent_1_safe_velocity = agent_1_avoidance_callback_mock.function1_latest_arg0;
 		CHECK_MESSAGE(agent_1_safe_velocity.x > 0, "Agent 1 should move a bit along desired velocity (+X).");
-		CHECK_MESSAGE(agent_1_safe_velocity.z < 0, "Agent 1 should move a bit to the side so that it avoids obstacle.");
+		CHECK_MESSAGE(agent_1_safe_velocity.y < 0, "Agent 1 should move a bit to the side so that it avoids obstacle.");
 
 		navigation_server->free_rid(obstacle_1);
 		navigation_server->free_rid(agent_1);
@@ -491,17 +503,17 @@ TEST_SUITE("[Navigation3D]") {
 
 		SUBCASE("Static obstacles should work on ground level") {
 			navigation_server->agent_set_position(agent_1, Vector3(0, 0, 0));
-			navigation_server->agent_set_position(agent_2, Vector3(0, 0, 5));
-			obstacle_1_vertices.push_back(Vector3(1.5, 0, 0.5));
-			obstacle_1_vertices.push_back(Vector3(1.5, 0, 4.5));
+			navigation_server->agent_set_position(agent_2, Vector3(0, 5, 0));
+			obstacle_1_vertices.push_back(Vector3(1.5, 0.5, 0));
+			obstacle_1_vertices.push_back(Vector3(1.5, 4.5, 0));
 		}
 
 		SUBCASE("Static obstacles should work when elevated") {
-			navigation_server->agent_set_position(agent_1, Vector3(0, 5, 0));
+			navigation_server->agent_set_position(agent_1, Vector3(0, 0, 5));
 			navigation_server->agent_set_position(agent_2, Vector3(0, 5, 5));
-			obstacle_1_vertices.push_back(Vector3(1.5, 0, 0.5));
-			obstacle_1_vertices.push_back(Vector3(1.5, 0, 4.5));
-			navigation_server->obstacle_set_position(obstacle_1, Vector3(0, 5, 0));
+			obstacle_1_vertices.push_back(Vector3(1.5, 0.5, 0));
+			obstacle_1_vertices.push_back(Vector3(1.5, 4.5, 0));
+			navigation_server->obstacle_set_position(obstacle_1, Vector3(0, 0, 5));
 		}
 
 		navigation_server->obstacle_set_vertices(obstacle_1, obstacle_1_vertices);
@@ -514,9 +526,9 @@ TEST_SUITE("[Navigation3D]") {
 		Vector3 agent_1_safe_velocity = agent_1_avoidance_callback_mock.function1_latest_arg0;
 		Vector3 agent_2_safe_velocity = agent_2_avoidance_callback_mock.function1_latest_arg0;
 		CHECK_MESSAGE(agent_1_safe_velocity.x > 0, "Agent 1 should move a bit along desired velocity (+X).");
-		CHECK_MESSAGE(agent_1_safe_velocity.z < 0, "Agent 1 should move a bit to the side so that it avoids obstacle.");
+		CHECK_MESSAGE(agent_1_safe_velocity.y < 0, "Agent 1 should move a bit to the side so that it avoids obstacle.");
 		CHECK_MESSAGE(agent_2_safe_velocity.x > 0, "Agent 2 should move a bit along desired velocity (+X).");
-		CHECK_MESSAGE(agent_2_safe_velocity.z == 0, "Agent 2 should not move to the side.");
+		CHECK_MESSAGE(agent_2_safe_velocity.y == 0, "Agent 2 should not move to the side.");
 
 		navigation_server->free_rid(obstacle_1);
 		navigation_server->free_rid(agent_2);

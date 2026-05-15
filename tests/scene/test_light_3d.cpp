@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  test_navigation_agent_3d.cpp                                          */
+/*  test_light_3d.cpp                                                     */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,61 +30,39 @@
 
 #include "tests/test_macros.h"
 
-TEST_FORCE_LINK(test_navigation_agent_3d)
+TEST_FORCE_LINK(test_light_3d)
 
-#include "modules/modules_enabled.gen.h" // For navigation 3D.
+#ifndef _3D_DISABLED
 
-#ifdef MODULE_NAVIGATION_3D_ENABLED
+#include "scene/3d/light_3d.h"
 
-#include "scene/3d/navigation/navigation_agent_3d.h"
-#include "scene/3d/node_3d.h"
-#include "scene/main/scene_tree.h"
-#include "scene/main/window.h"
+namespace TestLight3D {
 
-namespace TestNavigationAgent3D {
+TEST_CASE("[SceneTree][Light3D][CoordinateSystem] SpotLight3D AABB uses +Y forward") {
+	SpotLight3D *light = memnew(SpotLight3D);
+	light->set_param(Light3D::PARAM_RANGE, 10.0);
+	light->set_param(Light3D::PARAM_SPOT_ANGLE, 30.0);
 
-TEST_SUITE("[Navigation3D]") {
-	TEST_CASE("[SceneTree][NavigationAgent3D] New agent should have valid RID") {
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
-		CHECK(agent_node->get_rid().is_valid());
-		memdelete(agent_node);
-	}
+	const real_t cone_radius = Math::sin(Math::deg_to_rad(30.0)) * 10.0;
+	const AABB expected_aabb(Vector3(-cone_radius, 0.0, -cone_radius), Vector3(cone_radius * 2.0, 10.0, cone_radius * 2.0));
 
-	TEST_CASE("[SceneTree][NavigationAgent3D] New agent should attach to default map") {
-		Node3D *node_3d = memnew(Node3D);
-		SceneTree::get_singleton()->get_root()->add_child(node_3d);
+	CHECK_MESSAGE(light->get_aabb().is_equal_approx(expected_aabb), "SpotLight3D 的本地包围盒应该沿 +Y 前方展开，并把 +Z 当作上下。");
 
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
-
-		// agent should not be attached to any map when outside of tree
-		CHECK_FALSE(agent_node->get_navigation_map().is_valid());
-
-		SUBCASE("Agent should attach to default map when it enters the tree") {
-			node_3d->add_child(agent_node);
-			CHECK(agent_node->get_navigation_map().is_valid());
-			CHECK(agent_node->get_navigation_map() == node_3d->get_world_3d()->get_navigation_map());
-		}
-
-		memdelete(agent_node);
-		memdelete(node_3d);
-	}
-
-	TEST_CASE("[SceneTree][NavigationAgent3D][CoordinateSystem] Path height offset is applied on Z") {
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
-		agent_node->set_path_height_offset(2.0);
-
-		Vector<Vector3> path;
-		path.push_back(Vector3(1.0, 2.0, 3.0));
-		path.push_back(Vector3(4.0, 5.0, 6.0));
-		agent_node->get_current_navigation_result()->set_path(path);
-
-		CHECK_MESSAGE(agent_node->get_next_path_position().is_equal_approx(Vector3(1.0, 2.0, 1.0)), "NavigationAgent3D 的路径高度偏移应该沿 +Z 高度轴扣除。");
-		CHECK_MESSAGE(agent_node->get_final_position().is_equal_approx(Vector3(4.0, 5.0, 4.0)), "NavigationAgent3D 的终点高度偏移应该沿 +Z 高度轴扣除。");
-
-		memdelete(agent_node);
-	}
+	memdelete(light);
 }
 
-} // namespace TestNavigationAgent3D
+TEST_CASE("[SceneTree][Light3D][CoordinateSystem] AreaLight3D AABB uses X/Z face and +Y range") {
+	AreaLight3D *light = memnew(AreaLight3D);
+	light->set_param(Light3D::PARAM_RANGE, 4.0);
+	light->set_area_size(Vector2(2.0, 6.0));
 
-#endif // MODULE_NAVIGATION_3D_ENABLED
+	const AABB expected_aabb(Vector3(-5.0, 0.0, -7.0), Vector3(10.0, 4.0, 14.0));
+
+	CHECK_MESSAGE(light->get_aabb().is_equal_approx(expected_aabb), "AreaLight3D 的照射范围应该沿 +Y 前方展开，面片宽高分别落在 X/Z 轴。");
+
+	memdelete(light);
+}
+
+} // namespace TestLight3D
+
+#endif // _3D_DISABLED

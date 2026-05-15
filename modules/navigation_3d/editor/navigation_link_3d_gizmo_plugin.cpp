@@ -170,7 +170,7 @@ void NavigationLink3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 	}
 
 	const Vector3 link_segment = end_position - start_position;
-	const Vector3 up = Vector3(0.0, 1.0, 0.0);
+	const Vector3 up = Vector3::UP;
 	const float arror_len = 0.5;
 
 	{

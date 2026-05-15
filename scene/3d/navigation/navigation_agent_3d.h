@@ -95,7 +95,7 @@ class NavigationAgent3D : public Node {
 	Vector3 velocity_forced;
 	bool velocity_forced_submitted = false;
 
-	// 2D avoidance has no y-axis. This stores and reapplies the y-axis velocity to the agent before and after the avoidance step.
+	// 2D avoidance has no height axis. In the new 3D coordinate system this stores and reapplies the Z velocity before and after the avoidance step.
 	// While not perfect it at least looks way better than agent's that clip through everything that is not a flat surface
 	bool keep_y_velocity = true;
 	float stored_y_velocity = 0.0;

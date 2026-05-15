@@ -136,4 +136,15 @@ TEST_CASE("[Transform3D] Rotate in-place (local rotation)") {
 	CHECK_MESSAGE(rotated_transform.is_equal_approx(expected), "The rotated transform should have a new orientation but still be based on the same origin.");
 }
 
+TEST_CASE("[Transform3D][CoordinateSystem] looking_at uses local +Y as forward and +Z as up") {
+	// 坐标系迁移哨兵：Transform3D 与 Node3D.look_at 的前方/up 约定保持一致。
+	const Transform3D transform(Basis(), Vector3(1, 2, 3));
+	const Transform3D looking = transform.looking_at(Vector3(1, 12, 3), Vector3(0, 0, 1));
+
+	CHECK_MESSAGE(looking.origin == transform.origin, "looking_at should keep the original origin.");
+	CHECK_MESSAGE(looking.basis.get_column(Vector3::AXIS_X).is_equal_approx(Vector3(1, 0, 0)), "Local +X should point right.");
+	CHECK_MESSAGE(looking.basis.get_column(Vector3::AXIS_Y).is_equal_approx(Vector3(0, 1, 0)), "Local +Y should point forward.");
+	CHECK_MESSAGE(looking.basis.get_column(Vector3::AXIS_Z).is_equal_approx(Vector3(0, 0, 1)), "Local +Z should point up.");
+}
+
 } // namespace TestTransform3D

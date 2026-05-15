@@ -139,7 +139,7 @@ void SpringArm3D::process_spring() {
 	real_t motion_delta_unsafe(1);
 
 	Vector3 motion;
-	const Vector3 cast_direction(get_global_transform().basis.xform(Vector3(0, 0, 1)));
+	const Vector3 cast_direction(get_global_transform().basis.xform(Vector3::BACK));
 
 	motion = Vector3(cast_direction * (spring_length));
 

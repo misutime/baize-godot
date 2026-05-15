@@ -92,7 +92,7 @@ void NavRegion3D::set_transform(Transform3D p_transform) {
 	request_sync();
 
 #ifdef DEBUG_ENABLED
-	if (map && Math::rad_to_deg(map->get_up().angle_to(transform.basis.get_column(1))) >= 90.0f) {
+	if (map && Math::rad_to_deg(map->get_up().angle_to(transform.basis.get_column(Vector3::AXIS_Z))) >= 90.0f) {
 		ERR_PRINT_ONCE("Attempted to update a navigation region transform rotated 90 degrees or more away from the current navigation map UP orientation.");
 	}
 #endif // DEBUG_ENABLED

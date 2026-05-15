@@ -127,7 +127,7 @@ void VehicleWheel3D::_notification(int p_what) {
 			cb->wheels.push_back(this);
 
 			m_chassisConnectionPointCS = get_transform().origin;
-			m_wheelDirectionCS = -get_transform().basis.get_column(Vector3::AXIS_Y).normalized();
+			m_wheelDirectionCS = -get_transform().basis.get_column(Vector3::AXIS_Z).normalized();
 			m_wheelAxleCS = get_transform().basis.get_column(Vector3::AXIS_X).normalized();
 		} break;
 
@@ -975,13 +975,13 @@ void VehicleBody3D::_body_state_changed(PhysicsDirectBodyState3D *p_state) {
 
 			// Get forward vector.
 			Vector3 fwd(
-					chassisWorldTransform.basis[0][Vector3::AXIS_Z],
-					chassisWorldTransform.basis[1][Vector3::AXIS_Z],
-					chassisWorldTransform.basis[2][Vector3::AXIS_Z]);
+					chassisWorldTransform.basis[0][Vector3::AXIS_Y],
+					chassisWorldTransform.basis[1][Vector3::AXIS_Y],
+					chassisWorldTransform.basis[2][Vector3::AXIS_Y]);
 
 			// Apply steering rotation to forward vector for steerable wheels.
 			if (wheel.steers) {
-				Basis steering_mat(Vector3(0, 1, 0), wheel.m_steering);
+				Basis steering_mat(Vector3::UP, wheel.m_steering);
 				fwd = steering_mat.xform(fwd);
 			}
 

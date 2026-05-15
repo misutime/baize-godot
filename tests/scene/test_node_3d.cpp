@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  test_navigation_agent_3d.cpp                                          */
+/*  test_node_3d.cpp                                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,61 +30,32 @@
 
 #include "tests/test_macros.h"
 
-TEST_FORCE_LINK(test_navigation_agent_3d)
+TEST_FORCE_LINK(test_node_3d)
 
-#include "modules/modules_enabled.gen.h" // For navigation 3D.
+#ifndef _3D_DISABLED
 
-#ifdef MODULE_NAVIGATION_3D_ENABLED
-
-#include "scene/3d/navigation/navigation_agent_3d.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 
-namespace TestNavigationAgent3D {
+namespace TestNode3D {
 
-TEST_SUITE("[Navigation3D]") {
-	TEST_CASE("[SceneTree][NavigationAgent3D] New agent should have valid RID") {
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
-		CHECK(agent_node->get_rid().is_valid());
-		memdelete(agent_node);
-	}
+TEST_CASE("[SceneTree][Node3D][CoordinateSystem] look_at uses local +Y as forward and +Z as up") {
+	// 坐标系迁移哨兵：Node3D.look_at 后，本地 +Y 指向目标，本地 +Z 保持上方向。
+	Node3D *test_node = memnew(Node3D);
+	SceneTree::get_singleton()->get_root()->add_child(test_node);
 
-	TEST_CASE("[SceneTree][NavigationAgent3D] New agent should attach to default map") {
-		Node3D *node_3d = memnew(Node3D);
-		SceneTree::get_singleton()->get_root()->add_child(node_3d);
+	test_node->set_global_position(Vector3(2, 3, 4));
+	test_node->look_at(Vector3(2, 13, 4), Vector3(0, 0, 1));
 
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
+	const Basis basis = test_node->get_global_basis();
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_X).is_equal_approx(Vector3(1, 0, 0)), "Local +X should point right.");
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_Y).is_equal_approx(Vector3(0, 1, 0)), "Local +Y should point toward the target.");
+	CHECK_MESSAGE(basis.get_column(Vector3::AXIS_Z).is_equal_approx(Vector3(0, 0, 1)), "Local +Z should point up.");
 
-		// agent should not be attached to any map when outside of tree
-		CHECK_FALSE(agent_node->get_navigation_map().is_valid());
-
-		SUBCASE("Agent should attach to default map when it enters the tree") {
-			node_3d->add_child(agent_node);
-			CHECK(agent_node->get_navigation_map().is_valid());
-			CHECK(agent_node->get_navigation_map() == node_3d->get_world_3d()->get_navigation_map());
-		}
-
-		memdelete(agent_node);
-		memdelete(node_3d);
-	}
-
-	TEST_CASE("[SceneTree][NavigationAgent3D][CoordinateSystem] Path height offset is applied on Z") {
-		NavigationAgent3D *agent_node = memnew(NavigationAgent3D);
-		agent_node->set_path_height_offset(2.0);
-
-		Vector<Vector3> path;
-		path.push_back(Vector3(1.0, 2.0, 3.0));
-		path.push_back(Vector3(4.0, 5.0, 6.0));
-		agent_node->get_current_navigation_result()->set_path(path);
-
-		CHECK_MESSAGE(agent_node->get_next_path_position().is_equal_approx(Vector3(1.0, 2.0, 1.0)), "NavigationAgent3D 的路径高度偏移应该沿 +Z 高度轴扣除。");
-		CHECK_MESSAGE(agent_node->get_final_position().is_equal_approx(Vector3(4.0, 5.0, 4.0)), "NavigationAgent3D 的终点高度偏移应该沿 +Z 高度轴扣除。");
-
-		memdelete(agent_node);
-	}
+	memdelete(test_node);
 }
 
-} // namespace TestNavigationAgent3D
+} // namespace TestNode3D
 
-#endif // MODULE_NAVIGATION_3D_ENABLED
+#endif // _3D_DISABLED

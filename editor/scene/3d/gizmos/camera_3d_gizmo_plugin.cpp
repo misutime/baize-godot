@@ -95,11 +95,11 @@ void Camera3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id,
 		camera->set("fov", CLAMP(a * 2.0, 1, 179));
 	} else {
 		Camera3D::KeepAspect aspect = camera->get_keep_aspect_mode();
-		Vector3 camera_far = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? Vector3(4096, 0, -1) : Vector3(0, 4096, -1);
+		Vector3 camera_far = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? Vector3(4096, 1, 0) : Vector3(0, 1, 4096);
 
 		Vector3 ra, rb;
-		Geometry3D::get_closest_points_between_segments(Vector3(0, 0, -1), camera_far, s[0], s[1], ra, rb);
-		float d = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? ra.x * 2 : ra.y * 2;
+		Geometry3D::get_closest_points_between_segments(Vector3(0, 1, 0), camera_far, s[0], s[1], ra, rb);
+		float d = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? ra.x * 2 : ra.z * 2;
 		if (Node3DEditor::get_singleton()->is_snap_enabled()) {
 			d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
 		}
@@ -180,16 +180,16 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float fov = camera->get_fov() / 2.0;
 
 			const float hsize = Math::sin(Math::deg_to_rad(fov));
-			const float depth = -Math::cos(Math::deg_to_rad(fov));
+			const float depth = Math::cos(Math::deg_to_rad(fov));
 
 			Vector3 side;
 			if (camera->get_keep_aspect_mode() == Camera3D::KEEP_WIDTH) {
-				side = Vector3(hsize * size_factor.x, 0, depth * size_factor.x);
+				side = Vector3(hsize * size_factor.x, depth * size_factor.x, 0);
 			} else {
-				side = Vector3(hsize * size_factor.x, 0, depth * size_factor.y);
+				side = Vector3(hsize * size_factor.x, depth * size_factor.y, 0);
 			}
 			Vector3 nside = Vector3(-side.x, side.y, side.z);
-			Vector3 up = Vector3(0, hsize * size_factor.y, 0);
+			Vector3 up = Vector3(0, 0, hsize * size_factor.y);
 
 			ADD_TRIANGLE(Vector3(), side + up, side - up);
 			ADD_TRIANGLE(Vector3(), nside + up, nside - up);
@@ -199,7 +199,7 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			handles.push_back(side);
 			side.x = MIN(side.x, hsize * 0.25);
 			nside.x = -side.x;
-			Vector3 tup(0, up.y + hsize / 2, side.z);
+			Vector3 tup(0, side.y, up.z + hsize / 2);
 			ADD_TRIANGLE(tup, side + up, nside + up);
 		} break;
 
@@ -210,15 +210,15 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float keep_size = size * 0.5;
 
 			Vector3 right, up;
-			Vector3 back(0, 0, -1.0);
+			Vector3 back(0, 1.0, 0);
 
 			if (aspect == Camera3D::KeepAspect::KEEP_WIDTH) {
 				right = Vector3(keep_size, 0, 0);
-				up = Vector3(0, keep_size / viewport_aspect, 0);
+				up = Vector3(0, 0, keep_size / viewport_aspect);
 				handles.push_back(right + back);
 			} else {
 				right = Vector3(keep_size * viewport_aspect, 0, 0);
-				up = Vector3(0, keep_size, 0);
+				up = Vector3(0, 0, keep_size);
 				handles.push_back(up + back);
 			}
 
@@ -228,18 +228,18 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			ADD_QUAD(-up + right, -up + right + back, -up - right + back, -up - right);
 
 			right.x = MIN(right.x, keep_size * 0.25);
-			Vector3 tup(0, up.y + keep_size / 2, back.z);
+			Vector3 tup(0, back.y, up.z + keep_size / 2);
 			ADD_TRIANGLE(tup, right + up + back, -right + up + back);
 		} break;
 
 		case Camera3D::PROJECTION_FRUSTUM: {
 			float hsize = camera->get_size() / 2.0;
 
-			Vector3 side = Vector3(hsize, 0, -camera->get_near()).normalized();
+			Vector3 side = Vector3(hsize, camera->get_near(), 0).normalized();
 			side.x *= size_factor.x;
 			Vector3 nside = Vector3(-side.x, side.y, side.z);
-			Vector3 up = Vector3(0, hsize * size_factor.y, 0);
-			Vector3 offset = Vector3(camera->get_frustum_offset().x, camera->get_frustum_offset().y, 0.0);
+			Vector3 up = Vector3(0, 0, hsize * size_factor.y);
+			Vector3 offset = Vector3(camera->get_frustum_offset().x, 0.0, camera->get_frustum_offset().y);
 
 			ADD_TRIANGLE(Vector3(), side + up + offset, side - up + offset);
 			ADD_TRIANGLE(Vector3(), nside + up + offset, nside - up + offset);
@@ -248,7 +248,7 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 			side.x = MIN(side.x, hsize * 0.25);
 			nside.x = -side.x;
-			Vector3 tup(0, up.y + hsize / 2, side.z);
+			Vector3 tup(0, side.y, up.z + hsize / 2);
 			ADD_TRIANGLE(tup + offset, side + up + offset, nside + up + offset);
 		} break;
 	}
@@ -274,8 +274,8 @@ float Camera3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_f
 	for (int i = 0; i < arc_test_points; i++) {
 		float a = i * Math::PI * 0.5 / arc_test_points;
 		float an = (i + 1) * Math::PI * 0.5 / arc_test_points;
-		Vector3 p = Vector3(Math::cos(a), 0, -Math::sin(a)) * p_arc_radius;
-		Vector3 n = Vector3(Math::cos(an), 0, -Math::sin(an)) * p_arc_radius;
+		Vector3 p = Vector3(Math::cos(a), Math::sin(a), 0) * p_arc_radius;
+		Vector3 n = Vector3(Math::cos(an), Math::sin(an), 0) * p_arc_radius;
 
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(p, n, p_from, p_to, ra, rb);
@@ -288,6 +288,6 @@ float Camera3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_f
 	}
 
 	//min_p = p_arc_xform.affine_inverse().xform(min_p);
-	float a = (Math::PI * 0.5) - Vector2(min_p.x, -min_p.z).angle();
+	float a = (Math::PI * 0.5) - Vector2(min_p.x, min_p.y).angle();
 	return Math::rad_to_deg(a);
 }

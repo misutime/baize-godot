@@ -52,7 +52,7 @@ class NavObstacle3D;
 
 class NavMap3D : public NavRid3D {
 	/// Map Up
-	Vector3 up = Vector3(0, 1, 0);
+	Vector3 up = Vector3(0, 0, 1);
 
 	/// To find the polygons edges the vertices are displaced in a grid where
 	/// each cell has the following cell_size and cell_height.
@@ -60,7 +60,7 @@ class NavMap3D : public NavRid3D {
 	real_t cell_height = NavigationDefaults3D::NAV_MESH_CELL_HEIGHT;
 
 	// For the inter-region merging to work, internal rasterization is performed.
-	Vector3 merge_rasterizer_cell_size = Vector3(cell_size, cell_height, cell_size);
+	Vector3 merge_rasterizer_cell_size = Vector3(cell_size, cell_size, cell_height);
 
 	// This value is used to control sensitivity of internal rasterizer.
 	float merge_rasterizer_cell_scale = 0.1;

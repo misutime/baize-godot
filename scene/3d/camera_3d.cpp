@@ -31,6 +31,7 @@
 #include "camera_3d.h"
 
 #include "core/config/engine.h"
+#include "core/math/coordinate_system.h"
 #include "core/math/projection.h"
 #include "core/math/transform_interpolator.h"
 #include "core/object/callable_mp.h"
@@ -104,7 +105,7 @@ void Camera3D::fti_update_servers_property() {
 void Camera3D::fti_update_servers_xform() {
 	if (camera.is_valid()) {
 		Transform3D tr = _get_adjusted_camera_transform(_get_cached_global_transform_interpolated());
-		RS::get_singleton()->camera_set_transform(camera, tr);
+		RS::get_singleton()->camera_set_transform(camera, CoordinateSystem3D::scene_to_legacy_z_forward_transform(tr));
 	}
 	Node3D::fti_update_servers_xform();
 }
@@ -162,7 +163,7 @@ void Camera3D::_update_camera() {
 	}
 
 	if (!is_physics_interpolated_and_enabled()) {
-		RenderingServer::get_singleton()->camera_set_transform(camera, get_camera_transform());
+		RenderingServer::get_singleton()->camera_set_transform(camera, CoordinateSystem3D::scene_to_legacy_z_forward_transform(get_camera_transform()));
 	} else {
 		// Force a refresh next frame.
 		fti_notify_node_changed();
@@ -265,7 +266,7 @@ void Camera3D::_notification(int p_what) {
 
 Transform3D Camera3D::_get_adjusted_camera_transform(const Transform3D &p_xform) const {
 	Transform3D tr = p_xform.orthonormalized();
-	tr.origin += tr.basis.get_column(1) * v_offset;
+	tr.origin += tr.basis.get_column(2) * v_offset;
 	tr.origin += tr.basis.get_column(0) * h_offset;
 	return tr;
 }
@@ -416,11 +417,12 @@ Vector3 Camera3D::project_local_ray_normal(const Point2 &p_pos) const {
 	Vector3 ray;
 
 	if (mode == PROJECTION_ORTHOGONAL) {
-		ray = Vector3(0, 0, -1);
+		ray = Vector3(0, 1, 0);
 	} else {
 		Projection cm = _get_camera_projection(_near);
 		Vector2 screen_he = cm.get_viewport_half_extents();
-		ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, -_near).normalized();
+		Vector3 projection_ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, -_near).normalized();
+		ray = CoordinateSystem3D::legacy_z_forward_to_scene_local(projection_ray);
 	}
 
 	return ray;
@@ -446,8 +448,8 @@ Vector3 Camera3D::project_ray_origin(const Point2 &p_pos) const {
 
 		Vector3 ray;
 		ray.x = pos.x * (hsize)-hsize / 2;
-		ray.y = (1.0 - pos.y) * (vsize)-vsize / 2;
-		ray.z = -_near;
+		ray.y = _near;
+		ray.z = (1.0 - pos.y) * (vsize)-vsize / 2;
 		ray = get_camera_transform().xform(ray);
 		return ray;
 	} else {
@@ -457,7 +459,7 @@ Vector3 Camera3D::project_ray_origin(const Point2 &p_pos) const {
 
 bool Camera3D::is_position_behind(const Vector3 &p_pos) const {
 	Transform3D t = get_global_transform();
-	Vector3 eyedir = -t.basis.get_column(2).normalized();
+	Vector3 eyedir = t.basis.get_column(1).normalized();
 	return eyedir.dot(p_pos - t.origin) < _near;
 }
 
@@ -471,10 +473,10 @@ Vector<Vector3> Camera3D::get_near_plane_points() const {
 
 	Vector<Vector3> points = {
 		Vector3(),
-		endpoints[4],
-		endpoints[5],
-		endpoints[6],
-		endpoints[7]
+		CoordinateSystem3D::legacy_z_forward_to_scene_local(endpoints[4]),
+		CoordinateSystem3D::legacy_z_forward_to_scene_local(endpoints[5]),
+		CoordinateSystem3D::legacy_z_forward_to_scene_local(endpoints[6]),
+		CoordinateSystem3D::legacy_z_forward_to_scene_local(endpoints[7])
 	};
 	return points;
 }
@@ -486,7 +488,7 @@ Point2 Camera3D::unproject_position(const Vector3 &p_pos) const {
 
 	Projection cm = _get_camera_projection(_near);
 
-	Plane p(get_camera_transform().xform_inv(p_pos), 1.0);
+	Plane p(CoordinateSystem3D::scene_to_legacy_z_forward_local(get_camera_transform().xform_inv(p_pos)), 1.0);
 
 	p = cm.xform4(p);
 
@@ -523,7 +525,7 @@ Vector3 Camera3D::project_position(const Point2 &p_point, real_t p_z_depth) cons
 	point.y = (1.0 - (p_point.y / viewport_size.y)) * 2.0 - 1.0;
 	point *= vp_he;
 
-	Vector3 p(point.x, point.y, -p_z_depth);
+	Vector3 p = CoordinateSystem3D::legacy_z_forward_to_scene_local(Vector3(point.x, point.y, -p_z_depth));
 
 	return get_camera_transform().xform(p);
 }
@@ -794,7 +796,7 @@ Vector<Plane> Camera3D::get_frustum() const {
 
 	Projection cm = _get_camera_projection(_near);
 
-	return cm.get_projection_planes(get_camera_transform());
+	return cm.get_projection_planes(CoordinateSystem3D::scene_to_legacy_z_forward_transform(get_camera_transform()));
 }
 
 TypedArray<Plane> Camera3D::_get_frustum() const {

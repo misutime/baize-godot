@@ -1036,17 +1036,18 @@ Basis Basis::looking_at(const Vector3 &p_target, const Vector3 &p_up, bool p_use
 	ERR_FAIL_COND_V_MSG(p_target.is_zero_approx(), Basis(), "The target vector can't be zero.");
 	ERR_FAIL_COND_V_MSG(p_up.is_zero_approx(), Basis(), "The up vector can't be zero.");
 #endif
-	Vector3 v_z = p_target.normalized();
-	if (!p_use_model_front) {
-		v_z = -v_z;
+	// 定制坐标系：普通 3D 节点本地 +Y 是前方，本地 +Z 是上方。
+	Vector3 v_y = p_target.normalized();
+	if (p_use_model_front) {
+		v_y = -v_y;
 	}
-	Vector3 v_x = p_up.cross(v_z);
+	Vector3 v_x = v_y.cross(p_up);
 	if (v_x.is_zero_approx()) {
-		WARN_PRINT("Target and up vectors are colinear. This is not advised as it may cause unwanted rotation around local Z axis.");
+		WARN_PRINT("Target and up vectors are colinear. This is not advised as it may cause unwanted rotation around local Y axis.");
 		v_x = p_up.get_any_perpendicular(); // Vectors are almost parallel.
 	}
 	v_x.normalize();
-	Vector3 v_y = v_z.cross(v_x);
+	Vector3 v_z = v_x.cross(v_y);
 
 	Basis basis;
 	basis.set_columns(v_x, v_y, v_z);

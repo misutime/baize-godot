@@ -598,7 +598,7 @@ void EditorNode3DGizmo::handles_intersect_ray(Camera3D *p_camera, const Vector2 
 	Transform3D camera_xform = p_camera->get_global_transform();
 	Transform3D t = spatial_node->get_global_transform();
 	if (billboard_handle) {
-		t.set_look_at(t.origin, t.origin - camera_xform.basis.get_column(2), camera_xform.basis.get_column(1));
+		t.set_look_at(t.origin, t.origin + camera_xform.basis.get_column(Vector3::AXIS_Y), camera_xform.basis.get_column(Vector3::AXIS_Z));
 	}
 
 	float min_d = 1e20;
@@ -674,7 +674,7 @@ bool EditorNode3DGizmo::intersect_ray(Camera3D *p_camera, const Point2 &p_point,
 		Transform3D orig_camera_transform = p_camera->get_camera_transform();
 
 		if (!orig_camera_transform.origin.is_equal_approx(t.origin) &&
-				Math::abs(orig_camera_transform.basis.get_column(Vector3::AXIS_Z).dot(Vector3(0, 1, 0))) < 0.99) {
+				Math::abs(orig_camera_transform.basis.get_column(Vector3::AXIS_Y).dot(Vector3::UP)) < 0.99) {
 			p_camera->look_at(t.origin);
 		}
 
@@ -698,13 +698,13 @@ bool EditorNode3DGizmo::intersect_ray(Camera3D *p_camera, const Point2 &p_point,
 	}
 
 	if (collision_segments.size()) {
-		Plane camp(-p_camera->get_transform().basis.get_column(2).normalized(), p_camera->get_transform().origin);
+		Plane camp(p_camera->get_transform().basis.get_column(Vector3::AXIS_Y).normalized(), p_camera->get_transform().origin);
 
 		int vc = collision_segments.size();
 		const Vector3 *vptr = collision_segments.ptr();
 		Transform3D t = spatial_node->get_global_transform();
 		if (billboard_handle) {
-			t.set_look_at(t.origin, t.origin - p_camera->get_transform().basis.get_column(2), p_camera->get_transform().basis.get_column(1));
+			t.set_look_at(t.origin, t.origin + p_camera->get_transform().basis.get_column(Vector3::AXIS_Y), p_camera->get_transform().basis.get_column(Vector3::AXIS_Z));
 		}
 
 		Vector3 cp;
@@ -750,7 +750,7 @@ bool EditorNode3DGizmo::intersect_ray(Camera3D *p_camera, const Point2 &p_point,
 		Transform3D gt = spatial_node->get_global_transform();
 
 		if (billboard_handle) {
-			gt.set_look_at(gt.origin, gt.origin - p_camera->get_transform().basis.get_column(2), p_camera->get_transform().basis.get_column(1));
+			gt.set_look_at(gt.origin, gt.origin + p_camera->get_transform().basis.get_column(Vector3::AXIS_Y), p_camera->get_transform().basis.get_column(Vector3::AXIS_Z));
 		}
 
 		Transform3D ai = gt.affine_inverse();

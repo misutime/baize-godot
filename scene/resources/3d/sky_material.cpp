@@ -324,7 +324,7 @@ uniform sampler2D sky_cover : filter_linear, source_color, hint_default_black;
 uniform vec4 sky_cover_modulate : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
 void sky() {
-	float v_angle = clamp(EYEDIR.y, -1.0, 1.0);
+	float v_angle = clamp(EYEDIR.z, -1.0, 1.0);
 	vec3 sky = mix(sky_top_color.rgb, sky_horizon_color.rgb, clamp(pow(1.0 - v_angle, inv_sky_curve), 0.0, 1.0));
 
 	if (LIGHT0_ENABLED) {
@@ -375,7 +375,7 @@ void sky() {
 	%s
 	vec3 ground = mix(ground_bottom_color.rgb, ground_horizon_color.rgb, clamp(pow(1.0 + v_angle, inv_ground_curve), 0.0, 1.0));
 
-	COLOR = mix(ground, sky, step(0.0, EYEDIR.y)) * exposure;
+	COLOR = mix(ground, sky, step(0.0, EYEDIR.z)) * exposure;
 }
 )",
 																		  p_use_debanding ? "render_mode use_debanding;" : "", p_use_sky_cover ? "vec4 sky_cover_texture = texture(sky_cover, SKY_COORDS);" : "", p_use_sky_cover ? "sky += (sky_cover_texture.rgb * sky_cover_modulate.rgb) * sky_cover_texture.a * sky_cover_modulate.a;" : ""));
@@ -755,7 +755,7 @@ uniform float exposure : hint_range(0, 128) = 1.0;
 
 uniform sampler2D night_sky : filter_linear, source_color, hint_default_black;
 
-const vec3 UP = vec3( 0.0, 1.0, 0.0 );
+const vec3 UP = vec3( 0.0, 0.0, 1.0 );
 
 // Optical length at zenith for molecules.
 const float rayleigh_zenith_size = 8.4e3;
@@ -770,7 +770,7 @@ void sky() {
 	if (LIGHT0_ENABLED) {
 		float zenith_angle = clamp( dot(UP, normalize(LIGHT0_DIRECTION)), -1.0, 1.0 );
 		float sun_energy = max(0.0, 0.757 * zenith_angle) * LIGHT0_ENERGY;
-		float sun_fade = 1.0 - clamp(1.0 - exp(LIGHT0_DIRECTION.y), 0.0, 1.0);
+		float sun_fade = 1.0 - clamp(1.0 - exp(LIGHT0_DIRECTION.z), 0.0, 1.0);
 
 		// Rayleigh coefficients.
 		float rayleigh_coefficient = rayleigh - ( 1.0 * ( 1.0 - sun_fade ) );

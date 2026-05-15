@@ -1332,7 +1332,7 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 	}
 
 	// Get the camera normal.
-	Plane near_plane = Plane(camera->get_global_transform().basis.get_column(2), cam_pos);
+	Plane near_plane = Plane(-camera->get_global_transform().basis.get_column(Vector3::AXIS_Y), cam_pos);
 
 	near_plane.d -= znear;
 	frustum.push_back(near_plane);
@@ -1437,7 +1437,7 @@ Vector3 RuntimeNodeSelect::_get_screen_to_space(const Vector3 &p_vector3) {
 	real_t znear = camera->get_near();
 	Projection cm = Projection::create_perspective(camera->get_fov(), size.aspect(), znear + p_vector3.z, camera->get_far());
 	Vector2 screen_he = cm.get_viewport_half_extents();
-	return camera_transform.xform(Vector3(((p_vector3.x / size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / size.height)) * 2.0 - 1.0) * screen_he.y, -(znear + p_vector3.z)));
+	return camera_transform.xform(Vector3(((p_vector3.x / size.width) * 2.0 - 1.0) * screen_he.x, znear + p_vector3.z, ((1.0 - (p_vector3.y / size.height)) * 2.0 - 1.0) * screen_he.y));
 }
 
 void RuntimeNodeSelect::_fov_scaled() {
@@ -1530,11 +1530,14 @@ void RuntimeNodeSelect::_reset_camera_3d() {
 	Camera3D *game_camera = root->is_camera_3d_override_enabled() ? root->get_overridden_camera_3d() : root->get_camera_3d();
 	if (game_camera) {
 		Transform3D transform = game_camera->get_camera_transform();
-		transform.translate_local(0, 0, -cursor.distance);
+		transform.translate_local(0, cursor.distance, 0);
 		cursor.pos = transform.origin;
 
-		cursor.x_rot = -game_camera->get_global_rotation().x;
-		cursor.y_rot = -game_camera->get_global_rotation().y;
+		Vector3 forward = game_camera->get_camera_transform().basis.get_column(Vector3::AXIS_Y).normalized();
+		cursor.x_rot = -Math::asin(CLAMP(forward.z, (real_t)-1.0, (real_t)1.0));
+		if (!Vector2(forward.x, forward.y).is_zero_approx()) {
+			cursor.y_rot = Math::atan2(forward.x, forward.y);
+		}
 		cursor.unsnapped_x_rot = cursor.x_rot;
 		cursor.unsnapped_y_rot = cursor.y_rot;
 

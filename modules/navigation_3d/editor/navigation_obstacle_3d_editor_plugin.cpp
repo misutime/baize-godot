@@ -73,7 +73,7 @@ void NavigationObstacle3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 	float height = obstacle->get_height();
 
-	const Basis safe_basis = Basis(Vector3(0.0, 1.0, 0.0), obstacle->get_global_rotation().y, obstacle->get_global_basis().get_scale().abs().maxf(0.001));
+	const Basis safe_basis = Basis(Vector3::UP, obstacle->get_global_rotation().z, obstacle->get_global_basis().get_scale().abs().maxf(0.001));
 	const Basis gbi = obstacle->get_global_basis().inverse();
 	const Basis safe_global_basis = gbi * safe_basis;
 	const int vertex_count = vertices.size();
@@ -89,7 +89,7 @@ void NavigationObstacle3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 		Vector3 next_point = vertices[(i + 1) % vertex_count];
 
 		Vector3 direction = safe_basis.xform(next_point.direction_to(point));
-		Vector3 arrow_dir = direction.cross(Vector3(0.0, 1.0, 0.0));
+		Vector3 arrow_dir = direction.cross(Vector3::UP);
 		Vector3 edge_middle = point + ((next_point - point) * 0.5);
 
 		// Ensure vector stays perpendicular even when scaled non-uniformly.
@@ -99,11 +99,11 @@ void NavigationObstacle3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(point);
 		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(next_point);
 
-		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(point.x, height, point.z));
-		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(next_point.x, height, next_point.z));
+		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(point.x, point.y, height));
+		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(next_point.x, next_point.y, height));
 
 		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(point);
-		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(point.x, height, point.z));
+		lines_mesh_vertices_ptrw[vertex_index++] = safe_global_basis.xform(Vector3(point.x, point.y, height));
 	}
 
 	NavigationServer3D *ns3d = NavigationServer3D::get_singleton();
@@ -137,7 +137,7 @@ int NavigationObstacle3DGizmoPlugin::subgizmos_intersect_ray(const EditorNode3DG
 	ERR_FAIL_NULL_V(obstacle_node, -1);
 
 	const Vector3 safe_scale = obstacle_node->get_global_basis().get_scale().abs().maxf(0.001);
-	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y), obstacle_node->get_global_position());
+	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle_node->get_global_rotation().z), obstacle_node->get_global_position());
 	const Vector<Vector3> &vertices = obstacle_node->get_vertices();
 
 	for (int idx = 0; idx < vertices.size(); ++idx) {
@@ -160,7 +160,7 @@ Vector<int> NavigationObstacle3DGizmoPlugin::subgizmos_intersect_frustum(const E
 	ERR_FAIL_NULL_V(obstacle_node, contained_points);
 
 	const Vector3 safe_scale = obstacle_node->get_global_basis().get_scale().abs().maxf(0.001);
-	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y), obstacle_node->get_global_position());
+	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle_node->get_global_rotation().z), obstacle_node->get_global_position());
 	const Vector<Vector3> &vertices = obstacle_node->get_vertices();
 
 	for (int idx = 0; idx < vertices.size(); ++idx) {
@@ -188,7 +188,7 @@ Transform3D NavigationObstacle3DGizmoPlugin::get_subgizmo_transform(const Editor
 	const Vector<Vector3> &vertices = obstacle_node->get_vertices();
 	ERR_FAIL_INDEX_V(p_id, vertices.size(), Transform3D());
 
-	const Basis safe_basis_inverse = Basis(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001)).inverse();
+	const Basis safe_basis_inverse = Basis(Vector3::UP, obstacle_node->get_global_rotation().z, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001)).inverse();
 	Transform3D subgizmo_transform = Transform3D(Basis(), safe_basis_inverse.xform(vertices[p_id]));
 	return subgizmo_transform;
 }
@@ -197,14 +197,14 @@ void NavigationObstacle3DGizmoPlugin::set_subgizmo_transform(const EditorNode3DG
 	NavigationObstacle3D *obstacle_node = Object::cast_to<NavigationObstacle3D>(p_gizmo->get_node_3d());
 	ERR_FAIL_NULL(obstacle_node);
 
-	const Basis safe_basis = Basis(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001));
+	const Basis safe_basis = Basis(Vector3::UP, obstacle_node->get_global_rotation().z, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001));
 	Vector3 new_vertex_pos = p_transform.origin;
 
 	Vector<Vector3> vertices = obstacle_node->get_vertices();
 	ERR_FAIL_INDEX(p_id, vertices.size());
 
 	Vector3 vertex = safe_basis.xform(new_vertex_pos);
-	vertex.y = 0.0;
+	vertex.z = 0.0;
 	vertices.write[p_id] = vertex;
 
 	obstacle_node->set_vertices(vertices);
@@ -214,7 +214,7 @@ void NavigationObstacle3DGizmoPlugin::commit_subgizmos(const EditorNode3DGizmo *
 	NavigationObstacle3D *obstacle_node = Object::cast_to<NavigationObstacle3D>(p_gizmo->get_node_3d());
 	ERR_FAIL_NULL(obstacle_node);
 
-	const Basis safe_basis = Basis(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001));
+	const Basis safe_basis = Basis(Vector3::UP, obstacle_node->get_global_rotation().z, obstacle_node->get_global_basis().get_scale().abs().maxf(0.001));
 
 	Vector<Vector3> vertices = obstacle_node->get_vertices();
 	Vector<Vector3> restore_vertices = vertices;
@@ -222,7 +222,7 @@ void NavigationObstacle3DGizmoPlugin::commit_subgizmos(const EditorNode3DGizmo *
 	for (int i = 0; i < p_ids.size(); ++i) {
 		const int idx = p_ids[i];
 		Vector3 vertex = safe_basis.xform(p_restore[i].origin);
-		vertex.y = 0.0;
+		vertex.z = 0.0;
 		restore_vertices.write[idx] = vertex;
 	}
 
@@ -401,7 +401,7 @@ void NavigationObstacle3DEditorPlugin::_wip_close() {
 	wip_2d_vertices.resize(wip_vertices.size());
 	for (int i = 0; i < wip_vertices.size(); i++) {
 		const Vector3 &vert = wip_vertices[i];
-		wip_2d_vertices.write[i] = Vector2(vert.x, vert.z);
+		wip_2d_vertices.write[i] = Vector2(vert.x, vert.y);
 	}
 	Vector<int> triangulated_polygon_2d_indices = Geometry2D::triangulate_polygon(wip_2d_vertices);
 
@@ -445,9 +445,9 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 		Vector3 ray_dir = p_camera->project_ray_normal(mouse_position);
 
 		const Vector3 safe_scale = obstacle_node->get_global_basis().get_scale().abs().maxf(0.001);
-		const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y), obstacle_node->get_global_position());
+		const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle_node->get_global_rotation().z), obstacle_node->get_global_position());
 		Transform3D gi = gt.affine_inverse();
-		Plane projection_plane(Vector3(0.0, 1.0, 0.0), gt.origin);
+		Plane projection_plane(Vector3::UP, gt.origin);
 
 		Vector3 spoint;
 
@@ -457,7 +457,7 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 
 		spoint = gi.xform(spoint);
 
-		Vector3 cpoint = Vector3(spoint.x, 0.0, spoint.z);
+		Vector3 cpoint = Vector3(spoint.x, spoint.y, 0.0);
 		Vector<Vector3> obstacle_vertices = obstacle_node->get_vertices();
 
 		real_t grab_threshold = EDITOR_GET("editors/polygon_editor/point_grab_radius");
@@ -662,9 +662,9 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 			Vector3 ray_dir = p_camera->project_ray_normal(mouse_position);
 
 			const Vector3 safe_scale = obstacle_node->get_global_basis().get_scale().abs().maxf(0.001);
-			const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y), obstacle_node->get_global_position());
+			const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle_node->get_global_rotation().z), obstacle_node->get_global_position());
 			Transform3D gi = gt.affine_inverse();
-			Plane projection_plane(Vector3(0.0, 1.0, 0.0), gt.origin);
+			Plane projection_plane(Vector3::UP, gt.origin);
 
 			Vector3 intersection_point;
 
@@ -674,7 +674,7 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 
 			intersection_point = gi.xform(intersection_point);
 
-			Vector2 cpoint(intersection_point.x, intersection_point.z);
+			Vector2 cpoint(intersection_point.x, intersection_point.y);
 
 			if (snap_ignore && !Input::get_singleton()->is_key_pressed(Key::CTRL)) {
 				snap_ignore = false;
@@ -683,7 +683,7 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 			if (!snap_ignore && Node3DEditor::get_singleton()->is_snap_enabled()) {
 				cpoint = cpoint.snappedf(Node3DEditor::get_singleton()->get_translate_snap());
 			}
-			edited_point_pos = Vector3(cpoint.x, 0.0, cpoint.y);
+			edited_point_pos = Vector3(cpoint.x, cpoint.y, 0.0);
 
 			redraw();
 		}
@@ -759,7 +759,7 @@ void NavigationObstacle3DEditorPlugin::redraw() {
 	rs->mesh_add_surface_from_arrays(point_lines_mesh_rid, RSE::PRIMITIVE_LINES, point_lines_mesh_array);
 	rs->instance_set_surface_override_material(point_lines_instance_rid, 0, line_material->get_rid());
 	const Vector3 safe_scale = obstacle_node->get_global_basis().get_scale().abs().maxf(0.001);
-	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3(0.0, 1.0, 0.0), obstacle_node->get_global_rotation().y), obstacle_node->get_global_position());
+	const Transform3D gt = Transform3D(Basis().scaled(safe_scale).rotated(Vector3::UP, obstacle_node->get_global_rotation().z), obstacle_node->get_global_position());
 	rs->instance_set_transform(point_lines_instance_rid, gt);
 
 	Array point_handle_mesh_array;

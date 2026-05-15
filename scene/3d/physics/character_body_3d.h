@@ -63,7 +63,7 @@ public:
 	const Vector3 &get_floor_normal() const;
 	const Vector3 &get_wall_normal() const;
 	const Vector3 &get_real_velocity() const;
-	real_t get_floor_angle(const Vector3 &p_up_direction = Vector3(0.0, 1.0, 0.0)) const;
+	real_t get_floor_angle(const Vector3 &p_up_direction = Vector3::UP) const;
 	const Vector3 &get_platform_velocity() const;
 	const Vector3 &get_platform_angular_velocity() const;
 
@@ -149,7 +149,7 @@ private:
 	real_t floor_snap_length = 0.1;
 	real_t floor_max_angle = Math::deg_to_rad((real_t)45.0);
 	real_t wall_min_slide_angle = Math::deg_to_rad((real_t)15.0);
-	Vector3 up_direction = Vector3(0.0, 1.0, 0.0);
+	Vector3 up_direction = Vector3::UP;
 	Vector3 velocity;
 	Vector3 floor_normal;
 	Vector3 wall_normal;

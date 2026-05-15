@@ -2378,13 +2378,13 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 			}
 
 			Vector3 current_point;
-			Vector3 current_up = Vector3(0, 1, 0);
+			Vector3 current_up = Vector3::UP;
 			Vector3 direction;
 
 			switch (path_rotation) {
 				case PATH_ROTATION_POLYGON:
 					current_point = curve->sample_baked(0);
-					direction = Vector3(0, 0, -1);
+					direction = Vector3::FORWARD;
 					break;
 				case PATH_ROTATION_PATH:
 				case PATH_ROTATION_PATH_FOLLOW:
@@ -2400,7 +2400,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 					} else {
 						Transform3D current_sample_xform = curve->sample_baked_with_rotation(0);
 						current_point = current_sample_xform.get_origin();
-						direction = current_sample_xform.get_basis().xform(Vector3(0, 0, -1));
+						direction = current_sample_xform.get_basis().get_column(Vector3::AXIS_Y);
 					}
 
 					if (path_rotation == PATH_ROTATION_PATH_FOLLOW) {
@@ -2427,7 +2427,8 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 					uv.x = uv.x / 2;
 					uv.y = 1 - (uv.y / 2);
 
-					facesw[face * 3 + face_vertex_idx] = current_xform.xform(Vector3(p.x, p.y, 0));
+					const Vector3 local_point = mode == MODE_PATH ? Vector3(p.x, 0, p.y) : Vector3(p.x, p.y, 0);
+					facesw[face * 3 + face_vertex_idx] = current_xform.xform(local_point);
 					uvsw[face * 3 + face_vertex_idx] = uv;
 				}
 
@@ -2468,7 +2469,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 					Vector3 previous_point = curve->sample_baked(previous_offset);
 					Transform3D current_sample_xform = curve->sample_baked_with_rotation(current_offset);
 					Vector3 current_point = current_sample_xform.get_origin();
-					Vector3 current_up = Vector3(0, 1, 0);
+					Vector3 current_up = Vector3::UP;
 					Vector3 current_extrusion_dir = (current_point - previous_point).normalized();
 					Vector3 direction;
 
@@ -2485,7 +2486,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 
 					switch (path_rotation) {
 						case PATH_ROTATION_POLYGON:
-							direction = Vector3(0, 0, -1);
+							direction = Vector3::FORWARD;
 							break;
 						case PATH_ROTATION_PATH:
 						case PATH_ROTATION_PATH_FOLLOW:
@@ -2497,7 +2498,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 								Vector3 next_point = curve->sample_baked(next_offset);
 								direction = next_point - previous_point;
 							} else {
-								direction = current_sample_xform.get_basis().xform(Vector3(0, 0, -1));
+								direction = current_sample_xform.get_basis().get_column(Vector3::AXIS_Y);
 							}
 
 							if (path_rotation == PATH_ROTATION_PATH_FOLLOW) {
@@ -2525,10 +2526,10 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 				double v1 = ((y0 + 1) * v_step) / 2;
 
 				Vector3 v[4] = {
-					previous_xform.xform(Vector3(shape_polygon[y0].x, shape_polygon[y0].y, 0)),
-					current_xform.xform(Vector3(shape_polygon[y0].x, shape_polygon[y0].y, 0)),
-					current_xform.xform(Vector3(shape_polygon[y1].x, shape_polygon[y1].y, 0)),
-					previous_xform.xform(Vector3(shape_polygon[y1].x, shape_polygon[y1].y, 0)),
+					previous_xform.xform(mode == MODE_PATH ? Vector3(shape_polygon[y0].x, 0, shape_polygon[y0].y) : Vector3(shape_polygon[y0].x, shape_polygon[y0].y, 0)),
+					current_xform.xform(mode == MODE_PATH ? Vector3(shape_polygon[y0].x, 0, shape_polygon[y0].y) : Vector3(shape_polygon[y0].x, shape_polygon[y0].y, 0)),
+					current_xform.xform(mode == MODE_PATH ? Vector3(shape_polygon[y1].x, 0, shape_polygon[y1].y) : Vector3(shape_polygon[y1].x, shape_polygon[y1].y, 0)),
+					previous_xform.xform(mode == MODE_PATH ? Vector3(shape_polygon[y1].x, 0, shape_polygon[y1].y) : Vector3(shape_polygon[y1].x, shape_polygon[y1].y, 0)),
 				};
 
 				Vector2 u[4] = {
@@ -2582,7 +2583,8 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 					uv.x = 1 - uv.x / 2;
 					uv.y = 1 - (uv.y / 2);
 
-					facesw[face * 3 + face_vertex_idx] = current_xform.xform(Vector3(p.x, p.y, 0));
+					const Vector3 local_point = mode == MODE_PATH ? Vector3(p.x, 0, p.y) : Vector3(p.x, p.y, 0);
+					facesw[face * 3 + face_vertex_idx] = current_xform.xform(local_point);
 					uvsw[face * 3 + face_vertex_idx] = uv;
 				}
 

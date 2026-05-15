@@ -701,10 +701,10 @@ void NavigationRegion3D::_update_debug_edge_connections_mesh() {
 		Vector3 direction_start_end = connection_pathway_start.direction_to(connection_pathway_end);
 		Vector3 direction_end_start = connection_pathway_end.direction_to(connection_pathway_start);
 
-		Vector3 start_right_dir = direction_start_end.cross(Vector3(0, 1, 0));
+		Vector3 start_right_dir = direction_start_end.cross(Vector3::UP);
 		Vector3 start_left_dir = -start_right_dir;
 
-		Vector3 end_right_dir = direction_end_start.cross(Vector3(0, 1, 0));
+		Vector3 end_right_dir = direction_end_start.cross(Vector3::UP);
 		Vector3 end_left_dir = -end_right_dir;
 
 		Vector3 left_start_pos = connection_pathway_start + (start_left_dir * half_edge_connection_margin);
