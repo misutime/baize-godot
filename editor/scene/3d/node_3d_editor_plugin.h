@@ -73,14 +73,14 @@ class ViewportRotationControl : public Control {
 
 	struct Axis2D {
 		Vector2 screen_point;
-		float z_axis = -99.0;
+		float view_depth = -99.0;
 		int axis = -1;
 		bool is_positive = true;
 	};
 
 	struct Axis2DCompare {
 		_FORCE_INLINE_ bool operator()(const Axis2D &l, const Axis2D &r) const {
-			return l.z_axis < r.z_axis;
+			return l.view_depth < r.view_depth;
 		}
 	};
 

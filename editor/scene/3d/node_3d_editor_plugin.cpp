@@ -357,7 +357,7 @@ void ViewportRotationControl::_draw_axis(const Axis2D &p_axis) {
 
 	const Color axis_color = axis_colors[direction];
 	const double min_alpha = 0.35;
-	const double alpha = focused ? 1.0 : Math::remap((p_axis.z_axis + 1.0) / 2.0, 0, 0.5, min_alpha, 1.0);
+	const double alpha = focused ? 1.0 : Math::remap((p_axis.view_depth + 1.0) / 2.0, 0, 0.5, min_alpha, 1.0);
 	const Color c = focused ? Color(axis_color.lightened(0.25), 1.0) : Color(axis_color, alpha);
 
 	// Highlight positive axis text when hovered.
@@ -407,30 +407,32 @@ void ViewportRotationControl::_get_sorted_axis(Vector<Axis2D> &r_axis) {
 	const Basis camera_basis = viewport->view_3d_controller->to_camera_transform().get_basis().inverse();
 
 	for (int i = 0; i < 3; ++i) {
-		Vector3 axis_3d = camera_basis.get_column(i);
-		Vector2 axis_vector = Vector2(axis_3d.x, -axis_3d.z) * radius;
+		Vector3 axis_in_camera = camera_basis.get_column(i);
+		Vector2 axis_vector = Vector2(axis_in_camera.x, -axis_in_camera.z) * radius;
 
-		if (Math::abs(axis_3d.y) < 1.0) {
+		if (Math::abs(axis_in_camera.y) < 1.0) {
 			Axis2D pos_axis;
 			pos_axis.axis = i;
 			pos_axis.screen_point = center + axis_vector;
-			pos_axis.z_axis = axis_3d.y;
+			// 这里用的是相机局部坐标：X 是屏幕左右，Y 是视线前后，Z 是屏幕上下。
+			// view_depth 表示控件里的前后层级，值越大越靠近镜头。
+			pos_axis.view_depth = -axis_in_camera.y;
 			pos_axis.is_positive = true;
 			r_axis.push_back(pos_axis);
 
 			Axis2D neg_axis;
 			neg_axis.axis = i + 3;
 			neg_axis.screen_point = center - axis_vector;
-			neg_axis.z_axis = -axis_3d.y;
+			neg_axis.view_depth = axis_in_camera.y;
 			neg_axis.is_positive = false;
 			r_axis.push_back(neg_axis);
 		} else {
 			// Special case when the camera is aligned with one axis.
 			Axis2D axis;
-			axis.axis = i + (axis_3d.y <= 0 ? 0 : 3);
+			axis.axis = i + (axis_in_camera.y <= 0 ? 0 : 3);
 			axis.screen_point = center;
-			axis.z_axis = 1.0;
-			axis.is_positive = axis_3d.y <= 0;
+			axis.view_depth = 1.0;
+			axis.is_positive = axis_in_camera.y <= 0;
 			r_axis.push_back(axis);
 		}
 	}
