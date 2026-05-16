@@ -177,7 +177,7 @@ void RuntimeNodeSelect::_setup(const Dictionary &p_settings) {
 	view_3d_controller->set_z_far(camera_zfar);
 
 	view_3d_controller->set_invert_x_axis(p_settings.get("editors/3d/navigation/invert_x_axis", false));
-	view_3d_controller->set_invert_x_axis(p_settings.get("editors/3d/navigation/invert_y_axis", false));
+	view_3d_controller->set_invert_y_axis(p_settings.get("editors/3d/navigation/invert_y_axis", false));
 
 	view_3d_controller->set_warped_mouse_panning(p_settings.get("editors/3d/navigation/warped_mouse_panning", true));
 
@@ -1333,7 +1333,8 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 	}
 
 	// Get the camera normal.
-	Plane near_plane = Plane(camera->get_global_transform().basis.get_column(2), cam_pos);
+	// Frustum plane normals point outward；相机本地 +Z 是前方，所以 near 面法线要朝后。
+	Plane near_plane = Plane(-camera->get_global_transform().basis.get_column(2), cam_pos);
 
 	near_plane.d -= znear;
 	frustum.push_back(near_plane);
@@ -1438,7 +1439,7 @@ Vector3 RuntimeNodeSelect::_get_screen_to_space(const Vector3 &p_vector3) {
 	real_t znear = camera->get_near();
 	Projection cm = Projection::create_perspective(camera->get_fov(), size.aspect(), znear + p_vector3.z, camera->get_far());
 	Vector2 screen_he = cm.get_viewport_half_extents();
-	return camera_transform.xform(Vector3(((p_vector3.x / size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / size.height)) * 2.0 - 1.0) * screen_he.y, -(znear + p_vector3.z)));
+	return camera_transform.xform(Vector3(((p_vector3.x / size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / size.height)) * 2.0 - 1.0) * screen_he.y, znear + p_vector3.z));
 }
 
 void RuntimeNodeSelect::_fov_scaled() {

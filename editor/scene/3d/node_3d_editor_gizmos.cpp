@@ -698,7 +698,8 @@ bool EditorNode3DGizmo::intersect_ray(Camera3D *p_camera, const Point2 &p_point,
 	}
 
 	if (collision_segments.size()) {
-		Plane camp(-p_camera->get_transform().basis.get_column(2).normalized(), p_camera->get_transform().origin);
+		// 相机本地 +Z 是前方；线段拾取只跳过 near 面以内的点。
+		Plane camp(p_camera->get_transform().basis.get_column(2).normalized(), p_camera->get_transform().origin);
 
 		int vc = collision_segments.size();
 		const Vector3 *vptr = collision_segments.ptr();

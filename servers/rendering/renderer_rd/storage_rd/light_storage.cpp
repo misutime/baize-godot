@@ -745,7 +745,9 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 				Transform3D light_transform = light_instance->transform;
 
-				Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, 1))).normalized();
+				// DirectionalLight3D 的本地 +Z 是光线射出方向；shader 里的 L 是从表面指向光源，
+				// 所以要送入相反方向。否则预览太阳和场景方向光都会从背面参与漫反射计算。
+				Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3::BACK)).normalized();
 
 				light_data.direction[0] = direction.x;
 				light_data.direction[1] = direction.y;
@@ -858,8 +860,8 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 					}
 
 					float fade_start = light->param[RSE::LIGHT_PARAM_SHADOW_FADE_START];
-					light_data.fade_from = -light_data.shadow_split_offsets[3] * MIN(fade_start, 0.999); //using 1.0 would break smoothstep
-					light_data.fade_to = -light_data.shadow_split_offsets[3];
+					light_data.fade_from = light_data.shadow_split_offsets[3] * MIN(fade_start, 0.999); //using 1.0 would break smoothstep
+					light_data.fade_to = light_data.shadow_split_offsets[3];
 				}
 
 				r_directional_light_count++;
@@ -1065,7 +1067,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.position[1] = pos.y;
 		light_data.position[2] = pos.z;
 
-		Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, -1))).normalized();
+		Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3::FORWARD)).normalized();
 
 		light_data.direction[0] = direction.x;
 		light_data.direction[1] = direction.y;

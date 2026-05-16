@@ -134,7 +134,7 @@ void main() {
 
 	vec3 view_pos;
 	view_pos.xy = (fog_unit_pos.xy * 2.0 - 1.0) * mix(scene_params.fog_frustum_size_begin, scene_params.fog_frustum_size_end, vec2(fog_unit_pos.z));
-	view_pos.z = -scene_params.fog_frustum_end * fog_unit_pos.z;
+	view_pos.z = scene_params.fog_frustum_end * fog_unit_pos.z;
 	view_pos.y = -view_pos.y;
 
 	if (scene_params.use_temporal_reprojection) {
@@ -158,7 +158,7 @@ void main() {
 			fog_unit_pos.z = pow(fog_unit_pos.z, scene_params.detail_spread);
 
 			view_pos.xy = (fog_unit_pos.xy * 2.0 - 1.0) * mix(scene_params.fog_frustum_size_begin, scene_params.fog_frustum_size_end, vec2(fog_unit_pos.z));
-			view_pos.z = -scene_params.fog_frustum_end * fog_unit_pos.z;
+			view_pos.z = scene_params.fog_frustum_end * fog_unit_pos.z;
 			view_pos.y = -view_pos.y;
 		}
 	}

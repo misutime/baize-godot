@@ -262,7 +262,7 @@ public:
 		if (p_type == LIGHT_TYPE_OMNI || (p_type == LIGHT_TYPE_SPOT && p_spot_aperture > WIDE_SPOT_ANGLE_THRESHOLD_DEG)) {
 			radius *= shared->sphere_overfit; // Overfit icosphere.
 
-			float depth = -xform.origin.z;
+			float depth = xform.origin.z;
 			if (camera_orthogonal) {
 				e.touches_near = (depth - radius) < z_near;
 			} else {
@@ -297,7 +297,7 @@ public:
 			float min_d = 1e20;
 #define CONE_MINMAX(m_x, m_y) \
 	{ \
-		float d = -xform.xform(Vector3(len * m_x, len * m_y, -radius)).z; \
+		float d = xform.xform(Vector3(len * m_x, len * m_y, radius)).z; \
 		min_d = MIN(d, min_d); \
 		max_d = MAX(d, max_d); \
 	}
@@ -310,11 +310,11 @@ public:
 			if (camera_orthogonal) {
 				e.touches_near = min_d < z_near;
 			} else {
-				Plane base_plane(-xform.basis.get_column(Vector3::AXIS_Z), xform.origin);
+				Plane base_plane(xform.basis.get_column(Vector3::AXIS_Z), xform.origin);
 				float dist = base_plane.distance_to(Vector3());
 				if (dist >= 0 && dist < radius) {
 					// Contains camera inside light, check angle.
-					float angle = Math::rad_to_deg(Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_column(Vector3::AXIS_Z))));
+					float angle = Math::rad_to_deg(Math::acos((-xform.origin.normalized()).dot(xform.basis.get_column(Vector3::AXIS_Z))));
 					e.touches_near = angle < p_spot_aperture * 1.05; //overfit aperture a little due to cone overfit
 				} else {
 					e.touches_near = false;
@@ -340,10 +340,10 @@ public:
 				//scale[i] *= s; // lights ignore scale
 				xform.basis.rows[i] /= s;
 			}
-			xform.origin -= xform.basis.get_column(Vector3::AXIS_Z) * scale.z; // translate center to center of box
+			xform.origin += xform.basis.get_column(Vector3::AXIS_Z) * scale.z; // translate center to center of box
 
-			float depth = -xform.origin.z;
-			float box_depth = Math::abs(xform.basis.xform_inv(Vector3(0, 0, -1)).dot(scale));
+			float depth = xform.origin.z;
+			float box_depth = Math::abs(xform.basis.xform_inv(Vector3::FORWARD).dot(scale));
 
 			if (camera_orthogonal) {
 				e.touches_near = (depth - box_depth) < z_near;
@@ -389,8 +389,8 @@ public:
 			xform.basis.rows[i] /= s;
 		};
 
-		float box_depth = Math::abs(xform.basis.xform_inv(Vector3(0, 0, -1)).dot(scale));
-		float depth = -xform.origin.z;
+		float box_depth = Math::abs(xform.basis.xform_inv(Vector3::FORWARD).dot(scale));
+		float depth = xform.origin.z;
 
 		if (camera_orthogonal) {
 			e.touches_near = depth - box_depth < z_near;

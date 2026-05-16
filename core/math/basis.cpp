@@ -1036,10 +1036,10 @@ Basis Basis::looking_at(const Vector3 &p_target, const Vector3 &p_up, bool p_use
 	ERR_FAIL_COND_V_MSG(p_target.is_zero_approx(), Basis(), "The target vector can't be zero.");
 	ERR_FAIL_COND_V_MSG(p_up.is_zero_approx(), Basis(), "The up vector can't be zero.");
 #endif
+	// 定制坐标系：保持 Y-Up，但把普通 3D 前方改为本地 +Z。
+	// MODEL_FRONT 也是 +Z，所以 use_model_front 作为兼容参数保留，不再反转朝向。
+	(void)p_use_model_front;
 	Vector3 v_z = p_target.normalized();
-	if (!p_use_model_front) {
-		v_z = -v_z;
-	}
 	Vector3 v_x = p_up.cross(v_z);
 	if (v_x.is_zero_approx()) {
 		WARN_PRINT("Target and up vectors are colinear. This is not advised as it may cause unwanted rotation around local Z axis.");

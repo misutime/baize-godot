@@ -47,9 +47,9 @@ Transform3D View3DController::_to_camera_transform(const Cursor &p_cursor) const
 	camera_transform.basis.rotate(Vector3(0, 1, 0), -p_cursor.y_rot);
 
 	if (orthogonal) {
-		camera_transform.translate_local(0, 0, (zfar - znear) / 2.0);
+		camera_transform.translate_local(0, 0, -(zfar - znear) / 2.0);
 	} else {
-		camera_transform.translate_local(0, 0, p_cursor.distance);
+		camera_transform.translate_local(0, 0, -p_cursor.distance);
 	}
 
 	return camera_transform;
@@ -356,9 +356,10 @@ void View3DController::cursor_orbit(const Ref<InputEventWithModifiers> &p_event,
 
 	const float radians_per_pixel = Math::deg_to_rad(orbit_sensitivity);
 
-	cursor.unsnapped_x_rot += p_relative.y * radians_per_pixel * (invert_y_axis ? -1 : 1);
+	// Orbit 以焦点为中心转相机：鼠标向上等价于快捷键 Orbit View Up，鼠标向右等价于 Orbit View Right。
+	cursor.unsnapped_x_rot -= p_relative.y * radians_per_pixel * (invert_y_axis ? -1 : 1);
 	cursor.unsnapped_x_rot = CLAMP(cursor.unsnapped_x_rot, -1.57, 1.57);
-	cursor.unsnapped_y_rot += p_relative.x * radians_per_pixel * (invert_x_axis ? -1 : 1);
+	cursor.unsnapped_y_rot -= p_relative.x * radians_per_pixel * (invert_x_axis ? -1 : 1);
 
 	cursor.x_rot = cursor.unsnapped_x_rot;
 	cursor.y_rot = cursor.unsnapped_y_rot;
@@ -385,13 +386,13 @@ void View3DController::cursor_orbit(const Ref<InputEventWithModifiers> &p_event,
 			if (Math::abs(x_rot_snapped) < snap_threshold) {
 				// Only switch to ortho for 90-degree views.
 				if (Math::abs(y_rot_wrapped) < snap_threshold) {
-					new_view_type = VIEW_TYPE_FRONT;
-				} else if (Math::abs(Math::abs(y_rot_wrapped) - Math::PI) < snap_threshold) {
 					new_view_type = VIEW_TYPE_REAR;
+				} else if (Math::abs(Math::abs(y_rot_wrapped) - Math::PI) < snap_threshold) {
+					new_view_type = VIEW_TYPE_FRONT;
 				} else if (Math::abs(y_rot_wrapped - Math::PI / 2.0) < snap_threshold) {
-					new_view_type = VIEW_TYPE_LEFT;
-				} else if (Math::abs(y_rot_wrapped + Math::PI / 2.0) < snap_threshold) {
 					new_view_type = VIEW_TYPE_RIGHT;
+				} else if (Math::abs(y_rot_wrapped + Math::PI / 2.0) < snap_threshold) {
+					new_view_type = VIEW_TYPE_LEFT;
 				}
 
 			} else if (Math::abs(Math::abs(x_rot_snapped) - Math::PI / 2.0) < snap_threshold) {
@@ -399,7 +400,7 @@ void View3DController::cursor_orbit(const Ref<InputEventWithModifiers> &p_event,
 						Math::abs(Math::abs(y_rot_wrapped) - Math::PI) < snap_threshold ||
 						Math::abs(y_rot_wrapped - Math::PI / 2.0) < snap_threshold ||
 						Math::abs(y_rot_wrapped + Math::PI / 2.0) < snap_threshold) {
-					new_view_type = x_rot_snapped > 0 ? VIEW_TYPE_TOP : VIEW_TYPE_BOTTOM;
+					new_view_type = x_rot_snapped < 0 ? VIEW_TYPE_TOP : VIEW_TYPE_BOTTOM;
 				}
 			}
 		}
@@ -422,16 +423,17 @@ void View3DController::cursor_look(const Ref<InputEventWithModifiers> &p_event, 
 	const Transform3D prev_camera_transform = to_camera_transform();
 
 	if (freelook_invert_y_axis) {
-		cursor.x_rot -= p_relative.y * radians_per_pixel;
-	} else {
 		cursor.x_rot += p_relative.y * radians_per_pixel;
+	} else {
+		cursor.x_rot -= p_relative.y * radians_per_pixel;
 	}
 
 	// Clamp the Y rotation to roughly -90..90 degrees so the user can't look upside-down and end up disoriented.
 	cursor.x_rot = CLAMP(cursor.x_rot, -1.57, 1.57);
 	cursor.unsnapped_x_rot = cursor.x_rot;
 
-	cursor.y_rot += p_relative.x * radians_per_pixel;
+	// cursor.y_rot 在生成相机 basis 时会取负号；鼠标向右时要让前方向量偏向世界 +X。
+	cursor.y_rot -= p_relative.x * radians_per_pixel;
 	cursor.unsnapped_y_rot = cursor.y_rot;
 
 	// Look is like the opposite of Orbit: the focus point rotates around the camera
@@ -493,7 +495,8 @@ void View3DController::update_camera(const real_t p_delta) {
 		}
 
 		if (freelook) {
-			Vector3 forward = _to_camera_transform(cursor_interp).basis.xform(Vector3(0, 0, -1));
+			// 当前定制坐标系中，相机本地 +Z 就是看向的前方。
+			Vector3 forward = _to_camera_transform(cursor_interp).basis.get_column(Vector3::AXIS_Z);
 			cursor_interp.pos = cursor_interp.eye_pos + forward * cursor_interp.distance;
 		} else {
 			cursor_interp.pos = old_camera_cursor.pos.lerp(cursor.pos, MIN(1.f, p_delta * (1 / translation_inertia)));
@@ -529,10 +532,10 @@ void View3DController::update_freelook(const float p_delta) {
 	Vector3 forward;
 	if (freelook_scheme == FREELOOK_FULLY_AXIS_LOCKED) {
 		// Forward/backward keys will always go straight forward/backward, never moving on the Y axis.
-		forward = Vector3(0, 0, -1).rotated(Vector3(0, 1, 0), camera_transform.get_basis().get_euler().y);
+		forward = Vector3::FORWARD.rotated(Vector3::UP, camera_transform.get_basis().get_euler().y);
 	} else {
 		// Forward/backward keys will be relative to the camera pitch.
-		forward = camera_transform.basis.xform(Vector3(0, 0, -1));
+		forward = camera_transform.basis.get_column(Vector3::AXIS_Z);
 	}
 
 	const Vector3 right = camera_transform.basis.xform(Vector3(1, 0, 0));
@@ -716,7 +719,7 @@ void View3DController::set_freelook_enabled(const bool p_enabled) {
 
 	if (freelook) {
 		// Make sure eye_pos is synced, because freelook referential is eye pos rather than orbit pos.
-		Vector3 forward = to_camera_transform().basis.xform(Vector3(0, 0, -1));
+		Vector3 forward = to_camera_transform().basis.get_column(Vector3::AXIS_Z);
 		cursor.eye_pos = cursor.pos - cursor.distance * forward;
 		// Also sync the interpolated cursor's eye_pos, otherwise switching to freelook will be trippy if inertia is active.
 		cursor_interp.eye_pos = cursor.eye_pos;

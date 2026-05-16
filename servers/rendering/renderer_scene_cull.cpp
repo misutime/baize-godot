@@ -2225,7 +2225,8 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 		Vector3 x_vec = transform.basis.get_column(Vector3::AXIS_X).normalized();
 		Vector3 y_vec = transform.basis.get_column(Vector3::AXIS_Y).normalized();
 		Vector3 z_vec = transform.basis.get_column(Vector3::AXIS_Z).normalized();
-		//z_vec points against the camera, like in default opengl
+		// 定制坐标系中相机和灯光的本地 +Z 都是前方。Directional shadow camera
+		// 要站在光空间近端，沿 +Z 穿过整个 cascade。
 
 		real_t x_min = 0.f, x_max = 0.f;
 		real_t y_min = 0.f, y_max = 0.f;
@@ -2332,7 +2333,10 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 		light_frustum_planes.write[3] = Plane(-y_vec, -y_min);
 		//near/far
 		light_frustum_planes.write[4] = Plane(z_vec, z_max + 1e6);
-		light_frustum_planes.write[5] = Plane(-z_vec, -z_min); // z_min is ok, since casters further than far-light plane are not needed
+		// 投影相机从 z_min_cam 近端沿本地 +Z 渲染。投射阴影的物体可能比主相机
+		// frustum 的 z_min 更靠近光源，所以这里也要用 z_min_cam，避免把可见接收面
+		// 上方的投影物提前裁掉。
+		light_frustum_planes.write[5] = Plane(-z_vec, -z_min_cam);
 
 		// a pre pass will need to be needed to determine the actual z-near to be used
 
@@ -2349,7 +2353,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 			Transform3D ortho_transform;
 			ortho_transform.basis = transform.basis;
-			ortho_transform.origin = x_vec * (x_min_cam + half_x) + y_vec * (y_min_cam + half_y) + z_vec * z_max;
+			ortho_transform.origin = x_vec * (x_min_cam + half_x) + y_vec * (y_min_cam + half_y) + z_vec * z_min_cam;
 
 			cull.shadows[p_shadow_index].cascades[i].frustum = Frustum(light_frustum_planes);
 			cull.shadows[p_shadow_index].cascades[i].projection = ortho_camera;
@@ -2358,7 +2362,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			cull.shadows[p_shadow_index].cascades[i].split = distances[i + 1];
 			cull.shadows[p_shadow_index].cascades[i].shadow_texel_size = radius * 2.0 / texture_size;
 			cull.shadows[p_shadow_index].cascades[i].bias_scale = (z_max - z_min_cam);
-			cull.shadows[p_shadow_index].cascades[i].range_begin = z_max;
+			cull.shadows[p_shadow_index].cascades[i].range_begin = z_min_cam;
 			cull.shadows[p_shadow_index].cascades[i].uv_scale = uv_scale;
 		}
 	}
@@ -2605,7 +2609,9 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			real_t radius = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE);
 			Vector2 half_size = RSG::light_storage->light_area_get_size(p_instance->base) / 2.0;
 
-			real_t z = -1;
+			// AreaLight3D 的照射方向已经随项目坐标系迁移到本地 +Z，
+			// 阴影裁剪体也要从 +Z 一侧向外展开。
+			real_t z = 1;
 			Vector<Plane> planes;
 			planes.resize(6);
 			planes.write[0] = light_transform.xform(Plane(Vector3(0, 0, z), radius));
@@ -3512,7 +3518,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 				Transform3D cam_xf = p_camera_data->main_transform;
 				float zn = p_camera_data->main_projection.get_z_near();
-				Plane p(-cam_xf.basis.get_column(2), cam_xf.origin + cam_xf.basis.get_column(2) * -zn); //camera near plane
+				// 相机本地 +Z 是前方；near 面位于相机前方 z_near 处，法线朝相机后方。
+				Plane p(-cam_xf.basis.get_column(2), cam_xf.origin + cam_xf.basis.get_column(2) * zn);
 
 				// near plane half width and height
 				Vector2 vp_half_extents = p_camera_data->main_projection.get_viewport_half_extents();
@@ -3548,7 +3555,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 						float w = radius * Math::sin(Math::deg_to_rad(angle));
 						float d = radius * Math::cos(Math::deg_to_rad(angle));
 
-						Vector3 base = ins->transform.origin - ins->transform.basis.get_column(2).normalized() * d;
+						// SpotLight3D 本地 +Z 是照射方向，cone base 位于光源前方。
+						Vector3 base = ins->transform.origin + ins->transform.basis.get_column(2).normalized() * d;
 
 						Vector3 points[2] = {
 							base,

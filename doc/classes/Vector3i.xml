@@ -201,10 +201,10 @@
 		<constant name="DOWN" value="Vector3i(0, -1, 0)">
 			Down unit vector.
 		</constant>
-		<constant name="FORWARD" value="Vector3i(0, 0, -1)">
+		<constant name="FORWARD" value="Vector3i(0, 0, 1)">
 			Forward unit vector. Represents the local direction of forward, and the global direction of north.
 		</constant>
-		<constant name="BACK" value="Vector3i(0, 0, 1)">
+		<constant name="BACK" value="Vector3i(0, 0, -1)">
 			Back unit vector. Represents the local direction of back, and the global direction of south.
 		</constant>
 	</constants>

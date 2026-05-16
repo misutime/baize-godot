@@ -13,7 +13,7 @@
 		- [b]Orthonormal[/b] if it is both orthogonal and normalized, which allows it to only represent rotations (see [method orthonormalized]).
 		- [b]Conformal[/b] if it is both orthogonal and uniform, which ensures it is not distorted.
 		For a general introduction, see the [url=$DOCS_URL/tutorials/math/matrices_and_transforms.html]Matrices and transforms[/url] tutorial.
-		[b]Note:[/b] Godot uses a [url=https://en.wikipedia.org/wiki/Right-hand_rule]right-handed coordinate system[/url], which is a common standard. For directions, the convention for built-in types like [Camera3D] is for -Z to point forward (+X is right, +Y is up, and +Z is back). Other objects may use different direction conventions. For more information, see the [url=$DOCS_URL/tutorials/assets_pipeline/importing_3d_scenes/model_export_considerations.html#d-asset-direction-conventions]3D asset direction conventions[/url] tutorial.
+		[b]Note:[/b] This customized build uses a Y-up 3D coordinate convention where +X points right, +Y points up, and +Z points forward.
 		[b]Note:[/b] The basis matrices are exposed as [url=https://www.mindcontrol.org/~hplus/graphics/matrix-layout.html]column-major[/url] order, which is the same as OpenGL. However, they are stored internally in row-major order, which is the same as DirectX.
 		[b]Note:[/b] In a boolean context, a basis will evaluate to [code]false[/code] if it's equal to [constant IDENTITY]. Otherwise, a basis will always evaluate to [code]true[/code].
 	</description>
@@ -219,8 +219,8 @@
 			<param index="1" name="up" type="Vector3" default="Vector3(0, 1, 0)" />
 			<param index="2" name="use_model_front" type="bool" default="false" />
 			<description>
-				Creates a new [Basis] with a rotation such that the forward axis (-Z) points towards the [param target] position.
-				By default, the -Z axis (camera forward) is treated as forward (implies +X is right). If [param use_model_front] is [code]true[/code], the +Z axis (asset front) is treated as forward (implies +X is left) and points toward the [param target] position.
+				Creates a new [Basis] with a rotation such that the forward axis (+Z) points towards the [param target] position.
+				In this customized Y-up coordinate system, the regular forward axis and the model front axis both use +Z, so [param use_model_front] is kept only for compatibility.
 				The up axis (+Y) points as close to the [param up] vector as possible while staying perpendicular to the forward axis. The returned basis is orthonormalized (see [method orthonormalized]).
 				The [param target] and the [param up] cannot be [constant Vector3.ZERO], and shouldn't be colinear to avoid unintended rotation around local Z axis.
 			</description>
@@ -432,7 +432,7 @@
 		</member>
 		<member name="z" type="Vector3" setter="" getter="" default="Vector3(0, 0, 1)">
 			The basis's Z axis, and the column [code]2[/code] of the matrix.
-			On the identity basis, this vector points back ([constant Vector3.BACK]).
+			On the identity basis, this vector points forward ([constant Vector3.FORWARD]).
 		</member>
 	</members>
 	<constants>
@@ -440,7 +440,7 @@
 			The identity [Basis]. This is an orthonormal basis with no rotation, no shear, and a scale of [constant Vector3.ONE]. This also means that:
 			- The [member x] points right ([constant Vector3.RIGHT]);
 			- The [member y] points up ([constant Vector3.UP]);
-			- The [member z] points back ([constant Vector3.BACK]).
+			- The [member z] points forward ([constant Vector3.FORWARD]).
 			[codeblock]
 			var basis = Basis.IDENTITY
 			print("| X | Y | Z")

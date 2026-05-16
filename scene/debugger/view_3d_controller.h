@@ -155,8 +155,8 @@ public:
 		Point2 region_end;
 
 		Cursor() {
-			// These rotations place the camera in +X +Y +Z, aka south east, facing north west.
-			x_rot = 0.5;
+			// 默认用户视角放在后上方，沿 +Z 看向原点，符合 +Z Forward 的入门观察习惯。
+			x_rot = -0.5;
 			y_rot = -0.5;
 			unsnapped_x_rot = x_rot;
 			unsnapped_y_rot = y_rot;

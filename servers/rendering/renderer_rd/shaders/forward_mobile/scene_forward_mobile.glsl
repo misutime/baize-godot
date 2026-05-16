@@ -1974,7 +1974,7 @@ void main() {
 				half shadow = half(1.0);
 
 				if (directional_lights.data[i].shadow_opacity > 0.001) {
-					float depth_z = -vertex.z;
+					float depth_z = vertex.z;
 
 					vec4 pssm_coord;
 					float blur_factor;
@@ -2064,9 +2064,9 @@ void main() {
 
 #ifdef USE_LIGHTMAP
 					if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_REPLACE) {
-						shadow = mix(shadow, shadowmask, half(smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z))); //done with negative values for performance
+						shadow = mix(shadow, shadowmask, half(smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)));
 					} else if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_OVERLAY) {
-						shadow = shadowmask * mix(shadow, half(1.0), half(smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z))); //done with negative values for performance
+						shadow = shadowmask * mix(shadow, half(1.0), half(smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)));
 					} else {
 #endif
 						shadow = mix(shadow, half(1.0), half(smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)));
@@ -2119,11 +2119,11 @@ void main() {
 
 			vec3 tint = vec3(1.0);
 #ifdef DEBUG_DRAW_PSSM_SPLITS
-			if (-vertex.z < directional_lights.data[i].shadow_split_offsets.x) {
+			if (vertex.z < directional_lights.data[i].shadow_split_offsets.x) {
 				tint = vec3(1.0, 0.0, 0.0);
-			} else if (-vertex.z < directional_lights.data[i].shadow_split_offsets.y) {
+			} else if (vertex.z < directional_lights.data[i].shadow_split_offsets.y) {
 				tint = vec3(0.0, 1.0, 0.0);
-			} else if (-vertex.z < directional_lights.data[i].shadow_split_offsets.z) {
+			} else if (vertex.z < directional_lights.data[i].shadow_split_offsets.z) {
 				tint = vec3(0.0, 0.0, 1.0);
 			} else {
 				tint = vec3(1.0, 1.0, 0.0);
@@ -2294,7 +2294,7 @@ void main() {
 
 	normal_output_buffer.rgb = normal * 0.5 + 0.5;
 	normal_output_buffer.a = 0.0;
-	depth_output_buffer.r = -vertex.z;
+	depth_output_buffer.r = vertex.z;
 
 	orm_output_buffer.r = ao;
 	orm_output_buffer.g = roughness;

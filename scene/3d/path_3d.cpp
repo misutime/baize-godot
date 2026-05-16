@@ -293,13 +293,10 @@ void PathFollow3D::update_transform() {
 		t.origin = pos;
 	} else {
 		t = c->sample_baked_with_rotation(progress, cubic, false);
-		Vector3 tangent = -t.basis.get_column(2); // Retain tangent for applying tilt.
+		Vector3 tangent = t.basis.get_column(2); // Retain tangent for applying tilt.
 		t = PathFollow3D::correct_posture(t, rotation_mode);
 
-		// Switch Z+ and Z- if necessary.
-		if (use_model_front) {
-			t.basis *= Basis::from_scale(Vector3(-1.0, 1.0, -1.0));
-		}
+		// 兼容旧属性：当前定制坐标系里普通前方和模型正面都使用 +Z。
 
 		// Apply tilt *after* correct_posture().
 		if (tilt_enabled) {
@@ -381,7 +378,7 @@ Transform3D PathFollow3D::correct_posture(Transform3D p_transform, PathFollow3D:
 		// Clear rotation.
 		t.basis = Basis();
 	} else if (p_rotation_mode == PathFollow3D::ROTATION_ORIENTED) {
-		Vector3 tangent = -t.basis.get_column(2);
+		Vector3 tangent = t.basis.get_column(2);
 
 		// Y-axis points up by default.
 		t.basis = Basis::looking_at(tangent);

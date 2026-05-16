@@ -451,10 +451,10 @@
 		<constant name="DOWN" value="Vector3(0, -1, 0)">
 			Down unit vector.
 		</constant>
-		<constant name="FORWARD" value="Vector3(0, 0, -1)">
-			Forward unit vector. Represents the local direction of forward, and the global direction of north. Keep in mind that the forward direction for lights, cameras, etc is different from 3D assets like characters, which face towards the camera by convention. Use [constant Vector3.MODEL_FRONT] and similar constants when working in 3D asset space.
+		<constant name="FORWARD" value="Vector3(0, 0, 1)">
+			Forward unit vector. Represents the local direction of forward, and the global direction of north.
 		</constant>
-		<constant name="BACK" value="Vector3(0, 0, 1)">
+		<constant name="BACK" value="Vector3(0, 0, -1)">
 			Back unit vector. Represents the local direction of back, and the global direction of south.
 		</constant>
 		<constant name="MODEL_LEFT" value="Vector3(1, 0, 0)">

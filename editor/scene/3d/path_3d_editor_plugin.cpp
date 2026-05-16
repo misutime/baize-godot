@@ -218,7 +218,7 @@ void Path3DGizmo::set_handle(int p_id, bool p_secondary, Camera3D *p_camera, con
 			const int idx = info.point_idx;
 			const Vector3 position = c->get_point_position(idx);
 			const Basis posture = c->get_point_baked_posture(idx);
-			const Vector3 tangent = -posture.get_column(2);
+			const Vector3 tangent = posture.get_column(2);
 			const Vector3 up = posture.get_column(1);
 			const Plane tilt_plane_global = gt.xform(Plane(tangent, position));
 

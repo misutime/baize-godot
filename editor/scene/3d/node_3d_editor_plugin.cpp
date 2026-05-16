@@ -252,7 +252,7 @@ void ViewportNavigationControl::_update_navigation() {
 			Vector3 forward;
 			if (viewport->view_3d_controller->get_freelook_scheme() == View3DController::FreelookScheme::FREELOOK_FULLY_AXIS_LOCKED) {
 				// Forward/backward keys will always go straight forward/backward, never moving on the Y axis.
-				forward = Vector3(0, 0, delta_normalized.y).rotated(Vector3(0, 1, 0), viewport->camera->get_rotation().y);
+				forward = Vector3(0, 0, delta_normalized.y).rotated(Vector3::UP, viewport->camera->get_rotation().y);
 			} else {
 				// Forward/backward keys will be relative to the camera pitch.
 				forward = viewport->camera->get_transform().basis.xform(Vector3(0, 0, delta_normalized.y));
@@ -414,24 +414,25 @@ void ViewportRotationControl::_get_sorted_axis(Vector<Axis2D> &r_axis) {
 			Axis2D pos_axis;
 			pos_axis.axis = i;
 			pos_axis.screen_point = center + axis_vector;
-			pos_axis.z_axis = axis_3d.z;
+			// 相机本地 +Z 是看向场景深处；数值越小越靠近观察者，所以这里反过来排序和淡化。
+			pos_axis.z_axis = -axis_3d.z;
 			pos_axis.is_positive = true;
 			r_axis.push_back(pos_axis);
 
 			Axis2D neg_axis;
 			neg_axis.axis = i + 3;
 			neg_axis.screen_point = center - axis_vector;
-			neg_axis.z_axis = -axis_3d.z;
+			neg_axis.z_axis = axis_3d.z;
 			neg_axis.is_positive = false;
 			r_axis.push_back(neg_axis);
 		} else {
 			// Special case when the camera is aligned with one axis.
 			Axis2D axis;
-			axis.axis = i + (axis_3d.z <= 0 ? 0 : 3);
+			const bool positive_axis_faces_viewer = axis_3d.z < 0;
+			axis.axis = i + (positive_axis_faces_viewer ? 0 : 3);
 			axis.screen_point = center;
 			axis.z_axis = 1.0;
-			// Invert display style to fix aligned axis rendering.
-			axis.is_positive = (axis_3d.z > 0);
+			axis.is_positive = positive_axis_faces_viewer;
 			r_axis.push_back(axis);
 		}
 	}
@@ -672,7 +673,7 @@ Vector3 Node3DEditorViewport::get_ray_pos(const Vector2 &p_pos) const {
 }
 
 Vector3 Node3DEditorViewport::_get_camera_normal() const {
-	return -_get_camera_transform().basis.get_column(2);
+	return _get_camera_transform().basis.get_column(2);
 }
 
 Vector3 Node3DEditorViewport::get_ray(const Vector2 &p_pos) const {
@@ -1218,13 +1219,9 @@ Vector3 Node3DEditorViewport::_get_screen_to_space(const Vector3 &p_vector3) {
 	}
 	Vector2 screen_he = cm.get_viewport_half_extents();
 
-	Transform3D camera_transform;
-	camera_transform.translate_local(view_3d_controller->cursor.pos);
-	camera_transform.basis.rotate(Vector3(1, 0, 0), -view_3d_controller->cursor.x_rot);
-	camera_transform.basis.rotate(Vector3(0, 1, 0), -view_3d_controller->cursor.y_rot);
-	camera_transform.translate_local(0, 0, view_3d_controller->cursor.distance);
-
-	return camera_transform.xform(Vector3(((p_vector3.x / get_size().width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / get_size().height)) * 2.0 - 1.0) * screen_he.y, -(get_znear() + p_vector3.z)));
+	Transform3D camera_transform = view_3d_controller->to_camera_transform();
+	// 相机本地 +Z 是前方，所以屏幕上的深度点也沿 +Z 推进。
+	return camera_transform.xform(Vector3(((p_vector3.x / get_size().width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (p_vector3.y / get_size().height)) * 2.0 - 1.0) * screen_he.y, get_znear() + p_vector3.z));
 }
 
 Vector<Plane> Node3DEditorViewport::_build_screen_frustum(const Point2 &p_min, const Point2 &p_max) {
@@ -4360,7 +4357,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 	switch (p_option) {
 		case VIEW_TOP: {
 			view_3d_controller->cursor.y_rot = 0;
-			view_3d_controller->cursor.x_rot = Math::PI / 2.0;
+			view_3d_controller->cursor.x_rot = -Math::PI / 2.0;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			set_message(TTR("Top View."), 2);
@@ -4369,7 +4366,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_BOTTOM: {
 			view_3d_controller->cursor.y_rot = 0;
-			view_3d_controller->cursor.x_rot = -Math::PI / 2.0;
+			view_3d_controller->cursor.x_rot = Math::PI / 2.0;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			set_message(TTR("Bottom View."), 2);
@@ -4378,7 +4375,8 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_LEFT: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = Math::PI / 2.0;
+			// 左视图站在 -X 侧，朝 +X 看。
+			view_3d_controller->cursor.y_rot = -Math::PI / 2.0;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Left View."), 2);
@@ -4387,7 +4385,8 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_RIGHT: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = -Math::PI / 2.0;
+			// 右视图站在 +X 侧，朝 -X 看。
+			view_3d_controller->cursor.y_rot = Math::PI / 2.0;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Right View."), 2);
@@ -4396,7 +4395,8 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_FRONT: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = 0;
+			// +Z 是物体前方；前视图要站在 +Z 侧，朝 -Z 看物体正面。
+			view_3d_controller->cursor.y_rot = Math::PI;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Front View."), 2);
@@ -4405,7 +4405,8 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_REAR: {
 			view_3d_controller->cursor.x_rot = 0;
-			view_3d_controller->cursor.y_rot = Math::PI;
+			// 后视图站在 -Z 侧，沿 +Z 看。
+			view_3d_controller->cursor.y_rot = 0;
 			view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
 			view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
 			set_message(TTR("Rear View."), 2);
@@ -4774,7 +4775,8 @@ void Node3DEditorViewport::_sync_cursor_from_transform(const Transform3D &p_tran
 	if (view_3d_controller->is_orthogonal()) {
 		distance = (get_zfar() - get_znear()) / 2.0;
 	}
-	view_3d_controller->cursor.pos = p_transform.origin - basis.get_column(2) * distance;
+	// 从相机位置反推环绕中心：眼睛在中心点沿前方反方向 distance 的位置。
+	view_3d_controller->cursor.pos = p_transform.origin + basis.get_column(2) * distance;
 }
 
 void Node3DEditorViewport::_update_centered_labels() {
@@ -5045,8 +5047,9 @@ void Node3DEditorViewport::update_transform_gizmo_view() {
 		return;
 	}
 
-	const Vector3 camz = -camera_xform.get_basis().get_column(2).normalized();
-	const Vector3 camy = -camera_xform.get_basis().get_column(1).normalized();
+	// 编辑器相机本地 +Z 是视线前方，+Y 是屏幕上方。
+	const Vector3 camz = camera_xform.get_basis().get_column(2).normalized();
+	const Vector3 camy = camera_xform.get_basis().get_column(1).normalized();
 	const Plane p = Plane(camz, camera_xform.origin);
 	const real_t gizmo_d = MAX(Math::abs(p.distance_to(xform.origin)), CMP_EPSILON);
 	const real_t d0 = camera->unproject_position(camera_xform.origin + camz * gizmo_d).y;
@@ -7654,6 +7657,7 @@ Dictionary Node3DEditor::get_state() const {
 		Dictionary pd;
 
 		pd["sun_rotation"] = sun_rotation;
+		pd["sun_rotation_coordinate_version"] = 1;
 
 		pd["environ_sky_color"] = environ_sky_color->get_pick_color();
 		pd["environ_ground_color"] = environ_ground_color->get_pick_color();
@@ -7813,6 +7817,10 @@ void Node3DEditor::set_state(const Dictionary &p_state) {
 		sun_environ_updating = true;
 		Dictionary pd = d["preview_sun_env"];
 		sun_rotation = pd["sun_rotation"];
+		if (!pd.has("sun_rotation_coordinate_version")) {
+			// 旧编辑器状态把正太阳高度角保存为负 x 旋转；迁移到本地 +Z 前方后要翻回正值。
+			sun_rotation.x = -sun_rotation.x;
+		}
 
 		environ_sky_color->set_pick_color(pd["environ_sky_color"]);
 		environ_ground_color->set_pick_color(pd["environ_ground_color"]);
@@ -8372,6 +8380,8 @@ void fragment() {
 
 	ALBEDO = COLOR.rgb;
 	ALPHA *= COLOR.a * line;
+	// 编辑器原点线是辅助显示。和真实几何共面时，让真实几何压住它，避免看起来像物体漂在网格上方。
+	DEPTH = max(FRAGCOORD.z - 0.00001, 0.0);
 }
 )");
 
@@ -8484,6 +8494,8 @@ void fragment() {
 	dist_fade = smoothstep(0.02, 0.3, dist_fade);
 
 	ALPHA = COLOR.a * dist_fade * angle_fade;
+	// Godot 使用反向 Z 深度，数值越小越远。网格和地面共面时略微退后，避免压在物体表面上。
+	DEPTH = max(FRAGCOORD.z - 0.00001, 0.0);
 }
 )");
 
@@ -8505,8 +8517,8 @@ void fragment() {
 	{
 		//move gizmo
 
-		// Inverted zxy.
-		Vector3 ivec = Vector3(0, 0, -1);
+		// 移动/缩放箭头的基础网格沿本地 +Z 建立；外层 axis_angle 会把 +Z 对准 X/Y/Z 目标轴。
+		Vector3 ivec = Vector3::FORWARD;
 		Vector3 nivec = Vector3(-1, -1, 0);
 		Vector3 ivec2 = Vector3(-1, 0, 0);
 		Vector3 ivec3 = Vector3(0, -1, 0);
@@ -9069,7 +9081,7 @@ void Node3DEditor::_init_grid() {
 
 		if (orthogonal) {
 			camera_distance = camera->get_size() / 2.0;
-			Vector3 camera_direction = -camera->get_global_transform().get_basis().get_column(2);
+			Vector3 camera_direction = camera->get_global_transform().get_basis().get_column(2);
 			Plane grid_plane = Plane(normal);
 			Vector3 intersection;
 			if (grid_plane.intersects_ray(camera_position, camera_direction, &intersection)) {
@@ -10185,7 +10197,9 @@ void Node3DEditor::_preview_settings_changed() {
 	}
 
 	{ // preview sun
-		sun_rotation.x = Math::deg_to_rad(-sun_angle_altitude->get_value());
+		// 预览太阳的本地 +Z 是光线射出方向。正 altitude 表示太阳在天空中，
+		// 所以光线应向下照到地面；在 +Z 前方约定下这里使用正俯仰角。
+		sun_rotation.x = Math::deg_to_rad(sun_angle_altitude->get_value());
 		sun_rotation.y = Math::deg_to_rad(180.0 - sun_angle_azimuth->get_value());
 		Transform3D t;
 		t.basis = Basis::from_euler(Vector3(sun_rotation.x, sun_rotation.y, 0));
@@ -10217,14 +10231,14 @@ void Node3DEditor::_load_default_preview_settings() {
 	sun_environ_updating = true;
 
 	// These default rotations place the preview sun at an angular altitude
-	// of 60 degrees (must be negative) and an azimuth of 30 degrees clockwise
-	// from north (or 150 CCW from south), from north east, facing south west.
+	// of 60 degrees and an azimuth of 30 degrees clockwise from north
+	// (or 150 CCW from south), from north east, facing south west.
 	// On any not-tidally-locked planet, a sun would have an angular altitude
 	// of 60 degrees as the average of all points on the sphere at noon.
 	// The azimuth choice is arbitrary, but ideally shouldn't be on an axis.
-	sun_rotation = Vector2(-Math::deg_to_rad(60.0), Math::deg_to_rad(150.0));
+	sun_rotation = Vector2(Math::deg_to_rad(60.0), Math::deg_to_rad(150.0));
 
-	sun_angle_altitude->set_value_no_signal(-Math::rad_to_deg(sun_rotation.x));
+	sun_angle_altitude->set_value_no_signal(Math::rad_to_deg(sun_rotation.x));
 	sun_angle_azimuth->set_value_no_signal(180.0 - Math::rad_to_deg(sun_rotation.y));
 	sun_direction->queue_redraw();
 	environ_sky_color->set_pick_color(Color(0.385, 0.454, 0.55));
@@ -10272,7 +10286,7 @@ void Node3DEditor::_update_preview_environment() {
 		}
 	}
 
-	sun_angle_altitude->set_value_no_signal(-Math::rad_to_deg(sun_rotation.x));
+	sun_angle_altitude->set_value_no_signal(Math::rad_to_deg(sun_rotation.x));
 	sun_angle_azimuth->set_value_no_signal(180.0 - Math::rad_to_deg(sun_rotation.y));
 
 	bool disable_env = world_env_count > 0 || !environ_button->is_pressed();
@@ -10311,7 +10325,7 @@ void Node3DEditor::_sun_direction_input(const Ref<InputEvent> &p_event) {
 
 		EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
 		undo_redo->create_action(TTR("Set Preview Sun Direction"), UndoRedo::MergeMode::MERGE_ENDS);
-		undo_redo->add_do_method(sun_angle_altitude, "set_value_no_signal", -Math::rad_to_deg(sun_rotation.x));
+		undo_redo->add_do_method(sun_angle_altitude, "set_value_no_signal", Math::rad_to_deg(sun_rotation.x));
 		undo_redo->add_undo_method(sun_angle_altitude, "set_value_no_signal", sun_angle_altitude->get_value());
 		undo_redo->add_do_method(sun_angle_azimuth, "set_value_no_signal", 180.0 - Math::rad_to_deg(sun_rotation.y));
 		undo_redo->add_undo_method(sun_angle_azimuth, "set_value_no_signal", sun_angle_azimuth->get_value());
@@ -10325,7 +10339,7 @@ void Node3DEditor::_sun_direction_set_altitude(float p_altitude) {
 	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
 	undo_redo->create_action(TTR("Set Preview Sun Altitude"), UndoRedo::MergeMode::MERGE_ENDS);
 	undo_redo->add_do_method(sun_angle_altitude, "set_value_no_signal", p_altitude);
-	undo_redo->add_undo_method(sun_angle_altitude, "set_value_no_signal", -Math::rad_to_deg(sun_rotation.x));
+	undo_redo->add_undo_method(sun_angle_altitude, "set_value_no_signal", Math::rad_to_deg(sun_rotation.x));
 	undo_redo->add_do_method(this, "_preview_settings_changed");
 	undo_redo->add_undo_method(this, "_preview_settings_changed");
 	undo_redo->commit_action();

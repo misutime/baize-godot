@@ -618,7 +618,7 @@ namespace Godot
 
         /// <summary>
         /// Creates a <see cref="Basis"/> with a rotation such that the forward
-        /// axis (-Z) points towards the <paramref name="target"/> position.
+        /// axis (+Z) points towards the <paramref name="target"/> position.
         /// The up axis (+Y) points as close to the <paramref name="up"/> vector
         /// as possible while staying perpendicular to the forward axis.
         /// The resulting Basis is orthonormalized.
@@ -628,9 +628,8 @@ namespace Godot
         /// <param name="target">The position to look at.</param>
         /// <param name="up">The relative up direction.</param>
         /// <param name="useModelFront">
-        /// If true, then the model is oriented in reverse,
-        /// towards the model front axis (+Z, Vector3.ModelFront),
-        /// which is more useful for orienting 3D models.
+        /// Kept for compatibility. In this customized Y-up coordinate system,
+        /// the regular forward axis and the model front axis both use +Z.
         /// </param>
         /// <returns>The resulting basis matrix.</returns>
         public static Basis LookingAt(Vector3 target, Vector3? up = null, bool useModelFront = false)
@@ -646,11 +645,9 @@ namespace Godot
                 throw new ArgumentException("The vector can't be zero.", nameof(up));
             }
 #endif
+            // 自定义坐标系保持 Y-Up，但把本地 +Z 作为前方。
+            _ = useModelFront;
             Vector3 column2 = target.Normalized();
-            if (!useModelFront)
-            {
-                column2 = -column2;
-            }
             Vector3 column0 = up.Value.Cross(column2);
             if (column0.IsZeroApprox())
             {

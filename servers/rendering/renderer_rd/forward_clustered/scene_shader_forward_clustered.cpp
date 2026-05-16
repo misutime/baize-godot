@@ -423,6 +423,9 @@ void SceneShaderForwardClustered::ShaderData::_create_pipeline(PipelineKey p_pip
 
 	RD::PipelineRasterizationState raster_state;
 	raster_state.cull_mode = p_pipeline_key.cull_mode;
+	// 3D 视空间已迁移为左手 Y-Up、+Z 前。投影后的正面绕序随之变为 CCW，
+	// 这里定义的是 Forward+ 3D 管线的基础 front-face 合同，不按现象临时反剔除。
+	raster_state.front_face = RD::POLYGON_FRONT_FACE_COUNTER_CLOCKWISE;
 	raster_state.wireframe = wireframe || p_pipeline_key.wireframe;
 
 	RD::PipelineMultisampleState multisample_state;

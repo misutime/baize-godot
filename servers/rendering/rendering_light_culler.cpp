@@ -134,7 +134,9 @@ bool RenderingLightCuller::_prepare_light(const RendererSceneCull::Instance &p_i
 	}
 
 	lsource.pos = p_instance.transform.origin;
-	lsource.dir = -p_instance.transform.basis.get_column(2);
+	// 定制坐标系中灯光本地 +Z 是光线射出方向。这里用于构建 shadow caster
+	// 裁剪面，必须使用光线前进方向，而不是 shader 里的反向 L。
+	lsource.dir = p_instance.transform.basis.get_column(2);
 	lsource.dir.normalize();
 
 	// In reality there's always going to be at least one cascade, but the compiler can't know that.
@@ -170,10 +172,11 @@ bool RenderingLightCuller::_prepare_light(const RendererSceneCull::Instance &p_i
 			for (int i = 0; i < used_planes; i++) {
 				real_t plane_distance = plane_distances[i];
 
-				//Plane compute
+				// 相机本地 +Z 是视线前方，cascade 分割面位置沿 +Z 推进；
+				// 但 near 面法线要朝相机外侧，也就是 -Z，frustum 内部才是负距离。
 				boundary_planes[i] = Plane(
-						camera_normal,
-						data.camera_transform.origin + camera_normal * -plane_distance);
+						-camera_normal,
+						data.camera_transform.origin + camera_normal * plane_distance);
 			}
 		}
 

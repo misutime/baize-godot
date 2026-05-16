@@ -158,8 +158,8 @@ inline constexpr Vector3i Vector3i::LEFT = { -1, 0, 0 };
 inline constexpr Vector3i Vector3i::RIGHT = { 1, 0, 0 };
 inline constexpr Vector3i Vector3i::UP = { 0, 1, 0 };
 inline constexpr Vector3i Vector3i::DOWN = { 0, -1, 0 };
-inline constexpr Vector3i Vector3i::FORWARD = { 0, 0, -1 };
-inline constexpr Vector3i Vector3i::BACK = { 0, 0, 1 };
+inline constexpr Vector3i Vector3i::FORWARD = { 0, 0, 1 };
+inline constexpr Vector3i Vector3i::BACK = { 0, 0, -1 };
 
 int64_t Vector3i::length_squared() const {
 	return x * (int64_t)x + y * (int64_t)y + z * (int64_t)z;

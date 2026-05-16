@@ -1608,11 +1608,11 @@ void Curve3D::_bake() const {
 		baked_dist_cache.resize(1);
 		baked_dist_cache.set(0, 0.0);
 		baked_forward_vector_cache.resize(1);
-		baked_forward_vector_cache.set(0, Vector3(0.0, 0.0, 1.0));
+		baked_forward_vector_cache.set(0, Vector3::FORWARD);
 
 		if (up_vector_enabled) {
 			baked_up_vector_cache.resize(1);
-			baked_up_vector_cache.set(0, Vector3(0.0, 1.0, 0.0));
+			baked_up_vector_cache.set(0, Vector3::UP);
 		} else {
 			baked_up_vector_cache.clear();
 		}
@@ -1708,17 +1708,17 @@ void Curve3D::_bake() const {
 		const Vector3 *forward_ptr = baked_forward_vector_cache.ptr();
 		const Vector3 *points_ptr = baked_point_cache.ptr();
 
-		Basis frame; // X-right, Y-up, -Z-forward.
+		Basis frame; // X-right, Y-up, +Z-forward.
 		Basis frame_prev;
 
 		// Set the initial frame based on Y-up rule.
 		{
 			Vector3 forward = forward_ptr[0];
 
-			if (std::abs(forward.dot(Vector3(0, 1, 0))) > 1.0 - UNIT_EPSILON) {
-				frame_prev = Basis::looking_at(forward, Vector3(1, 0, 0));
+			if (std::abs(forward.dot(Vector3::UP)) > 1.0 - UNIT_EPSILON) {
+				frame_prev = Basis::looking_at(forward, Vector3::RIGHT);
 			} else {
-				frame_prev = Basis::looking_at(forward, Vector3(0, 1, 0));
+				frame_prev = Basis::looking_at(forward, Vector3::UP);
 			}
 
 			up_write[0] = frame_prev.get_column(1);
@@ -1729,7 +1729,7 @@ void Curve3D::_bake() const {
 			Vector3 forward = forward_ptr[idx];
 
 			Basis rotate;
-			rotate.rotate_to_align(-frame_prev.get_column(2), forward);
+			rotate.rotate_to_align(frame_prev.get_column(2), forward);
 			frame = rotate * frame_prev;
 			frame.orthonormalize(); // Guard against float error accumulation.
 
@@ -1862,7 +1862,7 @@ Basis Curve3D::_compose_posture(int p_index) const {
 	if (up_vector_enabled) {
 		up = baked_up_vector_cache[p_index];
 	} else {
-		up = Vector3(0.0, 1.0, 0.0);
+		up = Vector3::UP;
 	}
 
 	const Basis frame = Basis::looking_at(forward, up);
@@ -1890,7 +1890,7 @@ Basis Curve3D::_sample_posture(Interval p_interval, bool p_apply_tilt) const {
 
 	// Applying tilt.
 	const real_t tilt = _sample_baked_tilt(p_interval);
-	Vector3 tangent = -frame.get_column(2);
+	Vector3 tangent = frame.get_column(2);
 
 	const Basis twist(tangent, tilt);
 	return twist * frame;
@@ -1915,7 +1915,7 @@ Basis Curve3D::get_point_baked_posture(int p_index, bool p_apply_tilt) const {
 
 	// Applying tilt.
 	const real_t tilt = points[p_index].tilt;
-	Vector3 tangent = -frame.get_column(2);
+	Vector3 tangent = frame.get_column(2);
 	const Basis twist(tangent, tilt);
 
 	return twist * frame;
@@ -2000,14 +2000,14 @@ real_t Curve3D::sample_baked_tilt(real_t p_offset) const {
 
 Vector3 Curve3D::sample_baked_up_vector(real_t p_offset, bool p_apply_tilt) const {
 	// Make sure that p_offset is finite.
-	ERR_FAIL_COND_V_MSG(!Math::is_finite(p_offset), Vector3(0, 1, 0), "Offset is non-finite");
+	ERR_FAIL_COND_V_MSG(!Math::is_finite(p_offset), Vector3::UP, "Offset is non-finite");
 
 	if (baked_cache_dirty) {
 		_bake();
 	}
 
 	// Validate: Curve may not have baked up vectors.
-	ERR_FAIL_COND_V_MSG(!up_vector_enabled, Vector3(0, 1, 0), "No up vectors in Curve3D.");
+	ERR_FAIL_COND_V_MSG(!up_vector_enabled, Vector3::UP, "No up vectors in Curve3D.");
 
 	int count = baked_up_vector_cache.size();
 	if (count == 1) {

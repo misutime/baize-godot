@@ -169,7 +169,7 @@ namespace Godot
         }
 
         /// <summary>
-        /// Returns a copy of the transform rotated such that the forward axis (-Z)
+        /// Returns a copy of the transform rotated such that the forward axis (+Z)
         /// points towards the <paramref name="target"/> position.
         /// The up axis (+Y) points as close to the <paramref name="up"/> vector
         /// as possible while staying perpendicular to the forward axis.
@@ -181,9 +181,8 @@ namespace Godot
         /// <param name="target">The object to look at.</param>
         /// <param name="up">The relative up direction.</param>
         /// <param name="useModelFront">
-        /// If true, then the model is oriented in reverse,
-        /// towards the model front axis (+Z, Vector3.ModelFront),
-        /// which is more useful for orienting 3D models.
+        /// Kept for compatibility. In this customized Y-up coordinate system,
+        /// the regular forward axis and the model front axis both use +Z.
         /// </param>
         /// <returns>The resulting transform.</returns>
         public readonly Transform3D LookingAt(Vector3 target, Vector3? up = null, bool useModelFront = false)

@@ -550,11 +550,11 @@ Fog::VolumetricFog::~VolumetricFog() {
 
 Vector3i Fog::_point_get_position_in_froxel_volume(const Vector3 &p_point, float fog_end, const Vector2 &fog_near_size, const Vector2 &fog_far_size, float volumetric_fog_detail_spread, const Vector3 &fog_size, const Transform3D &p_cam_transform) {
 	Vector3 view_position = p_cam_transform.affine_inverse().xform(p_point);
-	view_position.z = MIN(view_position.z, -0.01); // Clamp to the front of camera
+	view_position.z = MAX(view_position.z, 0.01); // Clamp to the front of camera
 	Vector3 fog_position = Vector3(0, 0, 0);
 
 	view_position.y = -view_position.y;
-	fog_position.z = -view_position.z / fog_end;
+	fog_position.z = view_position.z / fog_end;
 	fog_position.x = (view_position.x / (2 * (fog_near_size.x * (1.0 - fog_position.z) + fog_far_size.x * fog_position.z))) + 0.5;
 	fog_position.y = (view_position.y / (2 * (fog_near_size.y * (1.0 - fog_position.z) + fog_far_size.y * fog_position.z))) + 0.5;
 	fog_position.z = Math::pow(float(fog_position.z), float(1.0 / volumetric_fog_detail_spread));

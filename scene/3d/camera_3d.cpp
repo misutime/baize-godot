@@ -416,11 +416,11 @@ Vector3 Camera3D::project_local_ray_normal(const Point2 &p_pos) const {
 	Vector3 ray;
 
 	if (mode == PROJECTION_ORTHOGONAL) {
-		ray = Vector3(0, 0, -1);
+		ray = Vector3::FORWARD;
 	} else {
 		Projection cm = _get_camera_projection(_near);
 		Vector2 screen_he = cm.get_viewport_half_extents();
-		ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, -_near).normalized();
+		ray = Vector3(((cpos.x / viewport_size.width) * 2.0 - 1.0) * screen_he.x, ((1.0 - (cpos.y / viewport_size.height)) * 2.0 - 1.0) * screen_he.y, _near).normalized();
 	}
 
 	return ray;
@@ -447,7 +447,7 @@ Vector3 Camera3D::project_ray_origin(const Point2 &p_pos) const {
 		Vector3 ray;
 		ray.x = pos.x * (hsize)-hsize / 2;
 		ray.y = (1.0 - pos.y) * (vsize)-vsize / 2;
-		ray.z = -_near;
+		ray.z = _near;
 		ray = get_camera_transform().xform(ray);
 		return ray;
 	} else {
@@ -457,7 +457,7 @@ Vector3 Camera3D::project_ray_origin(const Point2 &p_pos) const {
 
 bool Camera3D::is_position_behind(const Vector3 &p_pos) const {
 	Transform3D t = get_global_transform();
-	Vector3 eyedir = -t.basis.get_column(2).normalized();
+	Vector3 eyedir = t.basis.get_column(2).normalized();
 	return eyedir.dot(p_pos - t.origin) < _near;
 }
 
@@ -523,7 +523,7 @@ Vector3 Camera3D::project_position(const Point2 &p_point, real_t p_z_depth) cons
 	point.y = (1.0 - (p_point.y / viewport_size.y)) * 2.0 - 1.0;
 	point *= vp_he;
 
-	Vector3 p(point.x, point.y, -p_z_depth);
+	Vector3 p(point.x, point.y, p_z_depth);
 
 	return get_camera_transform().xform(p);
 }

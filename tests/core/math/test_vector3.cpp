@@ -531,4 +531,15 @@ TEST_CASE("[Vector3] Finite number checks") {
 	}
 }
 
+TEST_CASE("[Vector3][CoordinateSystem] Direction constants use Y-up and +Z forward") {
+	// 定制坐标系哨兵：只翻转前后方向，仍保持 +Y 为上、XZ 为地面。
+	CHECK_MESSAGE(Vector3::RIGHT == Vector3(1, 0, 0), "Vector3 RIGHT should keep +X as right.");
+	CHECK_MESSAGE(Vector3::LEFT == Vector3(-1, 0, 0), "Vector3 LEFT should keep -X as left.");
+	CHECK_MESSAGE(Vector3::UP == Vector3(0, 1, 0), "Vector3 UP should keep +Y as up.");
+	CHECK_MESSAGE(Vector3::DOWN == Vector3(0, -1, 0), "Vector3 DOWN should keep -Y as down.");
+	CHECK_MESSAGE(Vector3::FORWARD == Vector3(0, 0, 1), "Vector3 FORWARD should become +Z.");
+	CHECK_MESSAGE(Vector3::BACK == Vector3(0, 0, -1), "Vector3 BACK should become -Z.");
+	CHECK_MESSAGE(Vector3::RIGHT.cross(Vector3::UP) == Vector3::FORWARD, "The public direction constants now describe a left-handed Y-up convention.");
+}
+
 } // namespace TestVector3

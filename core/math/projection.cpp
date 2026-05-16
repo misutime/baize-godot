@@ -269,8 +269,9 @@ void Projection::set_perspective(real_t p_fovy_degrees, real_t p_aspect, real_t 
 
 	columns[0][0] = cotangent / p_aspect;
 	columns[1][1] = cotangent;
-	columns[2][2] = -(p_z_far + p_z_near) / deltaZ;
-	columns[2][3] = -1;
+	// 定制坐标系里相机本地 +Z 是前方，所以透视投影使用 w = z。
+	columns[2][2] = (p_z_far + p_z_near) / deltaZ;
+	columns[2][3] = 1;
 	columns[3][2] = -2 * p_z_near * p_z_far / deltaZ;
 	columns[3][3] = 0;
 }
@@ -348,7 +349,8 @@ void Projection::set_orthogonal(real_t p_left, real_t p_right, real_t p_bottom, 
 	columns[3][0] = -((p_right + p_left) / (p_right - p_left));
 	columns[1][1] = 2.0 / (p_top - p_bottom);
 	columns[3][1] = -((p_top + p_bottom) / (p_top - p_bottom));
-	columns[2][2] = -2.0 / (p_zfar - p_znear);
+	// 定制坐标系里可见深度沿本地 +Z 增加。
+	columns[2][2] = 2.0 / (p_zfar - p_znear);
 	columns[3][2] = -((p_zfar + p_znear) / (p_zfar - p_znear));
 	columns[3][3] = 1.0;
 }
@@ -372,7 +374,7 @@ void Projection::set_frustum(real_t p_left, real_t p_right, real_t p_bottom, rea
 
 	real_t a = (p_right + p_left) / (p_right - p_left);
 	real_t b = (p_top + p_bottom) / (p_top - p_bottom);
-	real_t c = -(p_far + p_near) / (p_far - p_near);
+	real_t c = (p_far + p_near) / (p_far - p_near);
 	real_t d = -2 * p_far * p_near / (p_far - p_near);
 
 	te[0] = x;
@@ -386,7 +388,7 @@ void Projection::set_frustum(real_t p_left, real_t p_right, real_t p_bottom, rea
 	te[8] = a;
 	te[9] = b;
 	te[10] = c;
-	te[11] = -1;
+	te[11] = 1;
 	te[12] = 0;
 	te[13] = 0;
 	te[14] = d;
@@ -405,14 +407,14 @@ real_t Projection::get_z_far() const {
 	// NOTE: This assumes z-facing near and far planes, i.e. that :
 	// - the matrix is a projection across z-axis (i.e. is invertible and columns[0][1], [0][3], [1][0] and [1][3] == 0)
 	// - near and far planes are z-facing (i.e. columns[0][2] and [1][2] == 0)
-	return (columns[3][3] - columns[3][2]) / (columns[2][3] - columns[2][2]);
+	return (columns[3][3] - columns[3][2]) / (columns[2][2] - columns[2][3]);
 }
 
 real_t Projection::get_z_near() const {
 	// NOTE: This assumes z-facing near and far planes, i.e. that :
 	// - the matrix is a projection across z-axis (i.e. is invertible and columns[0][1], [0][3], [1][0] and [1][3] == 0)
 	// - near and far planes are z-facing (i.e. columns[0][2] and [1][2] == 0)
-	return (columns[3][3] + columns[3][2]) / (columns[2][3] + columns[2][2]);
+	return -(columns[3][3] + columns[3][2]) / (columns[2][3] + columns[2][2]);
 }
 
 Vector2 Projection::get_viewport_half_extents() const {
@@ -420,7 +422,7 @@ Vector2 Projection::get_viewport_half_extents() const {
 	// - the matrix is a projection across z-axis (i.e. is invertible and columns[0][1], [0][3], [1][0] and [1][3] == 0)
 	// - the projection plane is rectangular (i.e. columns[0][2] and [1][2] == 0 if columns[2][3] != 0)
 	// - there is no offset / skew (i.e. columns[2][0] == columns[2][1] == 0)
-	real_t w = -get_z_near() * columns[2][3] + columns[3][3];
+	real_t w = get_z_near() * columns[2][3] + columns[3][3];
 	return Vector2(w / columns[0][0], w / columns[1][1]);
 }
 
@@ -429,7 +431,7 @@ Vector2 Projection::get_far_plane_half_extents() const {
 	// - the matrix is a projection across z-axis (i.e. is invertible and columns[0][1], [0][3], [1][0] and [1][3] == 0)
 	// - the projection plane is rectangular (i.e. columns[0][2] and [1][2] == 0 if columns[2][3] != 0)
 	// - there is no offset / skew (i.e. columns[2][0] == columns[2][1] == 0)
-	real_t w = -get_z_far() * columns[2][3] + columns[3][3];
+	real_t w = get_z_far() * columns[2][3] + columns[3][3];
 	return Vector2(w / columns[0][0], w / columns[1][1]);
 }
 
@@ -866,7 +868,7 @@ int Projection::get_pixels_per_meter(int p_for_pixel_width) const {
 	// NOTE: This assumes a rectangular projection plane, i.e. that :
 	// - the matrix is a projection across z-axis (i.e. is invertible and columns[0][1], [0][3], [1][0] and [1][3] == 0)
 	// - the projection plane is rectangular (i.e. columns[0][2] and [1][2] == 0 if columns[2][3] != 0)
-	real_t width = 2 * (-get_z_near() * columns[2][3] + columns[3][3]) / columns[0][0];
+	real_t width = 2 * (get_z_near() * columns[2][3] + columns[3][3]) / columns[0][0];
 	return p_for_pixel_width / width; // Note : return type should be real_t (kept as int for compatibility for now).
 }
 

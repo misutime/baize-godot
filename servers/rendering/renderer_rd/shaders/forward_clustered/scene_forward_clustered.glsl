@@ -550,7 +550,7 @@ void vertex_shader(vec3 vertex_input,
 	uvec2 screen_pixel = clamp(uvec2(clip_pos * vec2(screen_size)), uvec2(0), screen_size - uvec2(1));
 	uvec2 cluster_pos = screen_pixel >> implementation_data.cluster_shift;
 	uint cluster_offset = (implementation_data.cluster_width * cluster_pos.y + cluster_pos.x) * (implementation_data.max_cluster_element_count_div_32 + 32);
-	uint cluster_z = uint(clamp((-vertex_interp.z / scene_data.z_far) * 32.0, 0.0, 31.0));
+	uint cluster_z = uint(clamp((vertex_interp.z / scene_data.z_far) * 32.0, 0.0, 31.0));
 
 	{ //omni lights
 
@@ -1498,9 +1498,9 @@ void fragment_shader(in SceneData scene_data) {
 
 	if (implementation_data.volumetric_fog_enabled) {
 #ifdef USE_MULTIVIEW
-		vec4 volumetric_fog = volumetric_fog_process(combined_uv, -vertex.z);
+		vec4 volumetric_fog = volumetric_fog_process(combined_uv, vertex.z);
 #else
-		vec4 volumetric_fog = volumetric_fog_process(screen_uv, -vertex.z);
+		vec4 volumetric_fog = volumetric_fog_process(screen_uv, vertex.z);
 #endif
 		vec4 res = vec4(0.0);
 		if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_FOG)) {
@@ -1543,7 +1543,7 @@ void fragment_shader(in SceneData scene_data) {
 #endif
 	uint cluster_offset = (implementation_data.cluster_width * cluster_pos.y + cluster_pos.x) * (implementation_data.max_cluster_element_count_div_32 + 32);
 
-	uint cluster_z = uint(clamp((-vertex.z / scene_data.z_far) * 32.0, 0.0, 31.0));
+	uint cluster_z = uint(clamp((vertex.z / scene_data.z_far) * 32.0, 0.0, 31.0));
 
 	//used for interpolating anything cluster related
 	vec3 vertex_ddx = dFdx(vertex);
@@ -2342,7 +2342,7 @@ void fragment_shader(in SceneData scene_data) {
 				float shadow = 1.0;
 
 				if (directional_lights.data[i].shadow_opacity > 0.001) {
-					float depth_z = -vertex.z;
+					float depth_z = vertex.z;
 					vec3 light_dir = directional_lights.data[i].direction;
 					vec3 base_normal_bias = geo_normal * (1.0 - max(0.0, dot(light_dir, -geo_normal)));
 
@@ -2365,7 +2365,7 @@ void fragment_shader(in SceneData scene_data) {
 							vec4 pssm_coord = (directional_lights.data[i].shadow_matrix1 * v);
 							pssm_coord /= pssm_coord.w;
 
-							float range_pos = dot(directional_lights.data[i].direction, v.xyz);
+							float range_pos = dot(-directional_lights.data[i].direction, v.xyz);
 							float range_begin = directional_lights.data[i].shadow_range_begin.x;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale1 * test_radius;
@@ -2381,7 +2381,7 @@ void fragment_shader(in SceneData scene_data) {
 							vec4 pssm_coord = (directional_lights.data[i].shadow_matrix2 * v);
 							pssm_coord /= pssm_coord.w;
 
-							float range_pos = dot(directional_lights.data[i].direction, v.xyz);
+							float range_pos = dot(-directional_lights.data[i].direction, v.xyz);
 							float range_begin = directional_lights.data[i].shadow_range_begin.y;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale2 * test_radius;
@@ -2406,7 +2406,7 @@ void fragment_shader(in SceneData scene_data) {
 							vec4 pssm_coord = (directional_lights.data[i].shadow_matrix3 * v);
 							pssm_coord /= pssm_coord.w;
 
-							float range_pos = dot(directional_lights.data[i].direction, v.xyz);
+							float range_pos = dot(-directional_lights.data[i].direction, v.xyz);
 							float range_begin = directional_lights.data[i].shadow_range_begin.z;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale3 * test_radius;
@@ -2431,7 +2431,7 @@ void fragment_shader(in SceneData scene_data) {
 							vec4 pssm_coord = (directional_lights.data[i].shadow_matrix4 * v);
 							pssm_coord /= pssm_coord.w;
 
-							float range_pos = dot(directional_lights.data[i].direction, v.xyz);
+							float range_pos = dot(-directional_lights.data[i].direction, v.xyz);
 							float range_begin = directional_lights.data[i].shadow_range_begin.w;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale4 * test_radius;
@@ -2527,12 +2527,12 @@ void fragment_shader(in SceneData scene_data) {
 
 #ifdef USE_LIGHTMAP
 					if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_REPLACE) {
-						shadow = mix(shadow, shadowmask, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)); //done with negative values for performance
+						shadow = mix(shadow, shadowmask, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z));
 					} else if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_OVERLAY) {
-						shadow = shadowmask * mix(shadow, 1.0, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)); //done with negative values for performance
+						shadow = shadowmask * mix(shadow, 1.0, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z));
 					} else {
 #endif
-						shadow = mix(shadow, 1.0, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z)); //done with negative values for performance
+						shadow = mix(shadow, 1.0, smoothstep(directional_lights.data[i].fade_from, directional_lights.data[i].fade_to, vertex.z));
 #ifdef USE_LIGHTMAP
 					}
 #endif
@@ -2585,7 +2585,7 @@ void fragment_shader(in SceneData scene_data) {
 			float transmittance_z = transmittance_depth;
 #ifndef SHADOWS_DISABLED
 			if (directional_lights.data[i].shadow_opacity > 0.001) {
-				float depth_z = -vertex.z;
+				float depth_z = vertex.z;
 
 				if (depth_z < directional_lights.data[i].shadow_split_offsets.x) {
 					vec4 trans_vertex = vec4(vertex - geo_normal * directional_lights.data[i].shadow_transmittance_bias.x, 1.0);
@@ -2647,11 +2647,11 @@ void fragment_shader(in SceneData scene_data) {
 
 #ifdef DEBUG_DRAW_PSSM_SPLITS
 			vec3 tint = vec3(1.0);
-			if (-vertex.z < directional_lights.data[i].shadow_split_offsets.x) {
+			if (vertex.z < directional_lights.data[i].shadow_split_offsets.x) {
 				tint = vec3(1.0, 0.0, 0.0);
-			} else if (-vertex.z < directional_lights.data[i].shadow_split_offsets.y) {
+			} else if (vertex.z < directional_lights.data[i].shadow_split_offsets.y) {
 				tint = vec3(0.0, 1.0, 0.0);
-			} else if (-vertex.z < directional_lights.data[i].shadow_split_offsets.z) {
+			} else if (vertex.z < directional_lights.data[i].shadow_split_offsets.z) {
 				tint = vec3(0.0, 0.0, 1.0);
 			} else {
 				tint = vec3(1.0, 1.0, 0.0);
@@ -3005,7 +3005,7 @@ void fragment_shader(in SceneData scene_data) {
 
 	normal_output_buffer.rgb = encode24(normal) * 0.5 + 0.5;
 	normal_output_buffer.a = 0.0;
-	depth_output_buffer.r = -vertex.z;
+	depth_output_buffer.r = vertex.z;
 
 	orm_output_buffer.r = ao;
 	orm_output_buffer.g = roughness;

@@ -215,7 +215,8 @@ void main() {
 	// Unproject will give us the position between the eyes, need to re-offset
 	cube_normal += sky_scene_data.view_eye_offsets[ViewIndex].xyz;
 #else
-	cube_normal.z = -1.0;
+	// 本引擎的相机空间约定是 +Z 看向前方。天空背景也必须沿 +Z 反推出屏幕射线。
+	cube_normal.z = 1.0;
 	cube_normal.x = (uv_interp.x + params.projection.x) / params.projection.y;
 	cube_normal.y = (uv_interp.y + params.projection.z) / params.projection.w;
 #endif
@@ -223,7 +224,7 @@ void main() {
 	cube_normal = normalize(cube_normal);
 #endif
 
-	vec2 panorama_coords = vec2(atan2_approx(cube_normal.x, -cube_normal.z), acos_approx(cube_normal.y));
+	vec2 panorama_coords = vec2(atan2_approx(cube_normal.x, cube_normal.z), acos_approx(cube_normal.y));
 
 	if (panorama_coords.x < 0.0) {
 		panorama_coords.x += M_PI * 2.0;

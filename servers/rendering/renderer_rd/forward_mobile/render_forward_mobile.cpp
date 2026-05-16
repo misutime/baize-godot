@@ -2178,7 +2178,8 @@ void RenderForwardMobile::_fill_render_list(RenderListType p_render_list, const 
 	uint32_t lightmap_captures_used = 0;
 
 	Plane near_plane(-p_render_data->scene_data->cam_transform.basis.get_column(Vector3::AXIS_Z), p_render_data->scene_data->cam_transform.origin);
-	near_plane.d += p_render_data->scene_data->cam_projection.get_z_near();
+	// 相机本地 +Z 是前方；near 面位于相机前方 z_near 处，法线朝相机后方。
+	near_plane.d -= p_render_data->scene_data->cam_projection.get_z_near();
 	float z_max = p_render_data->scene_data->cam_projection.get_z_far() - p_render_data->scene_data->cam_projection.get_z_near();
 
 	RenderList *rl = &render_list[p_render_list];

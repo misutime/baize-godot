@@ -54,7 +54,7 @@ void main() {
 	vertex *= render_elements.data[element_index].scale;
 
 	vertex = vec4(vertex, 1.0) * render_elements.data[element_index].transform_inv;
-	depth_interp = -vertex.z;
+	depth_interp = vertex.z;
 
 	gl_Position = state.projection * vec4(vertex, 1.0);
 }

@@ -95,10 +95,10 @@ void Camera3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id,
 		camera->set("fov", CLAMP(a * 2.0, 1, 179));
 	} else {
 		Camera3D::KeepAspect aspect = camera->get_keep_aspect_mode();
-		Vector3 camera_far = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? Vector3(4096, 0, -1) : Vector3(0, 4096, -1);
+		Vector3 camera_far = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? Vector3(4096, 0, 1) : Vector3(0, 4096, 1);
 
 		Vector3 ra, rb;
-		Geometry3D::get_closest_points_between_segments(Vector3(0, 0, -1), camera_far, s[0], s[1], ra, rb);
+		Geometry3D::get_closest_points_between_segments(Vector3(0, 0, 1), camera_far, s[0], s[1], ra, rb);
 		float d = aspect == Camera3D::KeepAspect::KEEP_WIDTH ? ra.x * 2 : ra.y * 2;
 		if (Node3DEditor::get_singleton()->is_snap_enabled()) {
 			d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
@@ -180,7 +180,7 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float fov = camera->get_fov() / 2.0;
 
 			const float hsize = Math::sin(Math::deg_to_rad(fov));
-			const float depth = -Math::cos(Math::deg_to_rad(fov));
+			const float depth = Math::cos(Math::deg_to_rad(fov));
 
 			Vector3 side;
 			if (camera->get_keep_aspect_mode() == Camera3D::KEEP_WIDTH) {
@@ -210,7 +210,7 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float keep_size = size * 0.5;
 
 			Vector3 right, up;
-			Vector3 back(0, 0, -1.0);
+			Vector3 back(0, 0, 1.0);
 
 			if (aspect == Camera3D::KeepAspect::KEEP_WIDTH) {
 				right = Vector3(keep_size, 0, 0);
@@ -235,7 +235,7 @@ void Camera3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 		case Camera3D::PROJECTION_FRUSTUM: {
 			float hsize = camera->get_size() / 2.0;
 
-			Vector3 side = Vector3(hsize, 0, -camera->get_near()).normalized();
+			Vector3 side = Vector3(hsize, 0, camera->get_near()).normalized();
 			side.x *= size_factor.x;
 			Vector3 nside = Vector3(-side.x, side.y, side.z);
 			Vector3 up = Vector3(0, hsize * size_factor.y, 0);
@@ -274,8 +274,8 @@ float Camera3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_f
 	for (int i = 0; i < arc_test_points; i++) {
 		float a = i * Math::PI * 0.5 / arc_test_points;
 		float an = (i + 1) * Math::PI * 0.5 / arc_test_points;
-		Vector3 p = Vector3(Math::cos(a), 0, -Math::sin(a)) * p_arc_radius;
-		Vector3 n = Vector3(Math::cos(an), 0, -Math::sin(an)) * p_arc_radius;
+		Vector3 p = Vector3(Math::cos(a), 0, Math::sin(a)) * p_arc_radius;
+		Vector3 n = Vector3(Math::cos(an), 0, Math::sin(an)) * p_arc_radius;
 
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(p, n, p_from, p_to, ra, rb);
@@ -288,6 +288,6 @@ float Camera3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_f
 	}
 
 	//min_p = p_arc_xform.affine_inverse().xform(min_p);
-	float a = (Math::PI * 0.5) - Vector2(min_p.x, -min_p.z).angle();
+	float a = (Math::PI * 0.5) - Vector2(min_p.x, min_p.z).angle();
 	return Math::rad_to_deg(a);
 }

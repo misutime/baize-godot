@@ -166,4 +166,14 @@ TEST_CASE("[Vector3i] Abs and sign methods") {
 			"Vector3i sign should work as expected.");
 }
 
+TEST_CASE("[Vector3i][CoordinateSystem] Direction constants use Y-up and +Z forward") {
+	// 定制坐标系哨兵：整数方向常量要和 Vector3 保持一致。
+	CHECK_MESSAGE(Vector3i::RIGHT == Vector3i(1, 0, 0), "Vector3i RIGHT should keep +X as right.");
+	CHECK_MESSAGE(Vector3i::LEFT == Vector3i(-1, 0, 0), "Vector3i LEFT should keep -X as left.");
+	CHECK_MESSAGE(Vector3i::UP == Vector3i(0, 1, 0), "Vector3i UP should keep +Y as up.");
+	CHECK_MESSAGE(Vector3i::DOWN == Vector3i(0, -1, 0), "Vector3i DOWN should keep -Y as down.");
+	CHECK_MESSAGE(Vector3i::FORWARD == Vector3i(0, 0, 1), "Vector3i FORWARD should become +Z.");
+	CHECK_MESSAGE(Vector3i::BACK == Vector3i(0, 0, -1), "Vector3i BACK should become -Z.");
+}
+
 } // namespace TestVector3i

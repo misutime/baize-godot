@@ -1930,7 +1930,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 				continue;
 			}
 
-			Vector3 dir = -light_transform.basis.get_column(Vector3::AXIS_Z);
+			Vector3 dir = light_transform.basis.get_column(Vector3::AXIS_Z);
 			dir.y *= y_mult;
 			dir.normalize();
 			lights[idx].direction[0] = dir.x;
@@ -1981,7 +1981,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 				continue;
 			}
 
-			Vector3 dir = -light_transform.basis.get_column(Vector3::AXIS_Z);
+			Vector3 dir = light_transform.basis.get_column(Vector3::AXIS_Z);
 			Vector2 area_size = RSG::light_storage->light_area_get_size(light);
 			//faster to not do this here
 			//dir.y *= y_mult;
@@ -2472,7 +2472,7 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 
 				lights[idx].type = RSG::light_storage->light_get_type(light);
 
-				Vector3 dir = -light_transform.basis.get_column(Vector3::AXIS_Z);
+				Vector3 dir = light_transform.basis.get_column(Vector3::AXIS_Z);
 				Vector2 area_size = RSG::light_storage->light_area_get_size(light);
 				if (lights[idx].type == RSE::LIGHT_DIRECTIONAL) {
 					dir.y *= y_mult; //only makes sense for directional
@@ -3052,7 +3052,7 @@ void GI::VoxelGIInstance::update(bool p_update_light_instances, const Vector<RID
 				Vector2 area_size = RSG::light_storage->light_area_get_size(light);
 
 				Vector3 pos = to_probe_xform.xform(xform.origin);
-				Vector3 dir = to_probe_xform.basis.xform(-xform.basis.get_column(2)).normalized();
+				Vector3 dir = to_probe_xform.basis.xform(xform.basis.get_column(2)).normalized();
 
 				l.position[0] = pos.x;
 				l.position[1] = pos.y;

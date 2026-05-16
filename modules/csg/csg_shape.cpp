@@ -2384,7 +2384,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 			switch (path_rotation) {
 				case PATH_ROTATION_POLYGON:
 					current_point = curve->sample_baked(0);
-					direction = Vector3(0, 0, -1);
+					direction = Vector3::FORWARD;
 					break;
 				case PATH_ROTATION_PATH:
 				case PATH_ROTATION_PATH_FOLLOW:
@@ -2400,7 +2400,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 					} else {
 						Transform3D current_sample_xform = curve->sample_baked_with_rotation(0);
 						current_point = current_sample_xform.get_origin();
-						direction = current_sample_xform.get_basis().xform(Vector3(0, 0, -1));
+						direction = current_sample_xform.get_basis().get_column(Vector3::AXIS_Z);
 					}
 
 					if (path_rotation == PATH_ROTATION_PATH_FOLLOW) {
@@ -2485,7 +2485,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 
 					switch (path_rotation) {
 						case PATH_ROTATION_POLYGON:
-							direction = Vector3(0, 0, -1);
+							direction = Vector3::FORWARD;
 							break;
 						case PATH_ROTATION_PATH:
 						case PATH_ROTATION_PATH_FOLLOW:
@@ -2497,7 +2497,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 								Vector3 next_point = curve->sample_baked(next_offset);
 								direction = next_point - previous_point;
 							} else {
-								direction = current_sample_xform.get_basis().xform(Vector3(0, 0, -1));
+								direction = current_sample_xform.get_basis().get_column(Vector3::AXIS_Z);
 							}
 
 							if (path_rotation == PATH_ROTATION_PATH_FOLLOW) {

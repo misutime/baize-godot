@@ -179,7 +179,7 @@ void Area3D::_initialize_wind() {
 		Node3D *wind_source_node3d = Object::cast_to<Node3D>(wind_source_node);
 		ERR_FAIL_NULL_MSG(wind_source_node3d, "Path to wind source does not point to a Node3D: '" + String(wind_source_path) + "'.");
 		Transform3D global_transform = wind_source_node3d->get_transform();
-		wind_direction = -global_transform.basis.get_column(Vector3::AXIS_Z).normalized();
+		wind_direction = global_transform.basis.get_column(Vector3::AXIS_Z).normalized();
 		wind_source = global_transform.origin;
 		temp_magnitude = wind_force_magnitude;
 	}
