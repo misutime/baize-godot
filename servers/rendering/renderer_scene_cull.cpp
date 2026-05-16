@@ -32,6 +32,7 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/math/coordinate_system.h"
 #include "core/math/geometry_3d.h"
 #include "core/object/callable_mp.h"
 #include "core/object/worker_thread_pool.h"
@@ -2151,6 +2152,8 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 	Transform3D light_transform = p_instance->transform;
 	light_transform.orthonormalize(); //scale does not count on lights
+	// Light3D 对外使用 +Y 前、+Z 上；阴影相机仍按 RD 的 -Z 前、+Y 上协议生成。
+	light_transform = CoordinateSystem3D::scene_to_legacy_z_forward_transform(light_transform);
 
 	real_t max_distance = p_cam_projection.get_z_far();
 	real_t shadow_max = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE);
@@ -2369,6 +2372,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 
 	Transform3D light_transform = p_instance->transform;
 	light_transform.orthonormalize(); //scale does not count on lights
+	// Light3D 对外使用 +Y 前、+Z 上；阴影相机仍按 RD 的 -Z 前、+Y 上协议生成。
+	light_transform = CoordinateSystem3D::scene_to_legacy_z_forward_transform(light_transform);
 
 	bool animated_material_found = false;
 
