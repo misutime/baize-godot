@@ -12,6 +12,7 @@
 | `build-profiles.md`                    | 记录构建 profile、软裁剪 profile、脚本 preset 和构建基线。   | 修改 SCons profile、切换构建方式、验证软裁剪影响时读。     |
 | `getting-started-windows.md`           | Windows 从 clone 到第一次编译运行的操作步骤。                | 新机器配置、首次编译、排查 Windows 工具链时读。            |
 | `misc/customization/build-windows.ps1` | Windows 构建脚本，用 preset 包装常用 SCons profile。         | 日常构建、避免手写长命令时使用。                           |
+| `misc/customization/build-macos.sh`    | macOS 构建脚本，用 preset 包装常用 SCons profile。           | macOS 日常构建、避免手写长命令时使用。                     |
 | `misc/customization/scons-profiles/`   | 可版本管理的 SCons 构建配置目录。                            | 新增或调整正式构建基线、软裁剪实验配置时使用。             |
 
 ## 维护规则
