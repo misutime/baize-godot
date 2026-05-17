@@ -142,7 +142,7 @@ void main() {
 		//undo transform into prev view
 		prev_view.y = -prev_view.y;
 		//z back to unit size
-		prev_view.z /= -scene_params.fog_frustum_end;
+		prev_view.z /= scene_params.fog_frustum_end;
 		//xy back to unit size
 		prev_view.xy /= mix(scene_params.fog_frustum_size_begin, scene_params.fog_frustum_size_end, vec2(prev_view.z));
 		prev_view.xy = prev_view.xy * 0.5 + 0.5;

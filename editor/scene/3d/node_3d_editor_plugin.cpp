@@ -1247,7 +1247,8 @@ Vector<Plane> Node3DEditorViewport::_build_screen_frustum(const Point2 &p_min, c
 	Plane near_plane = Plane(-_get_camera_normal(), cam_pos);
 	near_plane.d -= get_znear();
 	frustum.push_back(near_plane);
-	Plane far_plane = -near_plane;
+	// far 面直接放在相机本地 +Z 的 far 距离处，避免把 near 偏移重复加进去。
+	Plane far_plane = Plane(_get_camera_normal(), cam_pos);
 	far_plane.d += get_zfar();
 	frustum.push_back(far_plane);
 	return frustum;

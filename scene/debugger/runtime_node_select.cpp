@@ -1339,7 +1339,8 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 	near_plane.d -= znear;
 	frustum.push_back(near_plane);
 
-	Plane far_plane = -near_plane;
+	// far 面直接使用相机本地 +Z 前方距离，near 的偏移不能重复叠到 far 上。
+	Plane far_plane = Plane(camera->get_global_transform().basis.get_column(2), cam_pos);
 	far_plane.d += zfar;
 	frustum.push_back(far_plane);
 

@@ -129,7 +129,7 @@ TEST_CASE("[SceneTree][View3DController] Y-Up +Z forward orbit mouse direction")
 
 	const Transform3D right_orbit_camera = controller.to_camera_transform();
 	CHECK(controller.cursor.y_rot < 0.0);
-	CHECK(right_orbit_camera.basis.get_column(Vector3::AXIS_Z).x < 0.0);
+	CHECK(right_orbit_camera.basis.get_column(Vector3::AXIS_Z).x > 0.0);
 
 	controller.cursor.x_rot = 0.0;
 	controller.cursor.y_rot = 0.0;

@@ -49,7 +49,8 @@ layout(r16f, set = 2, binding = 3) uniform restrict writeonly image2DArray dest_
 
 vec4 screen_space_to_view_space_depth(vec4 p_depth) {
 	if (params.orthogonal) {
-		vec4 depth = p_depth * 2.0 - 1.0;
+		// 主深度是 reverse-Z：near 更大、far 更小。先还原成 Projection 的 clip z。
+		vec4 depth = 1.0 - p_depth * 2.0;
 		return (depth * (params.z_far - params.z_near) + (params.z_far + params.z_near)) / 2.0;
 	}
 
@@ -67,7 +68,8 @@ vec4 screen_space_to_view_space_depth(vec4 p_depth) {
 
 float screen_space_to_view_space_depth(float p_depth) {
 	if (params.orthogonal) {
-		float depth = p_depth * 2.0 - 1.0;
+		// 主深度是 reverse-Z：near 更大、far 更小。先还原成 Projection 的 clip z。
+		float depth = 1.0 - p_depth * 2.0;
 		return (depth * (params.z_far - params.z_near) + (params.z_far + params.z_near)) / 2.0;
 	}
 

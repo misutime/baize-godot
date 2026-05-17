@@ -177,19 +177,21 @@ znear / zfar / z_near / z_far
 
 - 实时 GI 和烘焙 GI 对光线方向语义可能不同，不能机械改。需要按每个 API 的方向含义确认：是光线射出方向，还是表面指向光源方向。
 - `LightmapGI` 和天空方向已经使用 `+basis.z`。本轮把 SDFGI / VoxelGI light buffer 中的 directional/spot/area 方向也统一为本地 `+Z` 光线射出方向。
-- VoxelGI 体素化相机的 `render_z` / `z_dir` 仍保留为待查项，因为它描述的是 6 面渲染方向，不是光源前方。
+- VoxelGI 体素化相机已按 `+Z` depth 修正 `z_sign`；`z_dir` 仍保留法线还原的独立符号合同，后续用真实动态物体场景验证。
 
 ### 粒子 / Billboard / GPU 排序
 
-状态：待排查。
+状态：已归类，仍需手动看效果。
 
 发现：
 
-- `renderer_scene_cull.cpp` 粒子 view axis 仍传 `-cam_transform.basis.get_column(2)`。
+- GPU 粒子排序和 Z billboard 过去通过 `-cam_transform.basis.get_column(2)` 加 shader 侧反号抵消旧 `-Z` 前方。
+- editor gizmo 的 billboard handle 使用 `t.origin - camera_forward`，语义是让把手面向相机侧。
 
 判断：
 
-- 粒子面向相机、排序和 motion vector 可能受影响，需要单独实测。
+- GPU 粒子 view axis 已改为直接接收相机本地 `+Z`；editor gizmo 的 billboard handle 不需要反号。
+- 粒子面向相机、排序和 motion vector 仍建议用真实粒子场景手动看一遍。
 
 ### Positional shadow atlas 覆盖率
 
@@ -262,8 +264,10 @@ git diff --check
 
 已基本确认并修改的区域：
 
-- 数学基础：`Vector3::FORWARD/BACK`、`Vector3i` 文档、`Basis::looking_at()`、`Projection` 透视/正交/frustum。
-- Camera3D：屏幕射线、projection depth、测试。
+- 数学基础：`Vector3::FORWARD/BACK`、`Vector3i` 文档、`Basis::looking_at()`、`Projection` 透视/正交/frustum 及对应矩阵/平面/endpoints 测试。
+- Camera3D：屏幕射线、`project_position()` 正向深度切片、projection depth、测试。
+- Raycast occlusion culling：near 面局部坐标、ray camera_dir 和 ray sort 输入已按相机本地 `+Z` 前统一。
+- GPU 粒子：view-depth sort 和 Z billboard 的 view axis 已改为直接接收相机本地 `+Z`，移除旧 `-Z` 前方注释和双重反号。
 - 编辑器 3D 视图：默认视角、前后左右顶底固定视图、右键飞行、鼠标 orbit、右上角方向指示器。
 - 编辑器预览：preview sun 方向、preview sky/horizon、编辑器网格与真实几何共面时的显示关系。
 - 常用 Node3D 相关：Path3D / PathFollow3D、SpringArm3D、Area3D 风向、AudioStreamPlayer3D 朝向。
@@ -272,16 +276,23 @@ git diff --check
 - DirectionalLight/SpotLight/AreaLight：节点本地 `+Z` 作为光线射出方向；DirectionalLight shader `direction` 作为 BRDF `L` 单独反向处理。
 - Directional shadow：shadow camera、caster frustum、soft shadow range 和 culling 已做本轮修正。
 - GI / Lightmap：SDFGI / VoxelGI light buffer 与 LightmapGI 的主要灯光方向已按本地 `+Z` 光线射出方向统一。
+- 多视图合并相机：双眼 frustum 合并得到的主相机 basis 已按本地 `+Z` 前方重算，near/far 距离符号已同步。
+- 编辑器框选 / 运行时节点选择：3D 框选 frustum 的 far 面已改为直接使用相机本地 `+Z` 的 far 距离，不再把 near 偏移重复叠到 far 上。
+- screen-space depth：GI fallback 重建、copy linearize、SSAO/SSIL depth downsample、cubemap 转双抛物面阴影都已按 reverse-Z + 正向 `+Z` depth 修正。
+- volumetric fog：view-space z、temporal reprojection 和 cluster z 查询已按正向 `+Z` 深度修正。
+- SSR/TAA：SSR 正交视线和 near-plane clip 已按 `+Z` 视空间修正；TAA closest-depth velocity 选择已按 reverse-Z 改为取最大 depth。
+- SSAO/SSIL：normal buffer 读取端不再单独反转 normal.z，和 normal 写入端、GI、SSR 保持同一 view-space 法线合同。
 - 文档/测试：核心数学和场景测试已同步一部分。
 
 仍明确待查的区域：
 
-- `renderer_scene_cull.cpp` 中粒子 view axis 仍有 `-cam_transform.basis.get_column(2)`。
-- `environment/gi.cpp` 中 VoxelGI 六面体体素化相机 `z_dir = -xform.basis.get_column(2)` 尚未判断是否应改。
-- editor gizmo 中部分“面向相机”的 `t.origin - camera_xform.basis.get_column(2)` 逻辑尚未逐个确认。
-- `renderer_scene_render_rd.cpp` 中部分离屏/烘焙相机 `set_look_at()` 仍需专项审计。
-- `scene_forward_lights_inc.glsl` 的位置光/投影贴图/双抛物面阴影路径还需按 `+Z` 前方逐段确认。
-- volumetric fog 的 directional shadow 采样需要确认是否混用了 shader `L` 和光线射出方向。
+- `environment/gi.cpp` 中 VoxelGI 六面体体素化相机已经按 `+Z` depth 修正 `z_sign`，但仍需要用真实 VoxelGI 动态物体验证法线/写回方向。
+- editor gizmo 中“面向相机”的 billboard handle 已确认不是旧 `-Z` forward：它让把手本地 `+Z` 指向相机侧，也就是 `t.origin - camera_forward`。
+- `renderer_scene_render_rd.cpp` 的粒子碰撞 heightfield 离屏相机已确认不是旧 `-Z` forward：它从上方沿局部 `-Y` 烘高度，`up = -local_Z` 只是纹理朝向。
+- 其他离屏/烘焙相机 `set_look_at()` 仍需专项审计。
+- `scene_forward_lights_inc.glsl` 的 SpotLight / AreaLight 主方向语义已确认使用本地 `+Z` 光线射出方向；SpotLight 透射路径的 reverse-Z shadow depth 反解已修正。
+- volumetric fog 的 directional shadow 采样已按当前 shader `L` 语义保留，但还需要真实体积雾 + DirectionalLight 阴影场景看效果。
+- SSR/TAA/SSAO/SSIL 已做静态语义修正，但仍需要真实 screen-space effects 场景看画面稳定性。
 - 外部格式导入导出，例如 glTF/FBX/Mono API 文档边界，不能机械套内部 `+Z`，需要按格式合同单独确认。
 - XR、CameraFeed、AR/VR、XR projection 等目前不是 editor 3D 主路径，但仍属于潜在旧坐标边界。
 
@@ -396,10 +407,10 @@ git diff --check
 
 - `RendererSceneCull` directional cascade frustum 六个平面的正负距离是否全部一致。
 - `RenderingLightCuller::add_light_camera_planes_directional()` 中 `pt2 = pt0 - p_light_source.dir` 是否仍符合 `p_light_source.dir = 光线射出方向`。
-- `scene_forward_lights_inc.glsl` 的 directional shadow compare 与 reverse-Z 深度是否一致。
+- `scene_forward_lights_inc.glsl` 的位置光 projector / 双抛物面阴影仍需要真实 Spot/Omni/Area 场景手动看一遍，尤其是投影贴图方向。
 - `volumetric_fog_process.glsl` 中 directional shadow 采样是否也混用了 shader `L` 和光线射出方向。
 - `ClusterBuilder` 的 SpotLight/AreaLight 还需要手动验证，当前只修了已确认的 SpotLight near-touch 旧 `-Z` 语义。
-- 粒子 view axis、VoxelGI 六面体体素化相机、editor gizmo 面向相机逻辑仍保留在待查列表里。
+- VoxelGI 动态物体写回仍保留在待查列表里。
 - `screen_space_reflection.glsl`、TAA、SSAO/SSIL、subsurface、bokeh DOF 等 screen-space shader 需要继续按正向 `vertex.z` 验证。
 - `debug_effects.cpp`、PSSM split debug、shadow atlas debug 等调试视图需要跟新深度语义一致。
 - `runtime_node_select.cpp` 和编辑器点选/框选需要确认 near/far frustum 没有反。

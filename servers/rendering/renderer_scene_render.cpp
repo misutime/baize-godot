@@ -70,8 +70,10 @@ void RendererSceneRender::CameraData::set_multiview_camera(uint32_t p_view_count
 	// 2. average and normalize plane normals to obtain z vector, cross them to obtain y vector, and from there the x vector for combined camera basis.
 	Vector3 n0 = planes[0][Projection::PLANE_LEFT].normal;
 	Vector3 n1 = planes[1][Projection::PLANE_RIGHT].normal;
-	Vector3 z = (n0 + n1).normalized();
-	Vector3 y = n0.cross(n1).normalized();
+	// Projection 平面法线朝外；左右侧面法线相加会指向相机后方，
+	// 所以合并相机的本地 +Z 前方要取反。
+	Vector3 z = -(n0 + n1).normalized();
+	Vector3 y = n1.cross(n0).normalized();
 	Vector3 x = y.cross(z).normalized();
 	y = z.cross(x).normalized();
 	main_transform.basis.set_columns(x, y, z);
@@ -88,7 +90,7 @@ void RendererSceneRender::CameraData::set_multiview_camera(uint32_t p_view_count
 
 	// 5. figure out far plane, this could use some improvement, we may have our far plane too close like this, not sure if this matters
 	Vector3 far_center = (planes[0][Projection::PLANE_FAR].get_center() + planes[1][Projection::PLANE_FAR].get_center()) * 0.5;
-	Plane far_plane = Plane(-z, far_center);
+	Plane far_plane = Plane(z, far_center);
 
 	/////////////////////////////////////////////////////////////////////////////
 	// Figure out our top/bottom planes
@@ -175,7 +177,7 @@ void RendererSceneRender::CameraData::set_multiview_camera(uint32_t p_view_count
 	Vector3 local_max_vec = main_transform_inv.xform(max_vec);
 
 	// 15. get x and y from these to obtain left, top, right bottom for the frustum. Get the distance from near plane to camera origin to obtain near, and the distance from the far plane to the camera origin to obtain far.
-	float z_near = -near_plane.distance_to(main_transform.origin);
+	float z_near = near_plane.distance_to(main_transform.origin);
 	float z_far = -far_plane.distance_to(main_transform.origin);
 
 	// 16. Use this to build the combined camera matrix.

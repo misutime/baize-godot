@@ -331,7 +331,7 @@ void main() {
 		//undo transform into prev view
 		prev_view.y = -prev_view.y;
 		//z back to unit size
-		prev_view.z /= -params.fog_frustum_end;
+		prev_view.z /= params.fog_frustum_end;
 		//xy back to unit size
 		prev_view.xy /= mix(params.fog_frustum_size_begin, params.fog_frustum_size_end, vec2(prev_view.z));
 		prev_view.xy = prev_view.xy * 0.5 + 0.5;
@@ -362,7 +362,7 @@ void main() {
 		}
 	}
 
-	uint cluster_z = uint(clamp((abs(view_pos.z) / params.z_far) * 32.0, 0.0, 31.0));
+	uint cluster_z = uint(clamp((view_pos.z / params.z_far) * 32.0, 0.0, 31.0));
 
 	vec3 total_light = vec3(0.0);
 

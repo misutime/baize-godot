@@ -73,7 +73,8 @@ void main() {
 
 	float depth_fix = 1.0 / dot(normal, unorm);
 
-	depth = 2.0 * depth - 1.0;
+	// Cubemap shadow depth is reverse-Z：near 更大、far 更小。先还原成 Projection 的 clip z。
+	depth = 1.0 - depth * 2.0;
 	float linear_depth = 2.0 * params.z_near * params.z_far / (params.z_far + params.z_near - depth * (params.z_far - params.z_near));
 	// linear_depth equal to view space depth
 	depth = (params.z_far - linear_depth * depth_fix) / params.z_far;

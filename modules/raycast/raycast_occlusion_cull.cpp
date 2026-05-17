@@ -86,10 +86,11 @@ void RaycastOcclusionCull::RaycastHZBuffer::update_camera_rays(const Transform3D
 	CameraRayThreadData td;
 	td.thread_count = WorkerThreadPool::get_singleton()->get_thread_count();
 
-	td.z_near = -p_near_bottom_left.z;
+	// 相机本地 +Z 是视线前方，near 面的局部 z 也是正距离。
+	td.z_near = p_near_bottom_left.z;
 	td.z_far = p_z_far * 1.05f;
 	td.camera_pos = p_cam_transform.origin;
-	td.camera_dir = -p_cam_transform.basis.get_column(2);
+	td.camera_dir = p_cam_transform.basis.get_column(2);
 	td.camera_orthogonal = p_cam_orthogonal;
 
 	// Calculate the world coordinates of the viewport.
@@ -610,12 +611,12 @@ void RaycastOcclusionCull::buffer_update(RID p_buffer, const Transform3D &p_cam_
 	Rect2 vp_rect = _get_viewport_rect(p_cam_projection);
 	Vector2 bottom_left = vp_rect.position;
 	bottom_left += _get_jitter(vp_rect, buffer.get_occlusion_buffer_size());
-	Vector3 near_bottom_left = Vector3(bottom_left.x, bottom_left.y, -p_cam_projection.get_z_near());
+	Vector3 near_bottom_left = Vector3(bottom_left.x, bottom_left.y, p_cam_projection.get_z_near());
 
 	buffer.update_camera_rays(p_cam_transform, near_bottom_left, vp_rect.get_size(), p_cam_projection.get_z_far(), p_cam_orthogonal);
 
 	scenario.raycast(buffer.camera_rays, buffer.camera_ray_masks.ptr(), buffer.camera_rays_tile_count);
-	buffer.sort_rays(-p_cam_transform.basis.get_column(2), p_cam_orthogonal);
+	buffer.sort_rays(p_cam_transform.basis.get_column(2), p_cam_orthogonal);
 	buffer.update_mips();
 }
 

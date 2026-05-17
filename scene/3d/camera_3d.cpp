@@ -513,7 +513,8 @@ Vector3 Camera3D::project_position(const Point2 &p_point, real_t p_z_depth) cons
 
 	Projection cm = _get_camera_projection(_near);
 
-	Plane z_slice(Vector3(0, 0, 1), -p_z_depth);
+	// 相机本地 +Z 是视线前方，project_position() 的深度切片也在正 z 方向。
+	Plane z_slice(Vector3(0, 0, 1), p_z_depth);
 	Vector3 res;
 	z_slice.intersect_3(cm.get_projection_plane(Projection::Planes::PLANE_RIGHT), cm.get_projection_plane(Projection::Planes::PLANE_TOP), &res);
 	Vector2 vp_he(res.x, res.y);

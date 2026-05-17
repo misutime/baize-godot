@@ -379,7 +379,7 @@ TEST_CASE("[Projection] Perspective") {
 
 	CHECK(persp[0].is_equal_approx(Vector4(2, 0, 0, 0)));
 	CHECK(persp[1].is_equal_approx(Vector4(0, 1, 0, 0)));
-	CHECK(persp[2].is_equal_approx(Vector4(0, 0, -2, -1)));
+	CHECK(persp[2].is_equal_approx(Vector4(0, 0, 2, 1)));
 	CHECK(persp[3].is_equal_approx(Vector4(0, 0, -15, 0)));
 
 	Projection proj;
@@ -396,7 +396,7 @@ TEST_CASE("[Projection] Frustum") {
 
 	CHECK(frustum[0].is_equal_approx(Vector4(2, 0, 0, 0)));
 	CHECK(frustum[1].is_equal_approx(Vector4(0, 5, 0, 0)));
-	CHECK(frustum[2].is_equal_approx(Vector4(7, 11, -2, -1)));
+	CHECK(frustum[2].is_equal_approx(Vector4(7, 11, 2, 1)));
 	CHECK(frustum[3].is_equal_approx(Vector4(0, 0, -15, 0)));
 
 	Projection proj;
@@ -413,7 +413,7 @@ TEST_CASE("[Projection] Ortho") {
 
 	CHECK(ortho[0].is_equal_approx(Vector4(0.4, 0, 0, 0)));
 	CHECK(ortho[1].is_equal_approx(Vector4(0, 1, 0, 0)));
-	CHECK(ortho[2].is_equal_approx(Vector4(0, 0, -0.2, 0)));
+	CHECK(ortho[2].is_equal_approx(Vector4(0, 0, 0.2, 0)));
 	CHECK(ortho[3].is_equal_approx(Vector4(-7, -11, -2, 1)));
 
 	Projection proj;
@@ -528,12 +528,12 @@ TEST_CASE("[Projection] Planes extraction") {
 	Projection persp = Projection::create_perspective(90, 1, 1, 40, false);
 	Vector<Plane> planes = persp.get_projection_planes(Transform3D());
 
-	CHECK(planes[Projection::PLANE_NEAR].normalized().is_equal_approx(Plane(0, 0, 1, -1)));
-	CHECK(planes[Projection::PLANE_FAR].normalized().is_equal_approx(Plane(0, 0, -1, 40)));
-	CHECK(planes[Projection::PLANE_LEFT].normalized().is_equal_approx(Plane(-0.707107, 0, 0.707107, 0)));
-	CHECK(planes[Projection::PLANE_TOP].normalized().is_equal_approx(Plane(0, 0.707107, 0.707107, 0)));
-	CHECK(planes[Projection::PLANE_RIGHT].normalized().is_equal_approx(Plane(0.707107, 0, 0.707107, 0)));
-	CHECK(planes[Projection::PLANE_BOTTOM].normalized().is_equal_approx(Plane(0, -0.707107, 0.707107, 0)));
+	CHECK(planes[Projection::PLANE_NEAR].normalized().is_equal_approx(Plane(0, 0, -1, -1)));
+	CHECK(planes[Projection::PLANE_FAR].normalized().is_equal_approx(Plane(0, 0, 1, 40)));
+	CHECK(planes[Projection::PLANE_LEFT].normalized().is_equal_approx(Plane(-0.707107, 0, -0.707107, 0)));
+	CHECK(planes[Projection::PLANE_TOP].normalized().is_equal_approx(Plane(0, 0.707107, -0.707107, 0)));
+	CHECK(planes[Projection::PLANE_RIGHT].normalized().is_equal_approx(Plane(0.707107, 0, -0.707107, 0)));
+	CHECK(planes[Projection::PLANE_BOTTOM].normalized().is_equal_approx(Plane(0, -0.707107, -0.707107, 0)));
 
 	Plane plane_array[6]{
 		persp.get_projection_plane(Projection::PLANE_NEAR),
@@ -598,38 +598,38 @@ TEST_CASE("[Projection] Endpoints") {
 	Vector3 ep[8];
 	persp.get_endpoints(Transform3D(), ep);
 
-	CHECK(ep[0].is_equal_approx(Vector3(-1, 1, -1) * 40));
-	CHECK(ep[1].is_equal_approx(Vector3(-1, -1, -1) * 40));
-	CHECK(ep[2].is_equal_approx(Vector3(1, 1, -1) * 40));
-	CHECK(ep[3].is_equal_approx(Vector3(1, -1, -1) * 40));
-	CHECK(ep[4].is_equal_approx(Vector3(-1, 1, -1) * 1));
-	CHECK(ep[5].is_equal_approx(Vector3(-1, -1, -1) * 1));
-	CHECK(ep[6].is_equal_approx(Vector3(1, 1, -1) * 1));
-	CHECK(ep[7].is_equal_approx(Vector3(1, -1, -1) * 1));
+	CHECK(ep[0].is_equal_approx(Vector3(-1, 1, 1) * 40));
+	CHECK(ep[1].is_equal_approx(Vector3(-1, -1, 1) * 40));
+	CHECK(ep[2].is_equal_approx(Vector3(1, 1, 1) * 40));
+	CHECK(ep[3].is_equal_approx(Vector3(1, -1, 1) * 40));
+	CHECK(ep[4].is_equal_approx(Vector3(-1, 1, 1) * 1));
+	CHECK(ep[5].is_equal_approx(Vector3(-1, -1, 1) * 1));
+	CHECK(ep[6].is_equal_approx(Vector3(1, 1, 1) * 1));
+	CHECK(ep[7].is_equal_approx(Vector3(1, -1, 1) * 1));
 
 	persp.set_perspective(120, sqrt3, 0.8, 10, true);
 	persp.get_endpoints(Transform3D(), ep);
 
-	CHECK(ep[0].is_equal_approx(Vector3(-sqrt3, 1, -1) * 10));
-	CHECK(ep[1].is_equal_approx(Vector3(-sqrt3, -1, -1) * 10));
-	CHECK(ep[2].is_equal_approx(Vector3(sqrt3, 1, -1) * 10));
-	CHECK(ep[3].is_equal_approx(Vector3(sqrt3, -1, -1) * 10));
-	CHECK(ep[4].is_equal_approx(Vector3(-sqrt3, 1, -1) * 0.8));
-	CHECK(ep[5].is_equal_approx(Vector3(-sqrt3, -1, -1) * 0.8));
-	CHECK(ep[6].is_equal_approx(Vector3(sqrt3, 1, -1) * 0.8));
-	CHECK(ep[7].is_equal_approx(Vector3(sqrt3, -1, -1) * 0.8));
+	CHECK(ep[0].is_equal_approx(Vector3(-sqrt3, 1, 1) * 10));
+	CHECK(ep[1].is_equal_approx(Vector3(-sqrt3, -1, 1) * 10));
+	CHECK(ep[2].is_equal_approx(Vector3(sqrt3, 1, 1) * 10));
+	CHECK(ep[3].is_equal_approx(Vector3(sqrt3, -1, 1) * 10));
+	CHECK(ep[4].is_equal_approx(Vector3(-sqrt3, 1, 1) * 0.8));
+	CHECK(ep[5].is_equal_approx(Vector3(-sqrt3, -1, 1) * 0.8));
+	CHECK(ep[6].is_equal_approx(Vector3(sqrt3, 1, 1) * 0.8));
+	CHECK(ep[7].is_equal_approx(Vector3(sqrt3, -1, 1) * 0.8));
 
 	persp.set_perspective(60, 1.2, 0.5, 15, false);
 	persp.get_endpoints(Transform3D(), ep);
 
-	CHECK(ep[0].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, sqrt3 / 3, -1) * 15));
-	CHECK(ep[1].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, -sqrt3 / 3, -1) * 15));
-	CHECK(ep[2].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, sqrt3 / 3, -1) * 15));
-	CHECK(ep[3].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, -sqrt3 / 3, -1) * 15));
-	CHECK(ep[4].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, sqrt3 / 3, -1) * 0.5));
-	CHECK(ep[5].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, -sqrt3 / 3, -1) * 0.5));
-	CHECK(ep[6].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, sqrt3 / 3, -1) * 0.5));
-	CHECK(ep[7].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, -sqrt3 / 3, -1) * 0.5));
+	CHECK(ep[0].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, sqrt3 / 3, 1) * 15));
+	CHECK(ep[1].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, -sqrt3 / 3, 1) * 15));
+	CHECK(ep[2].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, sqrt3 / 3, 1) * 15));
+	CHECK(ep[3].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, -sqrt3 / 3, 1) * 15));
+	CHECK(ep[4].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, sqrt3 / 3, 1) * 0.5));
+	CHECK(ep[5].is_equal_approx(Vector3(-sqrt3 / 3 * 1.2, -sqrt3 / 3, 1) * 0.5));
+	CHECK(ep[6].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, sqrt3 / 3, 1) * 0.5));
+	CHECK(ep[7].is_equal_approx(Vector3(sqrt3 / 3 * 1.2, -sqrt3 / 3, 1) * 0.5));
 }
 
 TEST_CASE("[Projection] LOD multiplier") {

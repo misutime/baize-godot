@@ -13,14 +13,32 @@
 
 这意味着公开 3D 语义从 Godot 默认的 `-Z` 前，改为 `+Z` 前；重力、导航、角色 up direction、PrimitiveMesh 的高度方向仍保持 `+Y`。
 
+## 当前权威规则
+
+后文保留了排查过程中的错误判断和修正记录。继续修改时优先按本节判断，不要从中间过程段落倒推当前规则。
+
+- 内部 3D 场景、脚本 API、编辑器相机和渲染主路径统一使用 `+X` 右、`+Y` 上、`+Z` 前。
+- 相机本地 `+Z` 是视线前方，near/far、屏幕射线、遮挡剔除和 view-space depth 都按正向 `z` 推导。
+- Node3D、Camera3D、SpotLight3D、AreaLight3D、PathFollow3D 的默认“前方”都是本地 `+Z`。
+- DirectionalLight / SpotLight / AreaLight 的节点本地 `+Z` 表示光线射出方向；DirectionalLight 写给 shader BRDF 的 `direction` 是表面指向光源，所以等于 `-本地 +Z`。
+- 地面继续是 `XZ`，高度、重力、导航 up 和角色 up direction 继续使用 `Y` 轴。
+- 外部格式导入导出、旧资源迁移和特殊图形 API 边界允许做显式转换，但不在引擎内部长期维护一套隐藏的 `-Z` 前方协议。
+
 ## 已修改范围
 
 - `Vector3` / `Vector3i` 方向常量：`FORWARD` 改为 `(0, 0, 1)`，`BACK` 改为 `(0, 0, -1)`；`UP/DOWN` 不变。
 - C# `Vector3` / `Vector3I` 同步方向常量。
 - `Basis::looking_at()` 与 C# `Basis.LookingAt()`：本地 `+Z` 指向目标，本地 `+Y` 尽量贴近 up。
 - `Projection` 透视、正交、frustum 矩阵改为相机本地 `+Z` 可见空间：可见深度沿 `+Z` 增加，透视投影使用 `w = z`。
-- `Camera3D` 对外射线、投影/反投影、behind 判断、送入 `RenderingServer` 的 transform 都按 `+Z` 前工作。
+- `Camera3D` 对外射线、`project_position()` 深度切片、投影/反投影、behind 判断、送入 `RenderingServer` 的 transform 都按 `+Z` 前工作。
 - RD 渲染后端的 view-space 深度、cluster、体积雾、forward shader、灯光方向改为按 `+Z` 前解释，不再通过旧 `-Z` 渲染协议做边界补偿。
+- Raycast occlusion culling 的 near 面、相机方向和 ray sort 输入改为相机本地 `+Z`。
+- GPU 粒子的 view-depth sort 和 Z billboard view axis 已收束为直接使用相机本地 `+Z`，不再靠旧 `-Z` 注释和双重反号抵消。
+- VoxelGI 动态物体体素化写回按正向 `+Z` depth 修正 z 推进方向；法线还原仍保留独立符号合同，需要真实 VoxelGI 场景继续验证。
+- 多视图合并相机的主 basis 已按本地 `+Z` 前方重算，左右眼 frustum 合并时不再把侧面 outward normal 的平均值当成相机前方。
+- GI fallback 重建、copy linearize、SSAO/SSIL depth downsample、cubemap 转双抛物面阴影等 screen-space 深度路径已按 reverse-Z + 正向 `+Z` depth 修正。
+- volumetric fog、SSR、TAA、SSAO/SSIL normal 读取端继续按正向 `+Z` view-space 收口。
+- 编辑器框选和运行时节点选择的 3D frustum far 面已改为直接放在相机本地 `+Z` 的 far 距离处，避免重复叠加 near 偏移。
 - `Curve3D`、`PathFollow3D`、CSG 路径挤出改为沿本地 `+Z` 前进，up 仍为 `+Y`。
 - 灯光 AABB、LightmapGI 烘焙方向、灯光 gizmo、相机 gizmo 改为 `+Z` 前。
 - `SpringArm3D` 明确使用 `Vector3::BACK` 作为默认后方，避免常量翻转后语义反掉。
@@ -277,7 +295,7 @@ cube_normal.z = -1.0;
 - SDFGI / VoxelGI：light buffer 中的 directional/spot/area 方向与 LightmapGI、Sky 一致，统一为本地 `+Z` 光线射出方向。
 - 位置光 shadow atlas 覆盖率估算：camera near plane 和 SpotLight cone base 改为 `+Z` 前方语义。
 
-仍保留待查项：ClusterBuilder spot/area culling、粒子 view axis、VoxelGI 六面体体素化相机、部分 editor gizmo 面向相机逻辑和外部格式导入导出边界。
+仍保留待查项：ClusterBuilder spot/area culling、VoxelGI 动态物体写回、其他离屏/烘焙相机、位置光 projector / 双抛物面阴影效果和外部格式导入导出边界。
 
 继续按 Z 语义审计排查后，确认还有两处不能留给后续“碰到再补”的渲染方向问题：
 
@@ -285,6 +303,26 @@ cube_normal.z = -1.0;
 - ClusterBuilder 的 SpotLight 非宽角光锥 near-touch 检查仍把旧 `-Z` 当作光锥方向。已改为本地 `+Z` 光锥方向，否则贴近相机的 SpotLight 可能被错误分配 cluster，表现为局部灯光/阴影在某些视角消失。
 
 随后继续复查 `RenderingLightCuller` 时发现一个更直接解释“有光照但没有 cube 阴影”的根因：cascade 分割面的位置确实应沿相机本地 `+Z` 推进，但 near 边界面的法线必须朝相机外侧，也就是 `-Z`。前一轮只改了位置，没有同步修正法线语义，导致 frustum 内部被判成正距离，shadow caster 可能在进入 directional shadow pass 前被裁掉。已把 cascade boundary plane 改为 `Plane(-camera_forward, camera_origin + camera_forward * distance)`，far 面仍通过取反得到朝场景深处外侧的 `+Z` 法线。
+
+Raycast occlusion culling 继续按相机本地 `+Z` 统一：near 面局部坐标使用正向 `z_near`，ray 的 camera_dir 和排序方向都直接使用相机本地 `+Z`。对应 `Projection` 的矩阵、平面和 endpoints 测试已经同步到 `+Z` 可见空间，避免数学层和遮挡层各自维护一套符号。
+
+`Camera3D::project_position()` 也跟随 `+Z` 深度合同修正：给定的 `z_depth` 表示从相机沿本地 `+Z` 向前的正向距离，因此局部切片平面应为 `z = +z_depth`。这里不能沿用旧 `Plane(Vector3(0, 0, 1), -p_z_depth)`，否则屏幕坐标反投影会落到相机身后。
+
+VoxelGI 动态物体写回继续排查后，确认它有两套不同语义，不能一起反号：`_render_material()` 在 `+Z` 视空间下写出的 depth 已是正向 `vertex.z`，因此 `z_sign` 要跟随体素化相机本地 `+Z` 的世界轴符号；但 `voxel_gi.glsl` 里 `z_dir` 同时参与 `normal = ... - vec3(params.z_dir) * normal.z`，这是视空间法线还原到体素轴的旧符号合同，暂时保留并加注释。该项仍需要真实 VoxelGI 动态物体场景验证法线和写回方向。
+
+粒子碰撞 heightfield 的离屏相机也已归类：它不是旧 `-Z` 前方残留，而是从碰撞体上方沿局部 `-Y` 往下烘高度图；在当前 `set_look_at()` 合同下，相机本地 `+Z` 正好指向目标点。`up = -local_Z` 只决定高度图纹理的 XZ 朝向，不能当作 forward 语义去翻。
+
+editor gizmo 的 billboard handle 同样已归类：`t.origin - camera_xform.basis.get_column(2)` 表示让把手本地 `+Z` 朝向相机侧，和“面向相机”的可视把手语义一致，不是旧 Godot 的 `-Z forward` 残留。
+
+`scene_forward_lights_inc.glsl` 中 SpotLight / AreaLight 的主方向语义继续保留为“灯本地 `+Z` 是光线射出方向”：Spot 的 cone attenuation 使用 `dot(spot_dir, light_to_vertex)`，Area 的正面判断使用 `dot(direction, vertex - light_pos)`。本轮发现 SpotLight 透射路径手写反解 shadow depth 时仍按普通 `clip = depth * 2 - 1` 处理，但 spot shadow matrix 使用了 reverse-Z，near 深度更大，far 深度更小；已改为先用 `clip = 1 - depth * 2` 还原，再反解 light-space 距离。位置光 projector 和双抛物面阴影仍需要真实材质/投影贴图场景看最终方向。
+
+多视图合并相机继续修正：`Projection` 的 side plane normal 是 outward normal，在 `+Z` forward 下左右侧面法线相加会指向相机后方，所以合并相机的本地 `+Z` 必须取反；同时 `y` 轴 cross 顺序、far plane 法线和 near/far 距离符号也跟着同步，避免 XR/多视图主相机和单眼相机使用两套相反的 basis。
+
+screen-space 深度路径继续统一为 reverse-Z + 正向 `+Z` view depth：GI fallback 重建、SSAO/SSIL depth downsample、`copy_depth_to_rect_and_linearize()` 和 cubemap 转双抛物面阴影都先把硬件深度按 `clip = 1 - depth * 2` 还原，再反解为正向 view depth。这样后续 AO/IL/GI/调试拷贝拿到的线性深度不再暗含旧 `-Z` 视空间。
+
+编辑器框选和运行时节点选择的 3D frustum far 面也已收口：near 面仍是相机后向法线并放在 `z_near` 处，但 far 面直接用相机本地 `+Z` 法线放到 `z_far`，不再通过 `-near_plane` 后继续 `+z_far`，否则实际 far 会变成 `z_near + z_far`。
+
+volumetric fog 继续修正了两处旧深度假设：体积雾 cell 的 `view_pos.z` 已经是正向 `+Z` 深度，所以 temporal reprojection 还原上一帧 z 时不能再除以负的 frustum end，cluster z 查询也不需要 `abs(view_pos.z)`。SSR 同步把正交视线从旧 `-Z` 改为 `+Z`，并把反射线裁到 near plane 的条件改为只处理跑到相机后方的情况。TAA 的 closest-depth velocity 选择也按 reverse-Z 改为取最大 depth。SSAO/SSIL 的 normal buffer 读取端不再额外反转 normal.z，和 normal 写入端、GI、SSR 共用同一 view-space 法线合同。
 
 手动：
 

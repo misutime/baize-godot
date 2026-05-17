@@ -1520,6 +1520,8 @@ void RendererSceneRenderRD::render_particle_collider_heightfield(RID p_collider,
 	cam_pos.y += extents.y;
 
 	Transform3D cam_xform;
+	// 高度场从碰撞体上方沿局部 -Y 往下烘图；set_look_at() 会让相机本地 +Z 指向目标点。
+	// up 使用局部 -Z 只是为了保持高度图纹理的 XZ 朝向，不代表旧的 -Z 前方语义。
 	cam_xform.set_look_at(cam_pos, cam_pos - p_transform.basis.get_column(Vector3::AXIS_Y), -p_transform.basis.get_column(Vector3::AXIS_Z).normalized());
 
 	RID fb = particles_storage->particles_collision_get_heightfield_framebuffer(p_collider);

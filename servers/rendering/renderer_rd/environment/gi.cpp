@@ -1647,7 +1647,7 @@ void GI::SDFGI::debug_draw(uint32_t p_view_count, const Projection *p_projection
 		push_constant.screen_size[1] = p_height;
 		push_constant.y_mult = y_mult;
 
-		push_constant.z_near = -p_projections[v].get_z_near();
+		push_constant.z_near = p_projections[v].get_z_near();
 
 		for (int i = 0; i < 3; i++) {
 			for (int j = 0; j < 3; j++) {
@@ -3263,13 +3263,16 @@ void GI::VoxelGIInstance::update(bool p_update_light_instances, const Vector<RID
 				int x_axis = int(Vector3(0, 1, 2).dot(x_dir));
 				Vector3 y_dir = xform.basis.get_column(1).abs();
 				int y_axis = int(Vector3(0, 1, 2).dot(y_dir));
-				Vector3 z_dir = -xform.basis.get_column(2);
+				Vector3 depth_dir = xform.basis.get_column(2);
+				// 动态体素化的渲染相机现在沿本地 +Z 写出正向 depth。
+				// z_dir 仍用于把视空间法线还原到体素坐标，保持原来的法线符号合同。
+				Vector3 z_dir = -depth_dir;
 				int z_axis = int(Vector3(0, 1, 2).dot(z_dir.abs()));
 
 				Rect2i rect(aabb.position[x_axis], aabb.position[y_axis], aabb.size[x_axis], aabb.size[y_axis]);
 				bool x_flip = bool(Vector3(1, 1, 1).dot(xform.basis.get_column(0)) < 0);
 				bool y_flip = bool(Vector3(1, 1, 1).dot(xform.basis.get_column(1)) < 0);
-				bool z_flip = bool(Vector3(1, 1, 1).dot(xform.basis.get_column(2)) > 0);
+				bool z_flip = bool(Vector3(1, 1, 1).dot(depth_dir) < 0);
 
 				Projection cm;
 				cm.set_orthogonal(-rect.size.width / 2, rect.size.width / 2, -rect.size.height / 2, rect.size.height / 2, 0.0001, aabb.size[z_axis]);
@@ -4055,10 +4058,10 @@ void GI::process_gi(Ref<RenderSceneBuffersRD> p_render_buffers, const RID *p_nor
 	push_constant.z_far = p_projections[0].get_z_far();
 
 	// these are only used if we have 1 view, else we use the projections in our scene data
-	push_constant.proj_info[0] = -2.0f / (internal_size.x * p_projections[0].columns[0][0]);
+	push_constant.proj_info[0] = 2.0f / (internal_size.x * p_projections[0].columns[0][0]);
 	push_constant.proj_info[1] = -2.0f / (internal_size.y * p_projections[0].columns[1][1]);
-	push_constant.proj_info[2] = (1.0f - p_projections[0].columns[2][0]) / p_projections[0].columns[0][0];
-	push_constant.proj_info[3] = (1.0f + p_projections[0].columns[2][1]) / p_projections[0].columns[1][1];
+	push_constant.proj_info[2] = (-1.0f - p_projections[0].columns[2][0]) / p_projections[0].columns[0][0];
+	push_constant.proj_info[3] = (1.0f - p_projections[0].columns[2][1]) / p_projections[0].columns[1][1];
 
 	bool use_sdfgi = p_render_buffers->has_custom_data(RB_SCOPE_SDFGI);
 	bool use_voxel_gi_instances = push_constant.max_voxel_gi_instances > 0;

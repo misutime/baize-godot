@@ -254,7 +254,8 @@ void main() {
 #ifdef MODE_LINEARIZE_DEPTH_COPY
 
 	float depth = texelFetch(source_color, pos + params.section.xy, 0).r;
-	depth = depth * 2.0 - 1.0;
+	// 主深度是 reverse-Z：near 更大、far 更小。先还原成 Projection 的 clip z。
+	depth = 1.0 - depth * 2.0;
 	depth = 2.0 * params.camera_z_near * params.camera_z_far / (params.camera_z_far + params.camera_z_near - depth * (params.camera_z_far - params.camera_z_near));
 	vec4 color = vec4(depth / params.camera_z_far);
 

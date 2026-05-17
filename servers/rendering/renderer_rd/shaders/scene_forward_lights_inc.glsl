@@ -895,7 +895,8 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		vec3 shadow_uv = vec3(splane.xy * spot_lights.data[idx].atlas_rect.zw + spot_lights.data[idx].atlas_rect.xy, splane.z);
 		float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), shadow_uv.xy, 0.0).r;
 
-		shadow_z = shadow_z * 2.0 - 1.0;
+		// Spot shadow 使用 reverse-Z，贴近灯的深度更大；先还原成 Projection 的 clip z 再反解距离。
+		shadow_z = 1.0 - shadow_z * 2.0;
 		float z_far = 1.0 / spot_lights.data[idx].inv_radius;
 		float z_near = 0.01;
 		shadow_z = 2.0 * z_near * z_far / (z_far + z_near - shadow_z * (z_far - z_near));

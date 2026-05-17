@@ -1297,7 +1297,8 @@ void ParticlesStorage::particles_set_view_axis(RID p_particles, const Vector3 &p
 	copy_push_constant.total_particles = particles->amount;
 	copy_push_constant.copy_mode_2d = false;
 
-	Vector3 axis = -p_axis; // cameras look to z negative
+	// 相机本地 +Z 是视线前方；粒子排序和 Z billboard 直接使用这条深度轴。
+	Vector3 axis = p_axis;
 
 	if (particles->use_local_coords) {
 		axis = particles->emission_transform.basis.xform_inv(axis).normalized();

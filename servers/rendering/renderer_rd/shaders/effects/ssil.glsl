@@ -162,13 +162,11 @@ vec4 calculate_edges(const float p_center_z, const float p_left_z, const float p
 
 vec3 load_normal(ivec2 p_pos) {
 	vec3 encoded_normal = normalize(imageLoad(source_normal, p_pos).xyz * 2.0 - 1.0);
-	encoded_normal.z = -encoded_normal.z;
 	return encoded_normal;
 }
 
 vec3 load_normal(ivec2 p_pos, ivec2 p_offset) {
 	vec3 encoded_normal = normalize(imageLoad(source_normal, p_pos + p_offset).xyz * 2.0 - 1.0);
-	encoded_normal.z = -encoded_normal.z;
 	return encoded_normal;
 }
 
