@@ -23,6 +23,7 @@
 - DirectionalLight / SpotLight / AreaLight 的节点本地 `+Z` 表示光线射出方向；DirectionalLight 写给 shader BRDF 的 `direction` 是表面指向光源，所以等于 `-本地 +Z`。
 - 地面继续是 `XZ`，高度、重力、导航 up 和角色 up direction 继续使用 `Y` 轴。
 - 外部格式导入导出、旧资源迁移和特殊图形 API 边界允许做显式转换，但不在引擎内部长期维护一套隐藏的 `-Z` 前方协议。
+- VR/XR/OpenXR/WebXR 相关功能已经列入长期裁剪方向，不再作为本坐标系迁移的投入范围；如果官方同步触及这些路径，按裁剪台账处理，不为它们补坐标系兼容层。
 
 ## 已修改范围
 
@@ -64,7 +65,7 @@
 
 - 公开语义是左手 Y-Up，但底层数学叉乘仍按普通向量叉乘工作，不能把 `cross()` 当成“左手规则”自动结果。
 - 渲染和投影底层已经改为 `+Z` 前协议；后续若再发现反向问题，必须继续追查哪个模块仍假设 `-Z` 前，不能用局部反号、投影镜像或剔除反转隐藏问题。
-- 外部资源导入、骨骼、粒子、XR、部分编辑器插件可能仍有写死 `-Z` 前的逻辑，需要通过测试和手动体验继续排查。
+- 外部资源导入、骨骼、粒子和部分编辑器插件可能仍有写死 `-Z` 前的逻辑，需要通过测试和手动体验继续排查。VR/XR 相关路径按长期裁剪处理，不再列为坐标系迁移风险。
 - 编辑器视角类代码历史上默认相机本地 `-Z` 是前方，后续排查时优先搜索硬编码 `(0, 0, -1)`、`basis.z` 取反、屏幕深度负号这三类痕迹。
 
 ## 专项排查：天空、右键视角、右上角指示器
@@ -316,7 +317,7 @@ editor gizmo 的 billboard handle 同样已归类：`t.origin - camera_xform.bas
 
 `scene_forward_lights_inc.glsl` 中 SpotLight / AreaLight 的主方向语义继续保留为“灯本地 `+Z` 是光线射出方向”：Spot 的 cone attenuation 使用 `dot(spot_dir, light_to_vertex)`，Area 的正面判断使用 `dot(direction, vertex - light_pos)`。本轮发现 SpotLight 透射路径手写反解 shadow depth 时仍按普通 `clip = depth * 2 - 1` 处理，但 spot shadow matrix 使用了 reverse-Z，near 深度更大，far 深度更小；已改为先用 `clip = 1 - depth * 2` 还原，再反解 light-space 距离。位置光 projector 和双抛物面阴影仍需要真实材质/投影贴图场景看最终方向。
 
-多视图合并相机继续修正：`Projection` 的 side plane normal 是 outward normal，在 `+Z` forward 下左右侧面法线相加会指向相机后方，所以合并相机的本地 `+Z` 必须取反；同时 `y` 轴 cross 顺序、far plane 法线和 near/far 距离符号也跟着同步，避免 XR/多视图主相机和单眼相机使用两套相反的 basis。
+多视图合并相机继续修正：`Projection` 的 side plane normal 是 outward normal，在 `+Z` forward 下左右侧面法线相加会指向相机后方，所以合并相机的本地 `+Z` 必须取反；同时 `y` 轴 cross 顺序、far plane 法线和 near/far 距离符号也跟着同步，避免多视图主相机和单眼相机使用两套相反的 basis。VR/XR 多视图入口后续随模块裁剪，不再追加迁移成本。
 
 screen-space 深度路径继续统一为 reverse-Z + 正向 `+Z` view depth：GI fallback 重建、SSAO/SSIL depth downsample、`copy_depth_to_rect_and_linearize()` 和 cubemap 转双抛物面阴影都先把硬件深度按 `clip = 1 - depth * 2` 还原，再反解为正向 view depth。这样后续 AO/IL/GI/调试拷贝拿到的线性深度不再暗含旧 `-Z` 视空间。
 

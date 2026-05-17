@@ -98,11 +98,11 @@ public:
 
 //TODO: hardcoded main speaker directions for 2, 3.1, 5.1 and 7.1 setups - these are simplified and could also be made configurable
 static const Vector3 speaker_directions[7] = {
-	Vector3(-1.0, 0.0, -1.0).normalized(), // front-left
-	Vector3(1.0, 0.0, -1.0).normalized(), // front-right
-	Vector3(0.0, 0.0, -1.0).normalized(), // center
-	Vector3(-1.0, 0.0, 1.0).normalized(), // rear-left
-	Vector3(1.0, 0.0, 1.0).normalized(), // rear-right
+	Vector3(-1.0, 0.0, 1.0).normalized(), // front-left
+	Vector3(1.0, 0.0, 1.0).normalized(), // front-right
+	Vector3(0.0, 0.0, 1.0).normalized(), // center
+	Vector3(-1.0, 0.0, -1.0).normalized(), // rear-left
+	Vector3(1.0, 0.0, -1.0).normalized(), // rear-right
 	Vector3(-1.0, 0.0, 0.0).normalized(), // side-left
 	Vector3(1.0, 0.0, 0.0).normalized(), // side-right
 };
@@ -192,8 +192,9 @@ void AudioStreamPlayer3D::_calc_reverb_vol(Area3D *area, Vector3 listener_area_p
 
 			if (channel_count >= 3) {
 				// Center pair + Side pair
-				float xl = Vector3(-1, 0, -1).normalized().dot(rev_pos) * 0.5 + 0.5;
-				float xr = Vector3(1, 0, -1).normalized().dot(rev_pos) * 0.5 + 0.5;
+				// 定制坐标系里本地 +Z 是前方，混响的前置声道也要按 +Z 计算。
+				float xl = Vector3(-1, 0, 1).normalized().dot(rev_pos) * 0.5 + 0.5;
+				float xr = Vector3(1, 0, 1).normalized().dot(rev_pos) * 0.5 + 0.5;
 
 				reverb_vol[1].left = xl;
 				reverb_vol[1].right = xr;

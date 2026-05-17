@@ -487,7 +487,9 @@ void main() {
 				} break;
 			}
 			amount = pow(amount, FRAME.attractors[i].attenuation);
-			dir = safe_normalize(mix(dir, FRAME.attractors[i].transform[2].xyz, FRAME.attractors[i].directionality));
+			// 定制坐标系里本地 +Z 是前方。正 strength 的定向吸引器应把粒子推向 +Z；
+			// force 计算下面会减去 dir，所以这里使用 -basis.z 作为中间方向。
+			dir = safe_normalize(mix(dir, -FRAME.attractors[i].transform[2].xyz, FRAME.attractors[i].directionality));
 			attractor_force -= mass * amount * dir * FRAME.attractors[i].strength;
 		}
 

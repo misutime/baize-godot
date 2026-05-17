@@ -191,6 +191,7 @@ znear / zfar / z_near / z_far
 判断：
 
 - GPU 粒子 view axis 已改为直接接收相机本地 `+Z`；editor gizmo 的 billboard handle 不需要反号。
+- GPU 粒子定向吸引器已改为正 strength 推向本地 `+Z`，负 strength 推向本地 `-Z`，和公开前方语义一致。
 - 粒子面向相机、排序和 motion vector 仍建议用真实粒子场景手动看一遍。
 
 ### Positional shadow atlas 覆盖率
@@ -271,6 +272,7 @@ git diff --check
 - 编辑器 3D 视图：默认视角、前后左右顶底固定视图、右键飞行、鼠标 orbit、右上角方向指示器。
 - 编辑器预览：preview sun 方向、preview sky/horizon、编辑器网格与真实几何共面时的显示关系。
 - 常用 Node3D 相关：Path3D / PathFollow3D、SpringArm3D、Area3D 风向、AudioStreamPlayer3D 朝向。
+- 多声道 3D 音频：front-left / front-right / center 声道方向已从旧 `-Z` 前方改为本地 `+Z` 前方，rear 声道同步反向。
 - Forward clustered/mobile 主视图深度：`vertex.z` 作为正向视深，cluster z、fog、DOF/SS effects 等已做第一轮迁移。
 - 渲染 front-face：左手 `+Z` 视空间下 Forward+ / Mobile raster front face 已调整。
 - DirectionalLight/SpotLight/AreaLight：节点本地 `+Z` 作为光线射出方向；DirectionalLight shader `direction` 作为 BRDF `L` 单独反向处理。
@@ -294,7 +296,7 @@ git diff --check
 - volumetric fog 的 directional shadow 采样已按当前 shader `L` 语义保留，但还需要真实体积雾 + DirectionalLight 阴影场景看效果。
 - SSR/TAA/SSAO/SSIL 已做静态语义修正，但仍需要真实 screen-space effects 场景看画面稳定性。
 - 外部格式导入导出，例如 glTF/FBX/Mono API 文档边界，不能机械套内部 `+Z`，需要按格式合同单独确认。
-- XR、CameraFeed、AR/VR、XR projection 等目前不是 editor 3D 主路径，但仍属于潜在旧坐标边界。
+- VR/XR/OpenXR/WebXR 已确定为长期裁剪方向，不再作为坐标系迁移风险投入；相关路径只按 `removal-ledger.md` 和构建裁剪策略维护。CameraFeed/AR 这类依赖 XR 的入口随裁剪策略处理。
 
 ### 全局方向语义约定
 
@@ -417,3 +419,4 @@ git diff --check
 - `Camera3D` cull mask、LOD、visibility range fade 以距离为主，理论上不受前方符号影响，但要确认没有用 `-z` 快捷判断。
 - `AudioStreamPlayer3D`、Area3D 风向、SpringArm3D、RayCast3D/ShapeCast3D 默认方向如果有旧 `Vector3(0,0,-1)` 需要逐个归类。
 - 外部资源导入导出边界要单独建表，记录“内部 `+Z`”和“格式原生坐标”的转换点，不能混在内部迁移里机械替换。
+- VR/XR/OpenXR/WebXR 不进入这张 Z 语义排查表的后续实现清单；发现残留时优先确认是否已经被裁剪或隐藏。

@@ -21,11 +21,11 @@
 			Particle attraction can also be disabled on a per-process material basis by setting [member ParticleProcessMaterial.attractor_interaction_enabled] on the [GPUParticles3D] node.
 		</member>
 		<member name="directionality" type="float" setter="set_directionality" getter="get_directionality" default="0.0">
-			Adjusts how directional the attractor is. At [code]0.0[/code], the attractor is not directional at all: it will attract particles towards its center. At [code]1.0[/code], the attractor is fully directional: particles will always be pushed towards local -Z (or +Z if [member strength] is negative).
+			Adjusts how directional the attractor is. At [code]0.0[/code], the attractor is not directional at all: it will attract particles towards its center. At [code]1.0[/code], the attractor is fully directional: particles will always be pushed towards local +Z (or -Z if [member strength] is negative).
 			[b]Note:[/b] If [member directionality] is greater than [code]0.0[/code], the direction in which particles are pushed can be changed by rotating the [GPUParticlesAttractor3D] node.
 		</member>
 		<member name="strength" type="float" setter="set_strength" getter="get_strength" default="1.0">
-			Adjusts the strength of the attractor. If [member strength] is negative, particles will be pushed in the opposite direction. Particles will be pushed [i]away[/i] from the attractor's origin if [member directionality] is [code]0.0[/code], or towards local +Z if [member directionality] is greater than [code]0.0[/code].
+			Adjusts the strength of the attractor. If [member strength] is negative, particles will be pushed in the opposite direction. Particles will be pushed [i]away[/i] from the attractor's origin if [member directionality] is [code]0.0[/code], or towards local -Z if [member directionality] is greater than [code]0.0[/code].
 		</member>
 	</members>
 </class>
