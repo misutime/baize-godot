@@ -33,19 +33,19 @@ scons --version
 如果只是想尽快编译并启动编辑器，先用这条：
 
 ```powershell
-scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
+scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j16
 ```
 
 等价的 profile 写法：
 
 ```powershell
-scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j8
+scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
 ```
 
 等价的脚本写法：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 8
+.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
 ```
 
 说明：
