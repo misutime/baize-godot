@@ -100,6 +100,7 @@ protected:
 
 		int font_size = 0;
 		int font_offset = 0;
+		int inspector_margin = 0;
 		int horizontal_separation = 0;
 		int vertical_separation = 0;
 		int padding = 0;
@@ -405,6 +406,9 @@ class EditorInspectorCategory : public Control {
 		Ref<Texture2D> icon_favorites;
 		Ref<Texture2D> icon_unfavorite;
 		Ref<Texture2D> icon_help;
+		Ref<Texture2D> arrow;
+		Ref<Texture2D> arrow_collapsed;
+		Ref<Texture2D> arrow_collapsed_mirrored;
 
 		Ref<StyleBox> background;
 	} theme_cache;
@@ -414,12 +418,19 @@ class EditorInspectorCategory : public Control {
 	Ref<Texture2D> icon;
 	String label;
 	String doc_class_name;
+	String folding_key;
+	Object *object = nullptr;
+	VBoxContainer *content_vbox = nullptr;
+	bool force_unfolded = false;
 	PopupMenu *menu = nullptr;
 	bool is_favorite = false;
 	bool menu_icon_dirty = true;
+	bool header_hover = false;
 
 	LocalVector<EditorProperty *> category_properties;
 
+	Ref<Texture2D> _get_arrow() const;
+	bool _is_unfolded() const;
 	void _handle_menu_option(int p_option);
 	void _popup_context_menu(const Point2i &p_position);
 	void _update_icon();
@@ -437,8 +448,12 @@ public:
 	void set_as_favorite();
 	void set_property_info(const PropertyInfo &p_info);
 	void set_doc_class_name(const String &p_name);
+	void setup_folding(Object *p_object, const String &p_folding_key, VBoxContainer *p_content_vbox, bool p_force_unfolded = false);
 
 	void register_property(EditorProperty *p_property) { category_properties.push_back(p_property); }
+	void update_content_visibility();
+	void unfold();
+	void fold();
 
 	virtual Size2 get_minimum_size() const override;
 	virtual Control *make_custom_tooltip(const String &p_text) const override;
@@ -490,9 +505,10 @@ class EditorInspectorSection : public Container {
 	LocalVector<EditorProperty *> section_properties;
 
 	void _test_unfold();
-	int _get_header_height();
-	Ref<Texture2D> _get_arrow();
+	int _get_header_height() const;
+	Ref<Texture2D> _get_arrow() const;
 	Ref<Texture2D> _get_checkbox();
+	bool _is_unfolded() const;
 
 	EditorInspector *_get_parent_inspector() const;
 
@@ -774,10 +790,14 @@ private:
 	VBoxContainer *base_vbox = nullptr;
 	VBoxContainer *begin_vbox = nullptr;
 	VBoxContainer *main_vbox = nullptr;
+	VBoxContainer *script_section_vbox = nullptr;
 
 	// Map used to cache the instantiated editors.
 	HashMap<StringName, List<EditorProperty *>> editor_property_map;
+	List<EditorInspectorCategory *> categories;
 	List<EditorInspectorSection *> sections;
+	static inline HashSet<String> session_folded_inspector_paths;
+	static inline bool session_folded_inspector_paths_loaded = false;
 	HashSet<StringName> pending;
 
 	void _clear(bool p_hide_plugins = true);
@@ -899,6 +919,10 @@ public:
 	static void set_property_clipboard(PropertyClipboard::Type p_type, const Variant &p_value);
 	static PropertyClipboard::Type get_property_clipboard_type() { return property_clipboard.type; }
 	static Variant get_property_clipboard_value() { return property_clipboard.value; }
+	static void _ensure_inspector_path_folding_loaded();
+	static void _save_inspector_path_folding();
+	static bool is_inspector_path_folded(const String &p_path);
+	static void set_inspector_path_folded(const String &p_path, bool p_folded);
 
 	static EditorInspector *create_default_inspector(LineEdit *p_filter_line_edit = nullptr);
 

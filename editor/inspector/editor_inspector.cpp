@@ -488,7 +488,9 @@ void EditorProperty::_notification(int p_what) {
 			int font_size = theme_cache.font_size;
 			bool rtl = is_layout_rtl();
 
-			Size2 size = get_size();
+			// 属性行本身保持全宽，表格分割线才不会被父级缩进截断。
+			Size2 full_size = get_size();
+			Size2 size = full_size;
 			if (bottom_editor) {
 				size.height = bottom_editor->get_offset(SIDE_TOP) - _get_v_separation();
 			} else if (label_reference) {
@@ -502,6 +504,11 @@ void EditorProperty::_notification(int p_what) {
 			} else if (sub_inspector_color_level >= 0 && theme_cache.sub_inspector_background[sub_inspector_color_level].is_valid()) {
 				draw_style_box(theme_cache.sub_inspector_background[sub_inspector_color_level], Rect2(Vector2(), size));
 			} else {
+				if (selected) {
+					Color row_color = theme_cache.property_color;
+					row_color.a = 0.045;
+					draw_rect(Rect2(Vector2(), full_size), row_color);
+				}
 				draw_style_box(selected ? theme_cache.background_selected : theme_cache.background, Rect2(Vector2(), size));
 			}
 
@@ -510,6 +517,36 @@ void EditorProperty::_notification(int p_what) {
 			}
 			if (bottom_child_rect != Rect2() && draw_background) {
 				draw_style_box(theme_cache.child_background, bottom_child_rect);
+			}
+
+			if (!label.is_empty() && draw_background) {
+				Color grid_color = theme_cache.property_color;
+				grid_color.a = 0.07;
+				const real_t line_width = MAX(1.0, Math::round(EDSCALE));
+				// 复杂属性可能有 bottom_editor，横线要按整行高度画，不能只按标题高度画。
+				const real_t row_bottom = MAX(real_t(0), full_size.height - line_width / 2);
+
+				bool has_next_property_row = false;
+				Node *parent = get_parent();
+				if (parent) {
+					for (int i = get_index() + 1; i < parent->get_child_count(); i++) {
+						Control *sibling = Object::cast_to<Control>(parent->get_child(i));
+						if (!sibling || !sibling->is_visible()) {
+							continue;
+						}
+						has_next_property_row = Object::cast_to<EditorProperty>(sibling) != nullptr;
+						break;
+					}
+				}
+				if (has_next_property_row) {
+					draw_line(Point2(0, row_bottom), Point2(full_size.width, row_bottom), grid_color, line_width);
+				}
+
+				if (right_child_rect != Rect2() && right_child_rect.size.x > 1) {
+					real_t value_column_start = rtl ? right_child_rect.position.x + right_child_rect.size.x : right_child_rect.position.x;
+					value_column_start = CLAMP(value_column_start, real_t(0), full_size.width);
+					draw_line(Point2(value_column_start, 0), Point2(value_column_start, full_size.height), grid_color, line_width);
+				}
 			}
 
 			Color color;
@@ -526,7 +563,7 @@ void EditorProperty::_notification(int p_what) {
 				color.a = 0.5;
 			}
 
-			int ofs = theme_cache.font_offset;
+			int ofs = theme_cache.inspector_margin + theme_cache.font_offset;
 			int text_limit = text_size - ofs;
 			int half_padding = EDITOR_GET("interface/theme/base_spacing");
 			int padding = half_padding * 2;
@@ -1801,6 +1838,27 @@ void EditorInspectorCategory::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("unfavorite_all"));
 }
 
+Ref<Texture2D> EditorInspectorCategory::_get_arrow() const {
+	if (!content_vbox || content_vbox->get_child_count() == 0) {
+		return Ref<Texture2D>();
+	}
+
+	if (_is_unfolded()) {
+		return theme_cache.arrow;
+	}
+
+	if (is_layout_rtl()) {
+		return theme_cache.arrow_collapsed_mirrored;
+	}
+
+	return theme_cache.arrow_collapsed;
+}
+
+bool EditorInspectorCategory::_is_unfolded() const {
+	// 折叠状态是本次编辑器会话内全局共享的，同名分类切换对象后保持一致。
+	return force_unfolded || folding_key.is_empty() || !EditorInspector::is_inspector_path_folded(folding_key);
+}
+
 void EditorInspectorCategory::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_POSTINITIALIZE: {
@@ -1856,30 +1914,39 @@ void EditorInspectorCategory::_notification(int p_what) {
 			int hs = theme_cache.horizontal_separation;
 			int icon_size = theme_cache.class_icon_size;
 
-			int w = font->get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).width;
-			if (icon.is_valid()) {
-				w += hs + icon_size;
-			}
-			w = MIN(w, get_size().width - sb->get_minimum_size().width);
+			int margin_start = Math::round(8 * EDSCALE) + sb->get_margin(SIDE_LEFT);
+			int margin_end = Math::round(8 * EDSCALE) + sb->get_margin(SIDE_RIGHT);
 
-			int ofs = (get_size().width - w) / 2;
+			Ref<Texture2D> arrow = _get_arrow();
+			if (arrow.is_valid()) {
+				Point2 arrow_position;
+				if (is_layout_rtl()) {
+					arrow_position.x = get_size().width - margin_start - arrow->get_width();
+				} else {
+					arrow_position.x = margin_start;
+				}
+				arrow_position.y = (get_size().height - arrow->get_height()) / 2;
+				draw_texture(arrow, arrow_position, Color(1, 1, 1, header_hover ? 1.0 : 0.85));
+				margin_start += arrow->get_width() + hs;
+			}
+
+			int w = get_size().width - margin_start - margin_end;
+			if (icon.is_valid()) {
+				w -= hs + icon_size;
+			}
+			w = MAX(w, 0);
 
 			float v_margin_offset = sb->get_content_margin(SIDE_TOP) - sb->get_content_margin(SIDE_BOTTOM);
 
 			if (icon.is_valid()) {
 				Size2 rect_size = Size2(icon_size, icon_size);
-				Point2 rect_pos = Point2(ofs, (get_size().height - icon_size) / 2 + v_margin_offset).round();
+				Point2 rect_pos = Point2(margin_start, (get_size().height - icon_size) / 2 + v_margin_offset).round();
 				if (is_layout_rtl()) {
-					rect_pos.x = get_size().width - rect_pos.x - icon_size;
+					rect_pos.x = get_size().width - margin_start - icon_size;
 				}
 				draw_texture_rect(icon, Rect2(rect_pos, rect_size));
 
-				ofs += hs + icon_size;
-				w -= hs + icon_size;
-			}
-
-			if (is_layout_rtl()) {
-				ofs = get_size().width - ofs - w;
+				margin_start += hs + icon_size;
 			}
 
 			// Use TextLine so we have access to accurate font metrics. This way,
@@ -1891,8 +1958,21 @@ void EditorInspectorCategory::_notification(int p_what) {
 			tl->set_width(w);
 			tl->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_LEFT);
 			float text_pos_y = (get_size().height - tl->get_size().height) / 2 + v_margin_offset;
-			Point2 text_pos = Point2(ofs, text_pos_y).round();
+			Point2 text_pos = Point2(is_layout_rtl() ? margin_end : margin_start, text_pos_y).round();
 			tl->draw(get_canvas_item(), text_pos, theme_cache.font_color);
+		} break;
+
+		case NOTIFICATION_MOUSE_ENTER: {
+			header_hover = true;
+			queue_redraw();
+		} break;
+
+		case NOTIFICATION_MOUSE_EXIT_SELF:
+		case NOTIFICATION_MOUSE_EXIT: {
+			if (header_hover) {
+				header_hover = false;
+				queue_redraw();
+			}
 		} break;
 	}
 }
@@ -1935,6 +2015,14 @@ void EditorInspectorCategory::set_doc_class_name(const String &p_name) {
 	doc_class_name = p_name;
 }
 
+void EditorInspectorCategory::setup_folding(Object *p_object, const String &p_folding_key, VBoxContainer *p_content_vbox, bool p_force_unfolded) {
+	object = p_object;
+	folding_key = p_folding_key;
+	content_vbox = p_content_vbox;
+	force_unfolded = p_force_unfolded;
+	update_content_visibility();
+}
+
 Size2 EditorInspectorCategory::get_minimum_size() const {
 	Size2 ms;
 	if (theme_cache.bold_font.is_valid()) {
@@ -1943,7 +2031,12 @@ Size2 EditorInspectorCategory::get_minimum_size() const {
 	if (icon.is_valid()) {
 		ms.height = MAX(theme_cache.class_icon_size, ms.height);
 	}
-	ms.height += theme_cache.vertical_separation;
+	Ref<Texture2D> arrow = _get_arrow();
+	if (arrow.is_valid()) {
+		ms.height = MAX(arrow->get_height(), ms.height);
+		ms.width += arrow->get_width() + theme_cache.horizontal_separation;
+	}
+	ms.height += theme_cache.vertical_separation + Math::round(4 * EDSCALE);
 
 	if (theme_cache.background.is_valid()) {
 		ms.height += theme_cache.background->get_content_margin(SIDE_TOP) + theme_cache.background->get_content_margin(SIDE_BOTTOM);
@@ -2062,10 +2155,53 @@ void EditorInspectorCategory::_theme_changed() {
 }
 
 void EditorInspectorCategory::gui_input(const Ref<InputEvent> &p_event) {
+	const Ref<InputEventKey> &k = p_event;
+	if (k.is_valid() && k->is_pressed() && k->is_action("ui_accept", true) && content_vbox) {
+		accept_event();
+		if (_is_unfolded()) {
+			fold();
+		} else {
+			unfold();
+		}
+		return;
+	}
+
 	const Ref<InputEventMouseButton> &mb = p_event;
 	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MouseButton::RIGHT) {
 		_popup_context_menu(get_screen_position() + mb->get_position());
+	} else if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MouseButton::LEFT && content_vbox) {
+		accept_event();
+		if (_is_unfolded()) {
+			fold();
+		} else {
+			unfold();
+		}
 	}
+}
+
+void EditorInspectorCategory::update_content_visibility() {
+	if (content_vbox) {
+		content_vbox->set_visible(_is_unfolded() && content_vbox->get_child_count() > 0);
+	}
+	queue_redraw();
+}
+
+void EditorInspectorCategory::unfold() {
+	if (!content_vbox) {
+		return;
+	}
+
+	EditorInspector::set_inspector_path_folded(folding_key, false);
+	update_content_visibility();
+}
+
+void EditorInspectorCategory::fold() {
+	if (!content_vbox) {
+		return;
+	}
+
+	EditorInspector::set_inspector_path_folded(folding_key, true);
+	update_content_visibility();
 }
 
 EditorInspectorCategory::EditorInspectorCategory() {
@@ -2083,10 +2219,10 @@ void EditorInspectorSection::_test_unfold() {
 	}
 }
 
-Ref<Texture2D> EditorInspectorSection::_get_arrow() {
+Ref<Texture2D> EditorInspectorSection::_get_arrow() const {
 	Ref<Texture2D> arrow;
 	if (foldable) {
-		if (object->editor_is_section_unfolded(section)) {
+		if (_is_unfolded()) {
 			arrow = theme_cache.arrow;
 		} else {
 			if (is_layout_rtl()) {
@@ -2113,13 +2249,21 @@ Ref<Texture2D> EditorInspectorSection::_get_checkbox() {
 	return checkbox;
 }
 
-int EditorInspectorSection::_get_header_height() {
-	int header_height = theme_cache.bold_font->get_height(theme_cache.bold_font_size);
+bool EditorInspectorSection::_is_unfolded() const {
+	if (!inspector_path.is_empty()) {
+		return !EditorInspector::is_inspector_path_folded(inspector_path);
+	}
+
+	return object->editor_is_section_unfolded(section);
+}
+
+int EditorInspectorSection::_get_header_height() const {
+	int header_height = theme_cache.font->get_height(theme_cache.font_size);
 	Ref<Texture2D> arrow = _get_arrow();
 	if (arrow.is_valid()) {
 		header_height = MAX(header_height, arrow->get_height());
 	}
-	header_height += theme_cache.vertical_separation;
+	header_height += theme_cache.vertical_separation + theme_cache.padding_size * 2;
 
 	return header_height;
 }
@@ -2171,17 +2315,10 @@ void EditorInspectorSection::_notification(int p_what) {
 				return;
 			}
 
-			int inspector_margin = theme_cache.inspector_margin;
-			if (indent_depth > 0 && theme_cache.indent_size > 0) {
-				inspector_margin += indent_depth * theme_cache.indent_size;
-			}
-			if (indent_depth > 0 && theme_cache.indent_box.is_valid()) {
-				inspector_margin += theme_cache.indent_box->get_margin(SIDE_LEFT) + theme_cache.indent_box->get_margin(SIDE_RIGHT);
-			}
-
-			Size2 size = get_size() - Vector2(inspector_margin, 0);
+			// 子属性控件铺满宽度，缩进只放在文字/箭头绘制坐标里，避免分割线被截短。
+			Size2 size = get_size();
 			int header_height = _get_header_height();
-			Vector2 offset = Vector2(is_layout_rtl() ? 0 : inspector_margin, header_height);
+			Vector2 offset = Vector2(0, header_height);
 			for (int i = 0; i < get_child_count(); i++) {
 				Control *c = as_sortable_control(get_child(i));
 				if (!c) {
@@ -2202,12 +2339,10 @@ void EditorInspectorSection::_notification(int p_what) {
 				section_indent += section_indent_style->get_margin(SIDE_LEFT) + section_indent_style->get_margin(SIDE_RIGHT);
 			}
 
-			int header_width = get_size().width - section_indent;
+			const int section_header_indent = theme_cache.inspector_margin + section_indent;
+			int header_width = get_size().width;
 			int header_offset_x = 0.0;
 			bool rtl = is_layout_rtl();
-			if (!rtl) {
-				header_offset_x += section_indent;
-			}
 
 			bool can_click_unfold = vbox->get_child_count(false) != 0 && !(checkable && !checked && !checkbox_only);
 
@@ -2215,17 +2350,23 @@ void EditorInspectorSection::_notification(int p_what) {
 			int header_height = _get_header_height();
 			Rect2 header_rect = Rect2(Vector2(header_offset_x, 0.0), Vector2(header_width, header_height));
 			Color c = bg_color;
-			c.a *= 0.4;
+			c.a *= 0.12;
 			if (header_hover) {
-				c = c.lightened(Input::get_singleton()->is_mouse_button_pressed(MouseButton::LEFT) ? -0.05 : 0.2);
+				c = c.lightened(Input::get_singleton()->is_mouse_button_pressed(MouseButton::LEFT) ? -0.03 : 0.12);
+				c.a = MAX(c.a, 0.16f);
 			}
 			draw_rect(header_rect, c);
+			Color header_grid_color = theme_cache.font_color;
+			header_grid_color.a = 0.08;
+			const real_t header_line_width = MAX(1.0, Math::round(EDSCALE));
+			draw_line(Point2(0, header_rect.position.y + header_rect.size.y - header_line_width / 2), Point2(get_size().width, header_rect.position.y + header_rect.size.y - header_line_width / 2), header_grid_color, header_line_width);
 
 			// Draw header title, folding arrow and count of revertable properties.
 			{
 				int outer_margin = Math::round(2 * EDSCALE);
 
-				int margin_start = section_indent + outer_margin;
+				int title_start = section_header_indent + Math::round(12 * EDSCALE);
+				int margin_start = title_start;
 				int margin_end = outer_margin;
 
 				// - Arrow.
@@ -2233,19 +2374,18 @@ void EditorInspectorSection::_notification(int p_what) {
 				if (arrow.is_valid()) {
 					Point2 arrow_position;
 					if (rtl) {
-						arrow_position.x = get_size().width - (margin_start + arrow->get_width());
+						arrow_position.x = get_size().width - title_start;
 					} else {
-						arrow_position.x = margin_start;
+						arrow_position.x = MAX(outer_margin, title_start - arrow->get_width() - theme_cache.horizontal_separation);
 					}
 					arrow_position.y = (header_height - arrow->get_height()) / 2;
 					if (can_click_unfold) {
 						draw_texture(arrow, arrow_position, Color(1, 1, 1, header_hover ? 1.0 : 0.85));
 					}
-					margin_start += arrow->get_width() + theme_cache.horizontal_separation;
 				}
 
-				Ref<Font> font = theme_cache.bold_font;
-				int font_size = theme_cache.bold_font_size;
+				Ref<Font> font = theme_cache.font;
+				int font_size = theme_cache.font_size;
 				Color font_color = theme_cache.font_color;
 
 				Ref<Font> light_font = theme_cache.light_font;
@@ -2343,7 +2483,7 @@ void EditorInspectorSection::_notification(int p_what) {
 
 				bool folded = (foldable || !checkbox_only) && !vbox->is_visible();
 				if (folded && revertable_properties.size()) {
-					int label_width = theme_cache.bold_font->get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, available, theme_cache.bold_font_size, TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_CONSTRAIN_ELLIPSIS).x;
+					int label_width = font->get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, available, font_size, TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_CONSTRAIN_ELLIPSIS).x;
 
 					// Can we fit the long version of the revertable count text?
 					num_revertable_str = vformat(TTRN("(%d change)", "(%d changes)", revertable_properties.size()), revertable_properties.size());
@@ -2382,9 +2522,9 @@ void EditorInspectorSection::_notification(int p_what) {
 			if (section_indent_style.is_valid() && section_indent > 0) {
 				Rect2 indent_rect = Rect2(Vector2(), Vector2(indent_depth * section_indent_size, get_size().height));
 				if (rtl) {
-					indent_rect.position.x = get_size().width - section_indent + section_indent_style->get_margin(SIDE_RIGHT);
+					indent_rect.position.x = get_size().width - section_indent - theme_cache.inspector_margin + section_indent_style->get_margin(SIDE_RIGHT);
 				} else {
-					indent_rect.position.x = section_indent_style->get_margin(SIDE_LEFT);
+					indent_rect.position.x = theme_cache.inspector_margin + section_indent_style->get_margin(SIDE_LEFT);
 				}
 				draw_style_box(section_indent_style, indent_rect);
 			}
@@ -2440,7 +2580,7 @@ Size2 EditorInspectorSection::get_minimum_size() const {
 	}
 
 	if (theme_cache.font.is_valid()) {
-		ms.height += theme_cache.font->get_height(theme_cache.font_size) + theme_cache.vertical_separation;
+		ms.height += _get_header_height();
 		ms.width += theme_cache.inspector_margin;
 	}
 
@@ -2514,7 +2654,7 @@ void EditorInspectorSection::setup(const String &p_inspector_path, const String 
 	_test_unfold();
 
 	if (foldable) {
-		if (object->editor_is_section_unfolded(section)) {
+		if (_is_unfolded()) {
 			vbox->show();
 		} else {
 			vbox->hide();
@@ -2560,7 +2700,7 @@ void EditorInspectorSection::gui_input(const Ref<InputEvent> &p_event) {
 		if (foldable && can_click_unfold && k->is_action("ui_accept", true)) {
 			accept_event();
 
-			bool should_unfold = !object->editor_is_section_unfolded(section);
+			bool should_unfold = !_is_unfolded();
 			if (should_unfold) {
 				unfold();
 			} else {
@@ -2573,7 +2713,7 @@ void EditorInspectorSection::gui_input(const Ref<InputEvent> &p_event) {
 	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MouseButton::LEFT) {
 		Vector2 pos = mb->get_position();
 
-		if (object->editor_is_section_unfolded(section)) {
+		if (_is_unfolded()) {
 			int header_height = _get_header_height();
 
 			if (pos.y >= header_height) {
@@ -2599,7 +2739,7 @@ void EditorInspectorSection::gui_input(const Ref<InputEvent> &p_event) {
 		} else if (keying && keying_rect.has_point(pos)) {
 			emit_signal(SNAME("property_keyed"), related_enable_property, false);
 		} else if (foldable) {
-			bool should_unfold = can_click_unfold && !object->editor_is_section_unfolded(section);
+			bool should_unfold = can_click_unfold && !_is_unfolded();
 			if (should_unfold) {
 				unfold();
 			} else {
@@ -2641,7 +2781,11 @@ void EditorInspectorSection::unfold() {
 	_test_unfold();
 
 	if (foldable) {
-		object->editor_set_section_unfold(section, true);
+		if (!inspector_path.is_empty()) {
+			EditorInspector::set_inspector_path_folded(inspector_path, false);
+		} else {
+			object->editor_set_section_unfold(section, true);
+		}
 	}
 
 	vbox->show();
@@ -2653,7 +2797,11 @@ void EditorInspectorSection::fold() {
 		return;
 	}
 
-	object->editor_set_section_unfold(section, false);
+	if (!inspector_path.is_empty()) {
+		EditorInspector::set_inspector_path_folded(inspector_path, true);
+	} else {
+		object->editor_set_section_unfold(section, false);
+	}
 	vbox->hide();
 	queue_redraw();
 }
@@ -3797,6 +3945,12 @@ EditorPaginator::EditorPaginator() {
 Ref<EditorInspectorPlugin> EditorInspector::inspector_plugins[MAX_PLUGINS];
 int EditorInspector::inspector_plugin_count = 0;
 
+static const char *GLOBAL_INSPECTOR_FOLDING_METADATA_SECTION = "inspector";
+static const char *GLOBAL_INSPECTOR_FOLDING_METADATA_KEY = "global_folded_paths";
+static const char *DEFAULT_FOLDED_INSPECTOR_PATHS[] = {
+	"__category_folded/Node",
+};
+
 EditorProperty *EditorInspector::instantiate_property_editor(Object *p_object, const Variant::Type p_type, const String &p_path, PropertyHint p_hint, const String &p_hint_text, const uint32_t p_usage, const bool p_wide) {
 	for (int i = inspector_plugin_count - 1; i >= 0; i--) {
 		if (!inspector_plugins[i]->can_handle(p_object)) {
@@ -3887,6 +4041,9 @@ void EditorInspector::initialize_category_theme(EditorInspectorCategory::ThemeCa
 	p_cache.icon_favorites = p_control->get_editor_theme_icon(SNAME("Favorites"));
 	p_cache.icon_unfavorite = p_control->get_editor_theme_icon(SNAME("Unfavorite"));
 	p_cache.icon_help = p_control->get_editor_theme_icon(SNAME("Help"));
+	p_cache.arrow = p_control->get_theme_icon(SNAME("arrow"), SNAME("Tree"));
+	p_cache.arrow_collapsed = p_control->get_theme_icon(SNAME("arrow_collapsed"), SNAME("Tree"));
+	p_cache.arrow_collapsed_mirrored = p_control->get_theme_icon(SNAME("arrow_collapsed_mirrored"), SNAME("Tree"));
 
 	p_cache.background = p_control->get_theme_stylebox(SNAME("bg"), SNAME("EditorInspectorCategory"));
 }
@@ -3923,6 +4080,7 @@ void EditorInspector::initialize_property_theme(EditorProperty::ThemeCache &p_ca
 
 	p_cache.font_size = p_control->get_theme_font_size(SceneStringName(font_size), SNAME("Tree"));
 	p_cache.font_offset = p_control->get_theme_constant(SNAME("font_offset"), SNAME("EditorProperty"));
+	p_cache.inspector_margin = p_control->get_theme_constant(SNAME("inspector_margin"), EditorStringName(Editor));
 	p_cache.horizontal_separation = p_control->get_theme_constant(SNAME("h_separation"), SNAME("Tree"));
 	p_cache.vertical_separation = p_control->get_theme_constant(SNAME("separation"), SNAME("EditorPropertyContainer"));
 	p_cache.padding = int(EDITOR_GET("interface/theme/base_spacing")) * 2;
@@ -3946,13 +4104,76 @@ void EditorInspector::initialize_property_theme(EditorProperty::ThemeCache &p_ca
 	}
 }
 
+void EditorInspector::_ensure_inspector_path_folding_loaded() {
+	if (session_folded_inspector_paths_loaded) {
+		return;
+	}
+
+	EditorSettings *settings = EditorSettings::get_singleton();
+	if (!settings) {
+		return;
+	}
+
+	session_folded_inspector_paths_loaded = true;
+	Variant saved_folded_paths = settings->get_project_metadata(GLOBAL_INSPECTOR_FOLDING_METADATA_SECTION, GLOBAL_INSPECTOR_FOLDING_METADATA_KEY, Variant());
+	if (saved_folded_paths.get_type() == Variant::NIL) {
+		// 第一次没有保存过折叠偏好时，先让基础 Node 分类默认收起。
+		for (const char *path : DEFAULT_FOLDED_INSPECTOR_PATHS) {
+			session_folded_inspector_paths.insert(path);
+		}
+		_save_inspector_path_folding();
+		return;
+	}
+
+	const PackedStringArray folded_paths = saved_folded_paths;
+	for (const String &path : folded_paths) {
+		if (!path.is_empty()) {
+			session_folded_inspector_paths.insert(path);
+		}
+	}
+}
+
+void EditorInspector::_save_inspector_path_folding() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	if (!settings) {
+		return;
+	}
+
+	PackedStringArray folded_paths;
+	for (const String &path : session_folded_inspector_paths) {
+		folded_paths.push_back(path);
+	}
+	folded_paths.sort();
+	settings->set_project_metadata(GLOBAL_INSPECTOR_FOLDING_METADATA_SECTION, GLOBAL_INSPECTOR_FOLDING_METADATA_KEY, folded_paths);
+}
+
+bool EditorInspector::is_inspector_path_folded(const String &p_path) {
+	_ensure_inspector_path_folding_loaded();
+	return !p_path.is_empty() && session_folded_inspector_paths.has(p_path);
+}
+
+void EditorInspector::set_inspector_path_folded(const String &p_path, bool p_folded) {
+	if (p_path.is_empty()) {
+		return;
+	}
+
+	_ensure_inspector_path_folding_loaded();
+
+	if (p_folded) {
+		session_folded_inspector_paths.insert(p_path);
+	} else {
+		session_folded_inspector_paths.erase(p_path);
+	}
+	_save_inspector_path_folding();
+}
+
 EditorInspector *EditorInspector::create_default_inspector(LineEdit *p_filter_line_edit) {
 	EditorInspector *inspector = memnew(EditorInspector);
 	inspector->set_autoclear(true);
 	inspector->set_show_categories(true, true);
 	inspector->set_use_doc_hints(true);
 	inspector->set_hide_script(false);
-	inspector->set_hide_metadata(false);
+	inspector->set_hide_metadata(true);
 	inspector->set_use_settings_name_style(false);
 	inspector->set_property_name_style(EditorPropertyNameProcessor::get_default_inspector_style());
 	inspector->set_use_folding(!bool(EDITOR_GET("interface/inspector/disable_folding")));
@@ -4216,7 +4437,9 @@ void EditorInspector::update_tree() {
 	EditorInspectorSection *subgroup_togglable_property = nullptr;
 	int section_depth = 0;
 	bool disable_favorite = false;
+	EditorInspectorCategory *current_category = nullptr;
 	VBoxContainer *category_vbox = nullptr;
+	VBoxContainer *script_vbox = nullptr;
 
 	List<PropertyInfo> plist;
 	object->get_property_list(&plist, true);
@@ -4357,7 +4580,23 @@ void EditorInspector::update_tree() {
 			EditorInspectorCategory *category = memnew(EditorInspectorCategory);
 			category->set_property_info(p);
 			main_vbox->add_child(category);
-			category_vbox = nullptr; // Reset.
+			categories.push_back(category);
+
+			// 一级分类自己带一个内容容器，折叠时整块属性都会一起隐藏。
+			current_category = category;
+			category_vbox = memnew(VBoxContainer);
+			category_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
+			category_vbox->add_theme_constant_override(SNAME("separation"), Math::round(2 * EDSCALE));
+			category_vbox->hide();
+			main_vbox->add_child(category_vbox);
+			if (!is_custom_category) {
+				// Godot 的属性列表通常从派生类走到基类；这里把标准类卡牌插回前面，
+				// 让 Inspector 按 Node -> Node3D -> 具体类型的继承顺序阅读。
+				main_vbox->move_child(category, 0);
+				main_vbox->move_child(category_vbox, 1);
+			}
+			const String category_folding_key = String("__category_folded/") + String(p.name);
+			category->setup_folding(object, category_folding_key, category_vbox, !filter.is_empty());
 
 			// Set the category info.
 			category->set_tooltip_text(category_tooltip);
@@ -4368,8 +4607,9 @@ void EditorInspector::update_tree() {
 			// Add editors at the start of a category.
 			for (Ref<EditorInspectorPlugin> &ped : valid_plugins) {
 				ped->parse_category(object, p.name);
-				_parse_added_editors(main_vbox, nullptr, ped);
+				_parse_added_editors(category_vbox, nullptr, ped);
 			}
+			category->update_content_visibility();
 
 			continue;
 
@@ -4379,8 +4619,10 @@ void EditorInspector::update_tree() {
 			continue;
 		}
 
-		if (p.name == "script") {
+		const bool is_script_property = p.name == "script";
+		if (is_script_property) {
 			// Script should go into its own category.
+			current_category = nullptr;
 			category_vbox = nullptr;
 		}
 
@@ -4529,10 +4771,38 @@ void EditorInspector::update_tree() {
 
 		// Recreate the category vbox if it was reset.
 		if (category_vbox == nullptr) {
-			category_vbox = memnew(VBoxContainer);
-			category_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
-			category_vbox->hide();
-			main_vbox->add_child(category_vbox);
+			if (is_script_property) {
+				if (!script_vbox) {
+					Control *script_separator_spacer = memnew(Control);
+					script_separator_spacer->set_custom_minimum_size(Size2(0, 10) * EDSCALE);
+					script_section_vbox->add_child(script_separator_spacer);
+
+					HSeparator *script_separator = memnew(HSeparator);
+					script_section_vbox->add_child(script_separator);
+
+					Control *script_spacer = memnew(Control);
+					script_spacer->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
+					script_section_vbox->add_child(script_spacer);
+
+					PanelContainer *script_panel = memnew(PanelContainer);
+					script_panel->set_theme_type_variation(SNAME("EditorInspectorScriptPanel"));
+					script_section_vbox->add_child(script_panel);
+
+					// Script 保持独立一栏，但继续使用原来的脚本资源选择器。
+					script_vbox = memnew(VBoxContainer);
+					script_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
+					script_vbox->add_theme_constant_override(SNAME("separation"), 0);
+					script_vbox->hide();
+					script_panel->add_child(script_vbox);
+				}
+				category_vbox = script_vbox;
+				script_section_vbox->show();
+			} else {
+				category_vbox = memnew(VBoxContainer);
+				category_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
+				category_vbox->hide();
+				main_vbox->add_child(category_vbox);
+			}
 		}
 
 		// Find the correct section/vbox to add the property editor to.
@@ -4540,7 +4810,11 @@ void EditorInspector::update_tree() {
 		if (!root_vbox) {
 			continue;
 		}
-		category_vbox->show();
+		if (current_category) {
+			current_category->update_content_visibility();
+		} else {
+			category_vbox->show();
+		}
 
 		if (!vbox_per_path.has(root_vbox)) {
 			vbox_per_path[root_vbox] = HashMap<String, VBoxContainer *>();
@@ -4609,7 +4883,11 @@ void EditorInspector::update_tree() {
 
 		// If we did not find a section to add the property to, add it to the category vbox instead (the category vbox handles margins correctly).
 		if (current_vbox == main_vbox) {
-			category_vbox->show();
+			if (current_category) {
+				current_category->update_content_visibility();
+			} else {
+				category_vbox->show();
+			}
 			current_vbox = category_vbox;
 		}
 
@@ -4938,6 +5216,9 @@ void EditorInspector::update_tree() {
 				}
 			} else {
 				current_vbox->add_child(editors[i].property_editor);
+				if (current_category) {
+					current_category->update_content_visibility();
+				}
 
 				if (ep) {
 					Node *section_search = current_vbox->get_parent();
@@ -5201,9 +5482,15 @@ void EditorInspector::_clear(bool p_hide_plugins) {
 		memdelete(main_vbox->get_child(0));
 	}
 
+	script_section_vbox->hide();
+	while (script_section_vbox->get_child_count()) {
+		memdelete(script_section_vbox->get_child(0));
+	}
+
 	property_selected = StringName();
 	property_focusable = -1;
 	editor_property_map.clear();
+	categories.clear();
 	sections.clear();
 	pending.clear();
 	restart_request_props.clear();
@@ -5358,6 +5645,10 @@ bool EditorInspector::is_using_folding() {
 }
 
 void EditorInspector::collapse_all_folding() {
+	for (EditorInspectorCategory *E : categories) {
+		E->fold();
+	}
+
 	for (EditorInspectorSection *E : sections) {
 		E->fold();
 	}
@@ -5370,6 +5661,10 @@ void EditorInspector::collapse_all_folding() {
 }
 
 void EditorInspector::expand_all_folding() {
+	for (EditorInspectorCategory *E : categories) {
+		E->unfold();
+	}
+
 	for (EditorInspectorSection *E : sections) {
 		E->unfold();
 	}
@@ -5381,6 +5676,10 @@ void EditorInspector::expand_all_folding() {
 }
 
 void EditorInspector::expand_revertable() {
+	for (EditorInspectorCategory *E : categories) {
+		E->unfold();
+	}
+
 	HashSet<EditorInspectorSection *> sections_to_unfold[2];
 	for (EditorInspectorSection *E : sections) {
 		if (E->has_revertable_properties()) {
@@ -6248,6 +6547,11 @@ EditorInspector::EditorInspector() {
 	main_vbox = memnew(VBoxContainer);
 	main_vbox->set_theme_type_variation(SNAME("EditorInspectorContainer"));
 	base_vbox->add_child(main_vbox);
+
+	script_section_vbox = memnew(VBoxContainer);
+	script_section_vbox->set_theme_type_variation(SNAME("EditorInspectorContainer"));
+	base_vbox->add_child(script_section_vbox);
+	script_section_vbox->hide();
 
 	set_horizontal_scroll_mode(SCROLL_MODE_DISABLED);
 	set_follow_focus(true);

@@ -2099,6 +2099,14 @@ void ThemeClassic::populate_editor_styles(const Ref<EditorTheme> &p_theme, Edito
 		editor_inspector_panel->set_content_margin_all(0);
 		p_theme->set_stylebox(SceneStringName(panel), "EditorInspector", editor_inspector_panel);
 
+		Ref<StyleBoxFlat> script_panel_bg = p_config.base_style->duplicate();
+		script_panel_bg->set_bg_color(p_config.dark_color_1);
+		script_panel_bg->set_corner_radius_all(p_config.corner_radius * EDSCALE);
+		script_panel_bg->set_border_width_all(Math::ceil(EDSCALE));
+		script_panel_bg->set_border_color(p_config.dark_color_3);
+		script_panel_bg->set_content_margin_all(p_config.base_margin * EDSCALE);
+		p_theme->set_stylebox(SceneStringName(panel), "EditorInspectorScriptPanel", script_panel_bg);
+
 		// Vertical separation between inspector areas.
 		p_theme->set_type_variation("EditorInspectorContainer", "VBoxContainer");
 		p_theme->set_constant("separation", "EditorInspectorContainer", 0);
@@ -2109,7 +2117,7 @@ void ThemeClassic::populate_editor_styles(const Ref<EditorTheme> &p_theme, Edito
 
 		// Vertical separation between inspector properties.
 		p_theme->set_type_variation("EditorPropertyContainer", "VBoxContainer");
-		p_theme->set_constant("separation", "EditorPropertyContainer", p_config.increased_margin * EDSCALE);
+		p_theme->set_constant("separation", "EditorPropertyContainer", 0);
 
 		// EditorProperty.
 
@@ -2124,7 +2132,7 @@ void ThemeClassic::populate_editor_styles(const Ref<EditorTheme> &p_theme, Edito
 		p_theme->set_stylebox("bg", "EditorProperty", memnew(StyleBoxEmpty));
 		p_theme->set_stylebox("bg_selected", "EditorProperty", style_property_bg);
 		p_theme->set_stylebox("child_bg", "EditorProperty", style_property_child_bg);
-		p_theme->set_constant("font_offset", "EditorProperty", 8 * EDSCALE);
+		p_theme->set_constant("font_offset", "EditorProperty", 12 * EDSCALE);
 
 		const Color property_color = p_config.font_color.lerp(Color(0.5, 0.5, 0.5), 0.5);
 		const Color readonly_color = property_color.lerp(p_config.dark_icon_and_font ? Color(0, 0, 0) : Color(1, 1, 1), 0.25);
@@ -2180,7 +2188,10 @@ void ThemeClassic::populate_editor_styles(const Ref<EditorTheme> &p_theme, Edito
 
 		Ref<StyleBoxFlat> category_bg = p_config.base_style->duplicate();
 		category_bg->set_bg_color(prop_category_color);
-		category_bg->set_border_color(prop_category_color);
+		// 一级分类使用直角标题栏和底部分界线，和属性表格形成清晰层级。
+		category_bg->set_corner_radius_all(0);
+		category_bg->set_border_color(p_config.dark_color_2);
+		category_bg->set_border_width(SIDE_BOTTOM, Math::ceil(EDSCALE));
 		category_bg->set_content_margin_all(0);
 		p_theme->set_stylebox("bg", "EditorInspectorCategory", category_bg);
 

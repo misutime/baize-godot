@@ -62,7 +62,7 @@ public:
 	virtual void set_deferred_drag_mode_enabled(bool p_enabled = true) override;
 	virtual void update_property() override;
 	void setup(const EditorPropertyRangeHint &p_range_hint, bool p_link = false, bool p_is_int = false);
-	EditorPropertyVectorN(Variant::Type p_type, bool p_force_wide, bool p_horizontal);
+	EditorPropertyVectorN(Variant::Type p_type, bool p_force_wide, bool p_horizontal, bool p_inline = false);
 };
 
 class EditorPropertyVector2 : public EditorPropertyVectorN {
@@ -83,7 +83,7 @@ class EditorPropertyVector3 : public EditorPropertyVectorN {
 	GDCLASS(EditorPropertyVector3, EditorPropertyVectorN);
 
 public:
-	EditorPropertyVector3(bool p_force_wide = false);
+	EditorPropertyVector3(bool p_force_wide = false, bool p_inline = false);
 };
 
 class EditorPropertyVector3i : public EditorPropertyVectorN {

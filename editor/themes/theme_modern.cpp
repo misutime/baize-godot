@@ -2328,9 +2328,17 @@ void ThemeModern::populate_editor_styles(const Ref<EditorTheme> &p_theme, Editor
 		// Panel.
 		p_theme->set_stylebox(SceneStringName(panel), "EditorInspector", p_config.base_empty_style);
 
+		Ref<StyleBoxFlat> script_panel_bg = p_config.base_style->duplicate();
+		script_panel_bg->set_bg_color(p_config.surface_base_color);
+		script_panel_bg->set_corner_radius_all(p_config.corner_radius * EDSCALE);
+		script_panel_bg->set_border_width_all(Math::ceil(EDSCALE));
+		script_panel_bg->set_border_color(p_config.extra_border_color_2);
+		script_panel_bg->set_content_margin_all(p_config.base_margin * EDSCALE);
+		p_theme->set_stylebox(SceneStringName(panel), "EditorInspectorScriptPanel", script_panel_bg);
+
 		// Vertical separation between inspector areas.
 		p_theme->set_type_variation("EditorInspectorContainer", "VBoxContainer");
-		p_theme->set_constant("separation", "EditorInspectorContainer", Math::ceil(p_config.base_margin * EDSCALE));
+		p_theme->set_constant("separation", "EditorInspectorContainer", 0);
 
 		// Vertical separation between inspector sections.
 		p_theme->set_type_variation("EditorSectionContainer", "VBoxContainer");
@@ -2338,7 +2346,7 @@ void ThemeModern::populate_editor_styles(const Ref<EditorTheme> &p_theme, Editor
 
 		// Vertical separation between inspector properties.
 		p_theme->set_type_variation("EditorPropertyContainer", "VBoxContainer");
-		p_theme->set_constant("separation", "EditorPropertyContainer", p_config.base_margin * 0.5 * EDSCALE);
+		p_theme->set_constant("separation", "EditorPropertyContainer", 0);
 
 		// EditorProperty.
 
@@ -2356,7 +2364,7 @@ void ThemeModern::populate_editor_styles(const Ref<EditorTheme> &p_theme, Editor
 		p_theme->set_stylebox("bg", "EditorProperty", p_config.base_empty_style);
 		p_theme->set_stylebox("bg_selected", "EditorProperty", style_property_bg_selected);
 		p_theme->set_stylebox("child_bg", "EditorProperty", style_property_child_bg);
-		p_theme->set_constant("font_offset", "EditorProperty", 8 * EDSCALE);
+		p_theme->set_constant("font_offset", "EditorProperty", 12 * EDSCALE);
 
 		const Color property_color = p_config.font_color.lerp(Color(0.5, 0.5, 0.5), 0.5);
 		const Color readonly_color = property_color.lerp(p_config.dark_icon_and_font ? Color(0, 0, 0) : Color(1, 1, 1), 0.25);
@@ -2416,10 +2424,10 @@ void ThemeModern::populate_editor_styles(const Ref<EditorTheme> &p_theme, Editor
 		Ref<StyleBoxFlat> category_bg = p_config.base_style->duplicate();
 		category_bg->set_bg_color(p_config.surface_high_color);
 		category_bg->set_content_margin_individual(0, p_config.base_margin * EDSCALE, 0, p_config.base_margin * EDSCALE);
-		if (p_config.draw_extra_borders) {
-			category_bg->set_border_width_all(1);
-			category_bg->set_border_color(p_config.extra_border_color_2);
-		}
+		// 一级分类使用直角标题栏和底部分界线，避免多个分类看起来像圆角卡片堆叠。
+		category_bg->set_corner_radius_all(0);
+		category_bg->set_border_width(SIDE_BOTTOM, Math::ceil(EDSCALE));
+		category_bg->set_border_color(p_config.extra_border_color_2);
 		p_theme->set_stylebox("bg", "EditorInspectorCategory", category_bg);
 
 		// EditorInspectorArray.

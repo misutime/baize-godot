@@ -165,7 +165,7 @@ void EditorPropertyVectorN::setup(const EditorPropertyRangeHint &p_range_hint, b
 	}
 }
 
-EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_wide, bool p_horizontal) {
+EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_wide, bool p_horizontal, bool p_inline) {
 	vector_type = p_type;
 	switch (vector_type) {
 		case Variant::VECTOR2:
@@ -187,7 +187,7 @@ EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_
 			ERR_PRINT("Not a Vector type.");
 			break;
 	}
-	bool horizontal = p_force_wide || p_horizontal;
+	bool horizontal = p_force_wide || p_horizontal || p_inline;
 
 	HBoxContainer *hb = memnew(HBoxContainer);
 	hb->set_h_size_flags(SIZE_EXPAND_FILL);
@@ -195,6 +195,10 @@ EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_
 	BoxContainer *bc;
 
 	if (p_force_wide) {
+		bc = memnew(HBoxContainer);
+		hb->add_child(bc);
+	} else if (p_inline) {
+		// Node3D 的基础变换需要和标题同行，但不占满整条属性行。
 		bc = memnew(HBoxContainer);
 		hb->add_child(bc);
 	} else if (horizontal) {
@@ -254,8 +258,8 @@ EditorPropertyVector2::EditorPropertyVector2(bool p_force_wide) :
 EditorPropertyVector2i::EditorPropertyVector2i(bool p_force_wide) :
 		EditorPropertyVectorN(Variant::VECTOR2I, p_force_wide, EDITOR_GET("interface/inspector/horizontal_vector2_editing")) {}
 
-EditorPropertyVector3::EditorPropertyVector3(bool p_force_wide) :
-		EditorPropertyVectorN(Variant::VECTOR3, p_force_wide, EDITOR_GET("interface/inspector/horizontal_vector_types_editing")) {}
+EditorPropertyVector3::EditorPropertyVector3(bool p_force_wide, bool p_inline) :
+		EditorPropertyVectorN(Variant::VECTOR3, p_force_wide, EDITOR_GET("interface/inspector/horizontal_vector_types_editing"), p_inline) {}
 
 EditorPropertyVector3i::EditorPropertyVector3i(bool p_force_wide) :
 		EditorPropertyVectorN(Variant::VECTOR3I, p_force_wide, EDITOR_GET("interface/inspector/horizontal_vector_types_editing")) {}

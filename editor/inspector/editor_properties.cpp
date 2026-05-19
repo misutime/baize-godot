@@ -4127,7 +4127,13 @@ EditorProperty *EditorInspectorDefaultPlugin::get_editor_for_property(Object *p_
 			return editor;
 		} break;
 		case Variant::VECTOR3: {
-			EditorPropertyVector3 *editor = memnew(EditorPropertyVector3(p_wide));
+			// Node3D 的位置/旋转/缩放是 3D 编辑最常用入口，固定为标题和 XYZ 同行。
+			const bool node_3d_transform_vector = p_object && p_object->is_class("Node3D") && (p_path == "position" || p_path == "rotation" || p_path == "scale");
+			EditorPropertyVector3 *editor = memnew(EditorPropertyVector3(p_wide, node_3d_transform_vector));
+			if (node_3d_transform_vector) {
+				// 单行变换属性里标题不需要占半行，给 XYZ 输入留出更多操作空间。
+				editor->set_name_split_ratio(0.25);
+			}
 			editor->setup(_parse_range_hint(p_hint, p_hint_text, default_float_step), p_hint == PROPERTY_HINT_LINK);
 			return editor;
 
