@@ -1,4 +1,4 @@
-# 3D 定制引擎文档入口
+# 3D 定制文档入口
 
 这个目录记录我们基于 Godot 做中小型风格化 3D 定制引擎的长期规则、裁剪计划、删除台账和同步策略。
 
@@ -9,9 +9,15 @@
 - 让 3D 开发更符合直觉。编辑器从使用方式到概念表达都尽量贴近新手的直接理解，例如坐标系按 `X` 左右、`Y` 前后、`Z` 上下来组织，并在只用“节点”之外，增加更直观的组件(prefab)概念，用来替代一部分场景的使用场景。
 - 封装常用业务和功能组件。参考 Ant Design Pro 这类上层组件库的思路，把项目里高频、容易重复、容易出错的编辑器能力和游戏业务能力沉淀成开箱即用的组件，让中小团队少从底层节点和零散脚本开始拼。
 
-## 文档结构
+## 先读哪一个
 
-固定文档结构见 `document-map.md`。以后新增、删除、改名文档时，必须同步更新这个索引。
+- 第一次构建运行：看 `getting-started-windows.md` 或 `getting-started-macos.md`。
+- 查构建 profile、preset 和裁剪参数：看 `build-profiles.md`。
+- 判断功能该保留、隐藏还是删除：看 `customization-rules.md`。
+- 每次禁用或删除功能：先更新 `removal-ledger.md`。
+- 同步 Godot 官方更新：看 `upstream-sync-policy.md`。
+
+完整索引见 `document-map.md`。新增、删除、改名文档时，必须同步更新这个索引。
 
 ## 当前阶段
 
@@ -38,7 +44,7 @@
 Windows：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 8
+.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
 ```
 
 macOS：
@@ -48,3 +54,9 @@ macOS：
 ```
 
 这两条命令适合早期开发：保留编辑器和 3D 运行能力，先跳过可选额外依赖。Windows 默认先跳过 D3D12、AccessKit、ANGLE；macOS 默认使用 Metal，先跳过 Vulkan/MoltenVK。
+
+构建完成后，macOS 不要直接执行 `.app` 目录。用：
+
+```bash
+open bin/godot_macos_editor_dev.app
+```
