@@ -114,7 +114,7 @@ void OccluderInstance3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo,
 
 	Vector3 sg[2] = { gi.xform(ray_from), gi.xform(ray_from + ray_dir * 4096) };
 
-	bool snap_enabled = Node3DEditor::get_singleton()->is_snap_enabled();
+	bool translate_snap_enabled = Node3DEditor::get_singleton()->is_translate_snap_enabled();
 	float snap = Node3DEditor::get_singleton()->get_translate_snap();
 
 	if (Object::cast_to<SphereOccluder3D>(*o)) {
@@ -122,7 +122,7 @@ void OccluderInstance3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo,
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(Vector3(), Vector3(4096, 0, 0), sg[0], sg[1], ra, rb);
 		float d = ra.x;
-		if (snap_enabled) {
+		if (translate_snap_enabled) {
 			d = Math::snapped(d, snap);
 		}
 
@@ -140,7 +140,7 @@ void OccluderInstance3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo,
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(Vector3(), axis * 4096, sg[0], sg[1], ra, rb);
 		float d = ra[p_id] * 2;
-		if (snap_enabled) {
+		if (translate_snap_enabled) {
 			d = Math::snapped(d, snap);
 		}
 
@@ -163,14 +163,14 @@ void OccluderInstance3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo,
 
 		if (p_id == 2) {
 			Vector2 s = Vector2(intersection.x, intersection.y) * 2.0f;
-			if (snap_enabled) {
+			if (translate_snap_enabled) {
 				s = s.snappedf(snap);
 			}
 			s = s.maxf(0.001);
 			qo->set_size(s);
 		} else {
 			float d = intersection[p_id];
-			if (snap_enabled) {
+			if (translate_snap_enabled) {
 				d = Math::snapped(d, snap);
 			}
 

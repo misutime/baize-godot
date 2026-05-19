@@ -1396,11 +1396,20 @@ bool Node3D::_property_get_revert(const StringName &p_name, Variant &r_property)
 			r_property = Basis();
 		}
 	} else if (sname == "scale") {
+		Vector3 revert_scale;
 		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
 		if (valid && variant.get_type() == Variant::Type::TRANSFORM3D) {
-			r_property = Transform3D(variant).get_basis().get_scale();
+			revert_scale = Transform3D(variant).get_basis().get_scale();
 		} else {
-			r_property = Vector3(1.0, 1.0, 1.0);
+			revert_scale = Vector3(1.0, 1.0, 1.0);
+		}
+
+		Vector3 current_scale = get_scale();
+		if (current_scale.is_equal_approx(revert_scale)) {
+			// Inspector 的重置按钮不要因为矩阵分解后的极小误差亮起。
+			r_property = current_scale;
+		} else {
+			r_property = revert_scale;
 		}
 	} else if (sname == "quaternion") {
 		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);

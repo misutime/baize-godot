@@ -106,7 +106,7 @@ void VisibleOnScreenNotifier3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p
 		Geometry3D::get_closest_points_between_segments(ofs - axis * 4096, ofs + axis * 4096, sg[0], sg[1], ra, rb);
 
 		float d = ra[p_id];
-		if (Node3DEditor::get_singleton()->is_snap_enabled()) {
+		if (Node3DEditor::get_singleton()->is_translate_snap_enabled()) {
 			d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
 		}
 
@@ -118,7 +118,7 @@ void VisibleOnScreenNotifier3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p
 		Geometry3D::get_closest_points_between_segments(ofs, ofs + axis * 4096, sg[0], sg[1], ra, rb);
 
 		float d = ra[p_id] - ofs[p_id];
-		if (Node3DEditor::get_singleton()->is_snap_enabled()) {
+		if (Node3DEditor::get_singleton()->is_translate_snap_enabled()) {
 			d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
 		}
 

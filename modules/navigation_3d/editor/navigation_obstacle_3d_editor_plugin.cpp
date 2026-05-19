@@ -680,7 +680,7 @@ EditorPlugin::AfterGUIInput NavigationObstacle3DEditorPlugin::forward_3d_gui_inp
 				snap_ignore = false;
 			}
 
-			if (!snap_ignore && Node3DEditor::get_singleton()->is_snap_enabled()) {
+			if (!snap_ignore && Node3DEditor::get_singleton()->is_translate_snap_enabled()) {
 				cpoint = cpoint.snappedf(Node3DEditor::get_singleton()->get_translate_snap());
 			}
 			edited_point_pos = Vector3(cpoint.x, 0.0, cpoint.y);

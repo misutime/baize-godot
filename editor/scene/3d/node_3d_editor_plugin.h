@@ -624,7 +624,9 @@ public:
 
 	enum ToolOptions {
 		TOOL_OPT_LOCAL_COORDS,
-		TOOL_OPT_USE_SNAP,
+		TOOL_OPT_USE_TRANSLATE_SNAP,
+		TOOL_OPT_USE_ROTATE_SNAP,
+		TOOL_OPT_USE_SCALE_SNAP,
 		TOOL_OPT_USE_TRACKBALL,
 		TOOL_OPT_PRESERVE_CHILDREN_TRANSFORM,
 		TOOL_OPT_MAX
@@ -727,10 +729,11 @@ private:
 		MENU_TOOL_SELECT,
 		MENU_TOOL_LIST_SELECT,
 		MENU_TOOL_LOCAL_COORDS,
-		MENU_TOOL_USE_SNAP,
+		MENU_TOOL_USE_TRANSLATE_SNAP,
+		MENU_TOOL_USE_ROTATE_SNAP,
+		MENU_TOOL_USE_SCALE_SNAP,
 		MENU_TOOL_USE_TRACKBALL,
 		MENU_TOOL_PRESERVE_CHILDREN_TRANSFORM,
-		MENU_TRANSFORM_CONFIGURE_SNAP,
 		MENU_TRANSFORM_DIALOG,
 		MENU_VIEW_USE_1_VIEWPORT,
 		MENU_VIEW_USE_2_VIEWPORTS,
@@ -763,17 +766,18 @@ private:
 
 	AcceptDialog *accept = nullptr;
 
-	ConfirmationDialog *snap_dialog = nullptr;
 	ConfirmationDialog *xform_dialog = nullptr;
 	ConfirmationDialog *settings_dialog = nullptr;
 
-	bool snap_enabled = false;
 	bool snap_key_enabled = false;
+	bool snap_translate_enabled = true;
+	bool snap_rotate_enabled = true;
+	bool snap_scale_enabled = true;
 	bool vertex_snap_origin_mode = false;
 	bool vertex_snap_use_collision = false;
-	EditorSpinSlider *snap_translate = nullptr;
-	EditorSpinSlider *snap_rotate = nullptr;
-	EditorSpinSlider *snap_scale = nullptr;
+	SpinBox *snap_translate = nullptr;
+	SpinBox *snap_rotate = nullptr;
+	SpinBox *snap_scale = nullptr;
 
 	bool trackball_enabled = false;
 
@@ -787,7 +791,7 @@ private:
 	SpinBox *settings_znear = nullptr;
 	SpinBox *settings_zfar = nullptr;
 
-	void _snap_changed();
+	void _snap_value_changed(double p_value);
 	void _snap_update();
 	void _update_vertex_snap_tooltips();
 	void _xform_dialog_action();
@@ -955,7 +959,10 @@ public:
 	bool are_local_coords_enabled() const { return tool_option_button[Node3DEditor::TOOL_OPT_LOCAL_COORDS]->is_pressed(); }
 	void set_local_coords_enabled(bool on) const { tool_option_button[Node3DEditor::TOOL_OPT_LOCAL_COORDS]->set_pressed(on); }
 	bool is_preserve_children_transform_enabled() const { return tool_option_button[Node3DEditor::TOOL_OPT_PRESERVE_CHILDREN_TRANSFORM]->is_pressed(); }
-	bool is_snap_enabled() const { return snap_enabled ^ snap_key_enabled; }
+	bool is_snap_enabled() const { return is_translate_snap_enabled() || is_rotate_snap_enabled() || is_scale_snap_enabled(); }
+	bool is_translate_snap_enabled() const { return snap_translate_enabled ^ snap_key_enabled; }
+	bool is_rotate_snap_enabled() const { return snap_rotate_enabled ^ snap_key_enabled; }
+	bool is_scale_snap_enabled() const { return snap_scale_enabled ^ snap_key_enabled; }
 	bool is_vertex_snap_origin_mode() const { return vertex_snap_origin_mode; }
 	bool is_vertex_snap_use_collision() const;
 	real_t get_translate_snap() const;

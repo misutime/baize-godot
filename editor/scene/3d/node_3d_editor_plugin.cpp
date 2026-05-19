@@ -105,6 +105,7 @@
 #include "scene/gui/flow_container.h"
 #include "scene/gui/rich_text_label.h"
 #include "scene/gui/separator.h"
+#include "scene/gui/spin_box.h"
 #include "scene/gui/split_container.h"
 #include "scene/gui/subviewport_container.h"
 #include "scene/main/scene_tree.h"
@@ -1808,10 +1809,38 @@ void Node3DEditorViewport::_transform_gizmo_apply(Node3D *p_node, const Transfor
 	}
 }
 
+static Basis _snap_basis_scale(const Basis &p_basis, const Vector3 &p_original_scale, real_t p_snap) {
+	Basis snapped_basis = p_basis;
+	Vector3 current_scale = snapped_basis.get_scale();
+	Vector3 scale_ratio(1, 1, 1);
+
+	for (int i = 0; i < 3; i++) {
+		real_t scale_step = Math::abs(p_original_scale[i]) * p_snap;
+		if (Math::is_zero_approx(scale_step) || Math::is_zero_approx(current_scale[i])) {
+			continue;
+		}
+
+		// 缩放吸附要落到最终 Scale 上，不能只吸附鼠标 motion 这个中间量。
+		real_t snapped_scale = Math::snapped(current_scale[i], scale_step);
+		if (Math::is_zero_approx(snapped_scale)) {
+			continue;
+		}
+
+		scale_ratio[i] = snapped_scale / current_scale[i];
+	}
+
+	snapped_basis.scale_local(scale_ratio);
+	return snapped_basis;
+}
+
+static constexpr real_t MIN_TRANSLATE_SNAP = 0.1;
+static constexpr real_t MIN_ROTATE_SNAP = 1.0;
+static constexpr real_t MIN_SCALE_SNAP = 10.0;
+
 Transform3D Node3DEditorViewport::_compute_transform(TransformMode p_mode, const Transform3D &p_original, const Transform3D &p_original_local, Vector3 p_motion, double p_extra, bool p_local, bool p_orthogonal, bool p_view_axis) {
 	switch (p_mode) {
 		case TRANSFORM_SCALE: {
-			if (spatial_editor->is_snap_enabled()) {
+			if (spatial_editor->is_scale_snap_enabled()) {
 				p_motion.snapf(p_extra);
 			}
 			Transform3D s;
@@ -1829,10 +1858,21 @@ Transform3D Node3DEditorViewport::_compute_transform(TransformMode p_mode, const
 				}
 			}
 
+			if (spatial_editor->is_scale_snap_enabled()) {
+				if (p_local) {
+					s.basis = _snap_basis_scale(s.basis, p_original_local.basis.get_scale(), p_extra);
+				} else {
+					Basis parent_global_basis = p_original.basis * p_original_local.basis.inverse();
+					Basis local_basis = parent_global_basis.inverse() * s.basis;
+					local_basis = _snap_basis_scale(local_basis, p_original_local.basis.get_scale(), p_extra);
+					s.basis = parent_global_basis * local_basis;
+				}
+			}
+
 			return s;
 		}
 		case TRANSFORM_TRANSLATE: {
-			if (spatial_editor->is_snap_enabled()) {
+			if (spatial_editor->is_translate_snap_enabled()) {
 				p_motion.snapf(p_extra);
 			}
 
@@ -6368,7 +6408,7 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 
 			motion /= click.distance_to(_edit.center);
 
-			if (spatial_editor->is_snap_enabled()) {
+			if (spatial_editor->is_scale_snap_enabled()) {
 				snap = spatial_editor->get_scale_snap() / 100;
 			}
 			Vector3 motion_snapped = motion;
@@ -6436,7 +6476,7 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 				}
 			}
 
-			if (spatial_editor->is_snap_enabled()) {
+			if (spatial_editor->is_translate_snap_enabled()) {
 				snap = spatial_editor->get_translate_snap();
 			}
 			Vector3 motion_snapped = motion;
@@ -6477,7 +6517,7 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 				if (rotation_angle > 0.0f) {
 					rotation_axis /= rotation_angle;
 
-					if (spatial_editor->is_snap_enabled()) {
+					if (spatial_editor->is_rotate_snap_enabled()) {
 						double snap_step = spatial_editor->get_rotate_snap();
 						double angle_deg = Math::rad_to_deg(rotation_angle);
 						angle_deg = Math::snapped(angle_deg, snap_step);
@@ -6552,7 +6592,7 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 			}
 			_edit.previous_rotation_vector = current_rotation_vector;
 
-			if (spatial_editor->is_snap_enabled()) {
+			if (spatial_editor->is_rotate_snap_enabled()) {
 				snap = spatial_editor->get_rotate_snap();
 				snap_step_decimals = Math::range_step_decimals(snap);
 			}
@@ -6563,12 +6603,12 @@ void Node3DEditorViewport::update_transform(bool p_shift) {
 				Vector3 delta = intersection - click;
 				float projection = delta.dot(projection_axis);
 				double orth_angle = (projection * (Math::PI / 2.0f)) / (gizmo_scale * GIZMO_CIRCLE_SIZE);
-				_edit.rotation_angle = spatial_editor->is_snap_enabled()
+				_edit.rotation_angle = spatial_editor->is_rotate_snap_enabled()
 						? Math::deg_to_rad(Math::snapped(Math::rad_to_deg(orth_angle), snap))
 						: orth_angle;
 			} else {
 				_edit.show_rotation_line = true;
-				_edit.rotation_angle = spatial_editor->is_snap_enabled()
+				_edit.rotation_angle = spatial_editor->is_rotate_snap_enabled()
 						? Math::deg_to_rad(Math::snapped(Math::rad_to_deg(_edit.accumulated_rotation_angle), snap))
 						: _edit.accumulated_rotation_angle;
 			}
@@ -7598,8 +7638,10 @@ void Node3DEditor::_generate_selection_boxes() {
 Dictionary Node3DEditor::get_state() const {
 	Dictionary d;
 
-	d["snap_enabled"] = snap_enabled;
 	d["trackball_enabled"] = trackball_enabled;
+	d["translate_snap_enabled"] = snap_translate_enabled;
+	d["rotate_snap_enabled"] = snap_rotate_enabled;
+	d["scale_snap_enabled"] = snap_scale_enabled;
 	d["translate_snap"] = snap_translate_value;
 	d["rotate_snap"] = snap_rotate_value;
 	d["scale_snap"] = snap_scale_value;
@@ -7680,9 +7722,26 @@ void Node3DEditor::set_state(const Dictionary &p_state) {
 	Dictionary d = p_state;
 
 	if (d.has("snap_enabled")) {
-		snap_enabled = d["snap_enabled"];
-		tool_option_button[TOOL_OPT_USE_SNAP]->set_pressed(d["snap_enabled"]);
+		// 旧版本只有一个总吸附开关。读旧布局时，把它迁移成三个独立开关。
+		snap_translate_enabled = d["snap_enabled"];
+		snap_rotate_enabled = d["snap_enabled"];
+		snap_scale_enabled = d["snap_enabled"];
 	}
+
+	if (d.has("translate_snap_enabled")) {
+		snap_translate_enabled = d["translate_snap_enabled"];
+	}
+
+	if (d.has("rotate_snap_enabled")) {
+		snap_rotate_enabled = d["rotate_snap_enabled"];
+	}
+
+	if (d.has("scale_snap_enabled")) {
+		snap_scale_enabled = d["scale_snap_enabled"];
+	}
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_pressed(snap_translate_enabled);
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_pressed(snap_rotate_enabled);
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_pressed(snap_scale_enabled);
 
 	if (d.has("trackball_enabled")) {
 		trackball_enabled = d["trackball_enabled"];
@@ -7690,15 +7749,15 @@ void Node3DEditor::set_state(const Dictionary &p_state) {
 	}
 
 	if (d.has("translate_snap")) {
-		snap_translate_value = d["translate_snap"];
+		snap_translate_value = MAX(real_t(d["translate_snap"]), MIN_TRANSLATE_SNAP);
 	}
 
 	if (d.has("rotate_snap")) {
-		snap_rotate_value = d["rotate_snap"];
+		snap_rotate_value = MAX(real_t(d["rotate_snap"]), MIN_ROTATE_SNAP);
 	}
 
 	if (d.has("scale_snap")) {
-		snap_scale_value = d["scale_snap"];
+		snap_scale_value = MAX(real_t(d["scale_snap"]), MIN_SCALE_SNAP);
 	}
 
 	_snap_update();
@@ -7882,10 +7941,14 @@ void Node3DEditor::edit(Node3D *p_spatial) {
 	}
 }
 
-void Node3DEditor::_snap_changed() {
-	snap_translate_value = snap_translate->get_value();
-	snap_rotate_value = snap_rotate->get_value();
-	snap_scale_value = snap_scale->get_value();
+void Node3DEditor::_snap_value_changed(double p_value) {
+	(void)p_value;
+
+	snap_translate_value = MAX(snap_translate->get_value(), MIN_TRANSLATE_SNAP);
+	snap_rotate_value = MAX(snap_rotate->get_value(), MIN_ROTATE_SNAP);
+	snap_scale_value = MAX(snap_scale->get_value(), MIN_SCALE_SNAP);
+
+	_snap_update();
 
 	EditorSettings::get_singleton()->set_project_metadata("3d_editor", "snap_translate_value", snap_translate_value);
 	EditorSettings::get_singleton()->set_project_metadata("3d_editor", "snap_rotate_value", snap_rotate_value);
@@ -7893,9 +7956,9 @@ void Node3DEditor::_snap_changed() {
 }
 
 void Node3DEditor::_snap_update() {
-	snap_translate->set_value(snap_translate_value);
-	snap_rotate->set_value(snap_rotate_value);
-	snap_scale->set_value(snap_scale_value);
+	snap_translate->set_value_no_signal(snap_translate_value);
+	snap_rotate->set_value_no_signal(snap_rotate_value);
+	snap_scale->set_value_no_signal(snap_scale_value);
 }
 
 void Node3DEditor::_update_vertex_snap_tooltips() {
@@ -7969,9 +8032,22 @@ void Node3DEditor::_menu_item_toggled(bool pressed, int p_option) {
 			update_transform_gizmo();
 		} break;
 
-		case MENU_TOOL_USE_SNAP: {
-			tool_option_button[TOOL_OPT_USE_SNAP]->set_pressed(pressed);
-			snap_enabled = pressed;
+		case MENU_TOOL_USE_TRANSLATE_SNAP: {
+			tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_pressed(pressed);
+			snap_translate_enabled = pressed;
+			EditorSettings::get_singleton()->set_project_metadata("3d_editor", "snap_translate_enabled", snap_translate_enabled);
+		} break;
+
+		case MENU_TOOL_USE_ROTATE_SNAP: {
+			tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_pressed(pressed);
+			snap_rotate_enabled = pressed;
+			EditorSettings::get_singleton()->set_project_metadata("3d_editor", "snap_rotate_enabled", snap_rotate_enabled);
+		} break;
+
+		case MENU_TOOL_USE_SCALE_SNAP: {
+			tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_pressed(pressed);
+			snap_scale_enabled = pressed;
+			EditorSettings::get_singleton()->set_project_metadata("3d_editor", "snap_scale_enabled", snap_scale_enabled);
 		} break;
 
 		case MENU_TOOL_USE_TRACKBALL: {
@@ -8072,9 +8148,6 @@ void Node3DEditor::_menu_item_pressed(int p_option) {
 			for (uint32_t i = 0; i < VIEWPORTS_COUNT; i++) {
 				viewports[i]->update_transform_gizmo_highlight();
 			}
-		} break;
-		case MENU_TRANSFORM_CONFIGURE_SNAP: {
-			snap_dialog->popup_centered(Size2(200, 180));
 		} break;
 		case MENU_VERTEX_SNAP_BASE_VERTEX: {
 			vertex_snap_origin_mode = false;
@@ -9641,7 +9714,9 @@ void Node3DEditor::_update_theme() {
 	tool_button[TOOL_RULER]->set_button_icon(get_editor_theme_icon(SNAME("Ruler")));
 
 	tool_option_button[TOOL_OPT_LOCAL_COORDS]->set_button_icon(get_editor_theme_icon(SNAME("Object")));
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_button_icon(get_editor_theme_icon(SNAME("Snap")));
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_button_icon(get_editor_theme_icon(SNAME("ToolMove")));
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_button_icon(get_editor_theme_icon(SNAME("ToolRotate")));
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_button_icon(get_editor_theme_icon(SNAME("ToolScale")));
 	tool_option_button[TOOL_OPT_USE_TRACKBALL]->set_button_icon(get_editor_theme_icon(SNAME("Trackball")));
 	tool_option_button[TOOL_OPT_PRESERVE_CHILDREN_TRANSFORM]->set_button_icon(get_editor_theme_icon(SNAME("Pin")));
 
@@ -10143,9 +10218,15 @@ void Node3DEditor::clear() {
 	settings_znear->set_value(EDITOR_GET("editors/3d/default_z_near"));
 	settings_zfar->set_value(EDITOR_GET("editors/3d/default_z_far"));
 
-	snap_translate_value = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_translate_value", 1);
-	snap_rotate_value = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_rotate_value", 15);
-	snap_scale_value = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_scale_value", 10);
+	snap_translate_value = MAX(real_t(EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_translate_value", 1)), MIN_TRANSLATE_SNAP);
+	snap_rotate_value = MAX(real_t(EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_rotate_value", 15)), MIN_ROTATE_SNAP);
+	snap_scale_value = MAX(real_t(EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_scale_value", 10)), MIN_SCALE_SNAP);
+	snap_translate_enabled = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_translate_enabled", snap_translate_enabled);
+	snap_rotate_enabled = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_rotate_enabled", snap_rotate_enabled);
+	snap_scale_enabled = EditorSettings::get_singleton()->get_project_metadata("3d_editor", "snap_scale_enabled", snap_scale_enabled);
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_pressed(snap_translate_enabled);
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_pressed(snap_rotate_enabled);
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_pressed(snap_scale_enabled);
 	_snap_update();
 
 	for (uint32_t i = 0; i < VIEWPORTS_COUNT; i++) {
@@ -10610,14 +10691,63 @@ Node3DEditor::Node3DEditor() {
 	tool_option_button[TOOL_OPT_LOCAL_COORDS]->set_shortcut_context(this);
 	tool_option_button[TOOL_OPT_LOCAL_COORDS]->set_accessibility_name(TTRC("Use Local Space"));
 
-	tool_option_button[TOOL_OPT_USE_SNAP] = memnew(Button);
-	main_menu_hbox->add_child(tool_option_button[TOOL_OPT_USE_SNAP]);
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_toggle_mode(true);
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_theme_type_variation(SceneStringName(FlatButton));
-	tool_option_button[TOOL_OPT_USE_SNAP]->connect(SceneStringName(toggled), callable_mp(this, &Node3DEditor::_menu_item_toggled).bind(MENU_TOOL_USE_SNAP));
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_shortcut(ED_SHORTCUT("spatial_editor/snap", TTRC("Use Snap"), Key::Y));
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_shortcut_context(this);
-	tool_option_button[TOOL_OPT_USE_SNAP]->set_accessibility_name(TTRC("Use Snap"));
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP] = memnew(Button);
+	main_menu_hbox->add_child(tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]);
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_toggle_mode(true);
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_theme_type_variation(SceneStringName(FlatButton));
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->connect(SceneStringName(toggled), callable_mp(this, &Node3DEditor::_menu_item_toggled).bind(MENU_TOOL_USE_TRANSLATE_SNAP));
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_accessibility_name(TTRC("Use Translate Snap"));
+	tool_option_button[TOOL_OPT_USE_TRANSLATE_SNAP]->set_tooltip_text(TTRC("Use translate snap."));
+
+	snap_translate = memnew(SpinBox);
+	main_menu_hbox->add_child(snap_translate);
+	snap_translate->set_min(MIN_TRANSLATE_SNAP);
+	snap_translate->set_step(MIN_TRANSLATE_SNAP);
+	snap_translate->set_max(10.0);
+	snap_translate->set_suffix("m");
+	snap_translate->set_allow_greater(true);
+	snap_translate->set_select_all_on_focus(true);
+	snap_translate->set_custom_minimum_size(Size2(76, 0) * EDSCALE);
+	snap_translate->set_accessibility_name(TTRC("Translate Snap"));
+	snap_translate->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
+
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP] = memnew(Button);
+	main_menu_hbox->add_child(tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]);
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_toggle_mode(true);
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_theme_type_variation(SceneStringName(FlatButton));
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->connect(SceneStringName(toggled), callable_mp(this, &Node3DEditor::_menu_item_toggled).bind(MENU_TOOL_USE_ROTATE_SNAP));
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_accessibility_name(TTRC("Use Rotate Snap"));
+	tool_option_button[TOOL_OPT_USE_ROTATE_SNAP]->set_tooltip_text(TTRC("Use rotate snap."));
+
+	snap_rotate = memnew(SpinBox);
+	main_menu_hbox->add_child(snap_rotate);
+	snap_rotate->set_min(MIN_ROTATE_SNAP);
+	snap_rotate->set_step(MIN_ROTATE_SNAP);
+	snap_rotate->set_max(360);
+	snap_rotate->set_suffix(U"°");
+	snap_rotate->set_select_all_on_focus(true);
+	snap_rotate->set_custom_minimum_size(Size2(68, 0) * EDSCALE);
+	snap_rotate->set_accessibility_name(TTRC("Rotate Snap"));
+	snap_rotate->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
+
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP] = memnew(Button);
+	main_menu_hbox->add_child(tool_option_button[TOOL_OPT_USE_SCALE_SNAP]);
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_toggle_mode(true);
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_theme_type_variation(SceneStringName(FlatButton));
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->connect(SceneStringName(toggled), callable_mp(this, &Node3DEditor::_menu_item_toggled).bind(MENU_TOOL_USE_SCALE_SNAP));
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_accessibility_name(TTRC("Use Scale Snap"));
+	tool_option_button[TOOL_OPT_USE_SCALE_SNAP]->set_tooltip_text(TTRC("Use scale snap."));
+
+	snap_scale = memnew(SpinBox);
+	main_menu_hbox->add_child(snap_scale);
+	snap_scale->set_min(MIN_SCALE_SNAP);
+	snap_scale->set_step(MIN_SCALE_SNAP);
+	snap_scale->set_max(100);
+	snap_scale->set_suffix("%");
+	snap_scale->set_select_all_on_focus(true);
+	snap_scale->set_custom_minimum_size(Size2(68, 0) * EDSCALE);
+	snap_scale->set_accessibility_name(TTRC("Scale Snap"));
+	snap_scale->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
 
 	tool_option_button[TOOL_OPT_USE_TRACKBALL] = memnew(Button);
 	main_menu_hbox->add_child(tool_option_button[TOOL_OPT_USE_TRACKBALL]);
@@ -10728,9 +10858,6 @@ Node3DEditor::Node3DEditor() {
 	p->add_radio_check_item(TTRC("Snap to Collision Vertices"), MENU_VERTEX_SNAP_SOURCE_COLLISION);
 	_update_vertex_snap_tooltips();
 
-	p->add_separator();
-	p->add_shortcut(ED_SHORTCUT("spatial_editor/configure_snap", TTRC("Configure Snap...")), MENU_TRANSFORM_CONFIGURE_SNAP);
-
 	p->connect(SceneStringName(id_pressed), callable_mp(this, &Node3DEditor::_menu_item_pressed));
 
 	view_layout_menu = memnew(MenuButton);
@@ -10811,42 +10938,6 @@ Node3DEditor::Node3DEditor() {
 		viewports[i]->set_custom_minimum_size(Size2(39, 39));
 		viewport_base->add_viewport(viewports[i], i);
 	}
-
-	/* SNAP DIALOG */
-
-	snap_dialog = memnew(ConfirmationDialog);
-	snap_dialog->set_title(TTRC("Snap Settings"));
-	add_child(snap_dialog);
-	snap_dialog->connect(SceneStringName(confirmed), callable_mp(this, &Node3DEditor::_snap_changed));
-	snap_dialog->get_cancel_button()->connect(SceneStringName(pressed), callable_mp(this, &Node3DEditor::_snap_update));
-
-	VBoxContainer *snap_dialog_vbc = memnew(VBoxContainer);
-	snap_dialog->add_child(snap_dialog_vbc);
-
-	snap_translate = memnew(EditorSpinSlider);
-	snap_translate->set_min(0.0);
-	snap_translate->set_step(EDITOR_GET("interface/inspector/default_float_step"));
-	snap_translate->set_max(10.0);
-	snap_translate->set_suffix("m");
-	snap_translate->set_allow_greater(true);
-	snap_translate->set_accessibility_name(TTRC("Translate Snap"));
-	snap_dialog_vbc->add_margin_child(TTR("Translate Snap:"), snap_translate);
-
-	snap_rotate = memnew(EditorSpinSlider);
-	snap_rotate->set_min(0.0);
-	snap_rotate->set_step(0.1);
-	snap_rotate->set_max(360);
-	snap_rotate->set_suffix(U"°");
-	snap_rotate->set_accessibility_name(TTRC("Rotate Snap"));
-	snap_dialog_vbc->add_margin_child(TTR("Rotate Snap:"), snap_rotate);
-
-	snap_scale = memnew(EditorSpinSlider);
-	snap_scale->set_min(0.0);
-	snap_scale->set_step(1.0);
-	snap_scale->set_max(100);
-	snap_scale->set_suffix("%");
-	snap_scale->set_accessibility_name(TTRC("Scale Snap"));
-	snap_dialog_vbc->add_margin_child(TTR("Scale Snap:"), snap_scale);
 
 	/* SETTINGS DIALOG */
 
@@ -11214,7 +11305,7 @@ Size2i Node3DEditor::get_camera_viewport_size(Camera3D *p_camera) {
 }
 
 Vector3 Node3DEditor::snap_point(Vector3 p_target, Vector3 p_start) const {
-	if (is_snap_enabled()) {
+	if (is_translate_snap_enabled()) {
 		real_t snap = get_translate_snap();
 		p_target.snapf(snap);
 	}
@@ -11237,7 +11328,7 @@ real_t Node3DEditor::get_translate_snap() const {
 	if (Input::get_singleton()->is_key_pressed(Key::SHIFT)) {
 		snap_value /= 10.0f;
 	}
-	return snap_value;
+	return MAX(snap_value, MIN_TRANSLATE_SNAP);
 }
 
 real_t Node3DEditor::get_rotate_snap() const {
@@ -11245,7 +11336,7 @@ real_t Node3DEditor::get_rotate_snap() const {
 	if (Input::get_singleton()->is_key_pressed(Key::SHIFT)) {
 		snap_value /= 3.0f;
 	}
-	return snap_value;
+	return MAX(snap_value, MIN_ROTATE_SNAP);
 }
 
 real_t Node3DEditor::get_scale_snap() const {
@@ -11253,7 +11344,7 @@ real_t Node3DEditor::get_scale_snap() const {
 	if (Input::get_singleton()->is_key_pressed(Key::SHIFT)) {
 		snap_value /= 2.0f;
 	}
-	return snap_value;
+	return MAX(snap_value, MIN_SCALE_SNAP);
 }
 
 struct _GizmoPluginPriorityComparator {

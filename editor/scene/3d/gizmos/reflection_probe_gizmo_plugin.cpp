@@ -115,7 +115,7 @@ void ReflectionProbeGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, in
 		Geometry3D::get_closest_points_between_segments(origin - axis * 16384, origin + axis * 16384, sg[0], sg[1], ra, rb);
 		// Adjust the actual position to account for the gizmo handle position
 		float d = ra[p_id] + 0.25;
-		if (Node3DEditor::get_singleton()->is_snap_enabled()) {
+		if (Node3DEditor::get_singleton()->is_translate_snap_enabled()) {
 			d = Math::snapped(d, Node3DEditor::get_singleton()->get_translate_snap());
 		}
 

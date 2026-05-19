@@ -336,7 +336,7 @@ EditorPlugin::AfterGUIInput Polygon3DEditor::forward_3d_gui_input(Camera3D *p_ca
 				snap_ignore = false;
 			}
 
-			if (!snap_ignore && Node3DEditor::get_singleton()->is_snap_enabled()) {
+			if (!snap_ignore && Node3DEditor::get_singleton()->is_translate_snap_enabled()) {
 				cpoint = cpoint.snappedf(Node3DEditor::get_singleton()->get_translate_snap());
 			}
 			edited_point_pos = cpoint;
