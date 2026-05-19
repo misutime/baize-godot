@@ -50,7 +50,7 @@ Windows：
 macOS：
 
 ```bash
-./misc/customization/build-macos.sh --preset dev --jobs 8
+./misc/customization/build-macos.sh --preset dev --jobs 10
 ```
 
 这两条命令适合早期开发：保留编辑器和 3D 运行能力，先跳过可选额外依赖。Windows 默认先跳过 D3D12、AccessKit、ANGLE；macOS 默认使用 Metal，先跳过 Vulkan/MoltenVK。

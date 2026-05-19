@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PRESET="dev"
-JOBS="8"
+JOBS="10"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do

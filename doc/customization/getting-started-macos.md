@@ -34,13 +34,13 @@ scons --version
 日常开发先用项目脚本：
 
 ```bash
-./misc/customization/build-macos.sh --preset dev --jobs 8
+./misc/customization/build-macos.sh --preset dev --jobs 10
 ```
 
 等价的 profile 写法：
 
 ```bash
-scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j8
+scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j10
 ```
 
 这个 preset 会使用 Metal，并先关闭 Vulkan/MoltenVK 这类额外依赖。

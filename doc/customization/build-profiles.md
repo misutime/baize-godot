@@ -19,7 +19,7 @@ Windows 首次开发基线：
 macOS 开发基线：
 
 ```bash
-./misc/customization/build-macos.sh --preset dev --jobs 8
+./misc/customization/build-macos.sh --preset dev --jobs 10
 ```
 
 ## 对应 profile
@@ -34,7 +34,7 @@ scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
 macOS：
 
 ```bash
-scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j8
+scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j10
 ```
 
 ## 关键参数
@@ -132,7 +132,7 @@ Windows：
 macOS：
 
 ```bash
-./misc/customization/build-macos.sh --preset dev --jobs 8
+./misc/customization/build-macos.sh --preset dev --jobs 10
 ./bin/godot.macos.editor.dev.arm64 --version
 open bin/godot_macos_editor_dev.app
 ```
