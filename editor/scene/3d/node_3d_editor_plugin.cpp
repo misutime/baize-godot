@@ -2315,20 +2315,6 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 						break;
 					}
 
-					const Key mod = _get_key_modifier(b);
-					if (!view_3d_controller->is_orthogonal() && !(previewing && !pilot_preview_enabled)) {
-						if (mod == _get_key_modifier_setting("editors/3d/freelook/freelook_activation_modifier")) {
-							view_3d_controller->set_freelook_enabled(true);
-						}
-					}
-				} else {
-					view_3d_controller->set_freelook_enabled(false);
-				}
-
-				if (view_3d_controller->is_freelook_enabled() && !surface->has_focus()) {
-					// Focus usually doesn't trigger on right-click, but in case of freelook it should,
-					// otherwise using keyboard navigation would misbehave
-					surface->grab_focus();
 				}
 
 			} break;
@@ -2369,6 +2355,31 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 						case TRANSFORM_XY: {
 						} break;
 					}
+				}
+			} break;
+			case MouseButton::MB_XBUTTON1: {
+				if (b->is_pressed()) {
+					if (_edit.mode == TRANSFORM_NONE) {
+						if (orbit_mouse_preference == View3DController::NAV_MOUSE_BUTTON_4 && _is_nav_modifier_pressed("spatial_editor/viewport_orbit_modifier_1") && _is_nav_modifier_pressed("spatial_editor/viewport_orbit_modifier_2")) {
+							break;
+						} else if (pan_mouse_preference == View3DController::NAV_MOUSE_BUTTON_4 && _is_nav_modifier_pressed("spatial_editor/viewport_pan_modifier_1") && _is_nav_modifier_pressed("spatial_editor/viewport_pan_modifier_2")) {
+							break;
+						} else if (zoom_mouse_preference == View3DController::NAV_MOUSE_BUTTON_4 && _is_nav_modifier_pressed("spatial_editor/viewport_zoom_modifier_1") && _is_nav_modifier_pressed("spatial_editor/viewport_zoom_modifier_2")) {
+							break;
+						}
+					}
+
+					const Key mod = _get_key_modifier(b);
+					if (!view_3d_controller->is_orthogonal() && !(previewing && !pilot_preview_enabled)) {
+						if (mod == _get_key_modifier_setting("editors/3d/freelook/freelook_activation_modifier")) {
+							// 鼠标侧键 4 和 Shift+F 一样切换飞行视角。
+							view_3d_controller->set_freelook_enabled(!view_3d_controller->is_freelook_enabled());
+						}
+					}
+				}
+
+				if (view_3d_controller->is_freelook_enabled() && !surface->has_focus()) {
+					surface->grab_focus();
 				}
 			} break;
 			case MouseButton::LEFT: {
@@ -3112,7 +3123,16 @@ void Node3DEditorViewport::_cursor_distance_scaled() {
 }
 
 void Node3DEditorViewport::_freelook_changed() {
-	spatial_editor->set_freelook_viewport(view_3d_controller->is_freelook_enabled() ? this : nullptr);
+	const bool freelook_enabled = view_3d_controller->is_freelook_enabled();
+	spatial_editor->set_freelook_viewport(freelook_enabled ? this : nullptr);
+
+	if (freelook_enabled) {
+		set_message(TTR(String(U"\u98de\u884c\u89c6\u89d2\uff1aWASD \u79fb\u52a8\uff0c\u4fa7\u952e 4 \u6216 Shift+F \u9000\u51fa")), 3);
+		freelook_label->show();
+	} else {
+		set_message(TTR(String(U"\u9000\u51fa\u98de\u884c\u89c6\u89d2")), 1.5);
+		freelook_label->hide();
+	}
 }
 
 void Node3DEditorViewport::_pilot_ensure_undo_session() {
@@ -3977,6 +3997,7 @@ void Node3DEditorViewport::_notification(int p_what) {
 
 			cinema_label->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
 			locked_label->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
+			freelook_label->add_theme_style_override(CoreStringName(normal), information_3d_stylebox);
 
 			ruler_label->add_theme_color_override(SceneStringName(font_color), Color(1.0, 0.9, 0.0, 1.0));
 			ruler_label->add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0));
@@ -6756,7 +6777,7 @@ void Node3DEditorViewport::_load_viewport_inputs() {
 	register_shortcut_action("spatial_editor/viewport_orbit_modifier_2", TTRC("Viewport Orbit Modifier 2"), Key::NONE);
 	register_shortcut_action("spatial_editor/viewport_orbit_snap_modifier_1", TTRC("Viewport Orbit Snap Modifier 1"), Key::ALT);
 	register_shortcut_action("spatial_editor/viewport_orbit_snap_modifier_2", TTRC("Viewport Orbit Snap Modifier 2"), Key::NONE);
-	register_shortcut_action("spatial_editor/viewport_pan_modifier_1", TTRC("Viewport Pan Modifier 1"), Key::SHIFT);
+	register_shortcut_action("spatial_editor/viewport_pan_modifier_1", TTRC("Viewport Pan Modifier 1"), Key::NONE);
 	register_shortcut_action("spatial_editor/viewport_pan_modifier_2", TTRC("Viewport Pan Modifier 2"), Key::NONE);
 	register_shortcut_action("spatial_editor/viewport_zoom_modifier_1", TTRC("Viewport Zoom Modifier 1"), Key::CTRL);
 	register_shortcut_action("spatial_editor/viewport_zoom_modifier_2", TTRC("Viewport Zoom Modifier 2"), Key::NONE);
@@ -7036,6 +7057,14 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	bottom_center_vbox->add_child(locked_label);
 	locked_label->set_text(TTRC("View Rotation Locked"));
 	locked_label->hide();
+
+	freelook_label = memnew(Label);
+	freelook_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	freelook_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
+	freelook_label->set_h_size_flags(SIZE_SHRINK_CENTER);
+	bottom_center_vbox->add_child(freelook_label);
+	freelook_label->set_text(String(U"\u98de\u884c\u89c6\u89d2"));
+	freelook_label->hide();
 
 	zoom_limit_label = memnew(Label);
 	zoom_limit_label->set_text(TTRC(U"To zoom further, change the camera's clipping planes (View → Settings...)"));

@@ -260,6 +260,7 @@ private:
 	Label *info_label = nullptr;
 	Label *cinema_label = nullptr;
 	Label *locked_label = nullptr;
+	Label *freelook_label = nullptr;
 	Label *zoom_limit_label = nullptr;
 
 	RichTextLabel *tooltip_panel = nullptr;

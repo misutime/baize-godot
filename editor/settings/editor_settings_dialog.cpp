@@ -112,13 +112,13 @@ void EditorSettingsDialog::update_navigation_preset() {
 
 	if (nav_scheme == View3DController::NAV_SCHEME_GODOT) {
 		set_preset = true;
-		set_orbit_mouse_button = View3DController::NAV_MOUSE_BUTTON_MIDDLE;
+		set_orbit_mouse_button = View3DController::NAV_MOUSE_BUTTON_RIGHT;
 		set_pan_mouse_button = View3DController::NAV_MOUSE_BUTTON_MIDDLE;
 		set_zoom_mouse_button = View3DController::NAV_MOUSE_BUTTON_MIDDLE;
 		set_3_button_mouse = false;
 		orbit_mod_key_1 = InputEventKey::create_reference(Key::NONE);
 		orbit_mod_key_2 = InputEventKey::create_reference(Key::NONE);
-		pan_mod_key_1 = InputEventKey::create_reference(Key::SHIFT);
+		pan_mod_key_1 = InputEventKey::create_reference(Key::NONE);
 		pan_mod_key_2 = InputEventKey::create_reference(Key::NONE);
 		zoom_mod_key_1 = InputEventKey::create_reference(Key::CTRL);
 		zoom_mod_key_2 = InputEventKey::create_reference(Key::NONE);
