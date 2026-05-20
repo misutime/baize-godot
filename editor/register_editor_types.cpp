@@ -254,7 +254,6 @@ void register_editor_types() {
 	EditorPlugins::add_by_type<PhysicalBone3DEditorPlugin>();
 	EditorPlugins::add_by_type<Polygon3DEditorPlugin>();
 	EditorPlugins::add_by_type<ResourcePreloaderEditorPlugin>();
-	EditorPlugins::add_by_type<ShaderEditorPlugin>();
 	EditorPlugins::add_by_type<ShaderFileEditorPlugin>();
 	EditorPlugins::add_by_type<Skeleton3DEditorPlugin>();
 	EditorPlugins::add_by_type<SpriteFramesEditorPlugin>();

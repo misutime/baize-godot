@@ -34,7 +34,6 @@
 #include "scene/resources/shader.h"
 
 class CodeTextEditor;
-class EditorDock;
 class HSplitContainer;
 class ItemList;
 class MenuButton;
@@ -43,7 +42,6 @@ class ShaderEditor;
 class TabContainer;
 class VBoxContainer;
 class HBoxContainer;
-class WindowWrapper;
 
 class ShaderEditorPlugin : public EditorPlugin {
 	GDCLASS(ShaderEditorPlugin, EditorPlugin);
@@ -88,9 +86,6 @@ class ShaderEditorPlugin : public EditorPlugin {
 	MenuButton *file_menu = nullptr;
 	PopupMenu *context_menu = nullptr;
 
-	EditorDock *shader_dock = nullptr;
-	Ref<Shortcut> make_floating_shortcut;
-
 	ShaderCreateDialog *shader_create_dialog = nullptr;
 
 	float text_shader_zoom_factor = 1.0f;
@@ -126,10 +121,9 @@ class ShaderEditorPlugin : public EditorPlugin {
 protected:
 	void _notification(int p_what);
 
-	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
-
 public:
 	virtual String get_plugin_name() const override { return "Shader"; }
+	bool has_main_screen() const override { return true; }
 	virtual void edit(Object *p_object) override;
 	virtual bool handles(Object *p_object) const override;
 	virtual void make_visible(bool p_visible) override;

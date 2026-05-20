@@ -32,13 +32,12 @@
 
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
-#include "editor/docks/editor_dock_manager.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
+#include "editor/editor_main_screen.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
-#include "editor/gui/window_wrapper.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/shader/shader_create_dialog.h"
@@ -212,12 +211,14 @@ bool ShaderEditorPlugin::handles(Object *p_object) const {
 
 void ShaderEditorPlugin::make_visible(bool p_visible) {
 	if (p_visible) {
-		shader_dock->open();
+		files_split->show();
+	} else {
+		files_split->hide();
 	}
 }
 
 void ShaderEditorPlugin::set_current() {
-	shader_dock->make_visible();
+	EditorNode::get_singleton()->get_editor_main_screen()->select_by_name(get_plugin_name());
 	TextShaderEditor *text_shader_editor = Object::cast_to<TextShaderEditor>(shader_tabs->get_current_tab_control());
 	if (text_shader_editor) {
 		text_shader_editor->get_code_editor()->get_text_editor()->grab_focus();
@@ -843,16 +844,6 @@ void ShaderEditorPlugin::_notification(int p_what) {
 	}
 }
 
-void ShaderEditorPlugin::shortcut_input(const Ref<InputEvent> &p_event) {
-	if (p_event.is_null() || !p_event->is_pressed() || p_event->is_echo()) {
-		return;
-	}
-
-	if (make_floating_shortcut.is_valid() && make_floating_shortcut->matches_event(p_event)) {
-		shader_dock->make_floating();
-	}
-}
-
 ShaderEditorPlugin::ShaderEditorPlugin() {
 	ED_SHORTCUT("shader_editor/new", TTRC("New Shader..."), KeyModifierMask::CMD_OR_CTRL | Key::N);
 	ED_SHORTCUT("shader_editor/new_include", TTRC("New Shader Include..."), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::SHIFT | Key::N);
@@ -862,24 +853,12 @@ ShaderEditorPlugin::ShaderEditorPlugin() {
 	ED_SHORTCUT("shader_editor/inspect_native_code", TTRC("Inspect Native Shader Code..."));
 	ED_SHORTCUT("shader_editor/copy_path", TTRC("Copy Shader Path"));
 
-	shader_dock = memnew(EditorDock);
-	shader_dock->set_name(TTRC("Shader Editor"));
-	shader_dock->set_icon_name("ShaderDock");
-	shader_dock->set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("bottom_panels/toggle_shader_editor_bottom_panel", TTRC("Toggle Shader Editor Dock"), KeyModifierMask::ALT | Key::S));
-	shader_dock->set_default_slot(EditorDock::DOCK_SLOT_BOTTOM);
-	shader_dock->set_available_layouts(EditorDock::DOCK_LAYOUT_HORIZONTAL | EditorDock::DOCK_LAYOUT_FLOATING);
-	shader_dock->set_custom_minimum_size(Size2(460, 300) * EDSCALE);
-	EditorDockManager::get_singleton()->add_dock(shader_dock);
-
-	set_process_shortcut_input(true);
-
-	make_floating_shortcut = ED_SHORTCUT_AND_COMMAND("shader_editor/make_floating", TTRC("Make Floating"));
-
 	files_split = memnew(HSplitContainer);
 	files_split->set_split_offset(200 * EDSCALE);
 	files_split->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	files_split->set_drag_nested_intersections(true);
-	shader_dock->add_child(files_split);
+	EditorNode::get_singleton()->get_editor_main_screen()->get_control()->add_child(files_split);
+	files_split->hide();
 
 	context_menu = memnew(PopupMenu);
 	context_menu->connect(SceneStringName(id_pressed), callable_mp(this, &ShaderEditorPlugin::_menu_item_pressed));
@@ -922,7 +901,7 @@ ShaderEditorPlugin::ShaderEditorPlugin() {
 	shader_create_dialog = memnew(ShaderCreateDialog);
 	shader_create_dialog->connect("shader_created", callable_mp(this, &ShaderEditorPlugin::_shader_created));
 	shader_create_dialog->connect("shader_include_created", callable_mp(this, &ShaderEditorPlugin::_shader_include_created));
-	shader_dock->add_child(shader_create_dialog);
+	add_child(shader_create_dialog);
 
 	Ref<TextShaderLanguagePlugin> text_shader_lang;
 	text_shader_lang.instantiate();
