@@ -811,6 +811,7 @@ public:
 	void update_distraction_free_mode();
 	void set_distraction_free_mode(bool p_enter);
 	bool is_distraction_free_mode_enabled() const;
+	void update_scene_tabs_visibility();
 	void update_distraction_free_button_theme();
 
 	void set_center_split_offset(int p_offset);

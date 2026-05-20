@@ -6874,6 +6874,17 @@ void EditorNode::update_distraction_free_mode() {
 	}
 }
 
+void EditorNode::update_scene_tabs_visibility() {
+	if (!scene_tabs || !editor_main_screen) {
+		return;
+	}
+
+	// 场景标签只对应 2D/3D 场景视图；脚本、游戏和资源商店里显示它会让人误以为标签能切回视图。
+	const int selected_screen = editor_main_screen->get_selected_index();
+	const bool should_show_scene_tabs = selected_screen == EditorMainScreen::EDITOR_2D || selected_screen == EditorMainScreen::EDITOR_3D;
+	scene_tabs->set_visible(should_show_scene_tabs);
+}
+
 void EditorNode::set_distraction_free_mode(bool p_enter) {
 	distraction_free->set_pressed(p_enter);
 

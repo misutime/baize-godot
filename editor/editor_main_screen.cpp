@@ -204,6 +204,7 @@ void EditorMainScreen::select(int p_index) {
 		editor_data.get_editor_plugin(i)->notify_main_screen_changed(selected_plugin->get_plugin_name());
 	}
 
+	EditorNode::get_singleton()->update_scene_tabs_visibility();
 	EditorNode::get_singleton()->update_distraction_free_mode();
 }
 

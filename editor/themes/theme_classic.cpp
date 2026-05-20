@@ -2104,7 +2104,7 @@ void ThemeClassic::populate_editor_styles(const Ref<EditorTheme> &p_theme, Edito
 		script_panel_bg->set_corner_radius_all(p_config.corner_radius * EDSCALE);
 		script_panel_bg->set_border_width_all(Math::ceil(EDSCALE));
 		script_panel_bg->set_border_color(p_config.dark_color_3);
-		script_panel_bg->set_content_margin_all(p_config.base_margin * EDSCALE);
+		script_panel_bg->set_content_margin_individual(p_config.base_margin * EDSCALE, 0, p_config.base_margin * EDSCALE, 0);
 		p_theme->set_stylebox(SceneStringName(panel), "EditorInspectorScriptPanel", script_panel_bg);
 
 		// Vertical separation between inspector areas.
