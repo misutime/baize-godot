@@ -202,6 +202,11 @@ void SpinBox::_line_edit_input(const Ref<InputEvent> &p_event) {
 }
 
 void SpinBox::_range_click_timeout() {
+	if (!show_buttons) {
+		range_click_timer->stop();
+		return;
+	}
+
 	if (!drag.enabled && Input::get_singleton()->is_mouse_button_pressed(MouseButton::LEFT)) {
 		Rect2 up_button_rc = Rect2(sizing_cache.buttons_left, 0, sizing_cache.buttons_width, sizing_cache.button_up_height);
 		Rect2 down_button_rc = Rect2(sizing_cache.buttons_left, sizing_cache.second_button_top, sizing_cache.buttons_width, sizing_cache.button_down_height);
@@ -274,7 +279,7 @@ void SpinBox::gui_input(const Ref<InputEvent> &p_event) {
 	Vector2 mpos;
 	bool mouse_on_up_button = false;
 	bool mouse_on_down_button = false;
-	if (mb.is_valid() || mm.is_valid()) {
+	if (show_buttons && (mb.is_valid() || mm.is_valid())) {
 		Rect2 up_button_rc = Rect2(sizing_cache.buttons_left, 0, sizing_cache.buttons_width, sizing_cache.button_up_height);
 		Rect2 down_button_rc = Rect2(sizing_cache.buttons_left, sizing_cache.second_button_top, sizing_cache.buttons_width, sizing_cache.button_down_height);
 
@@ -297,11 +302,13 @@ void SpinBox::gui_input(const Ref<InputEvent> &p_event) {
 				state_cache.down_button_pressed = mouse_on_down_button;
 				queue_redraw();
 
-				range_click_timer->set_wait_time(0.6);
-				range_click_timer->set_one_shot(true);
-				range_click_timer->start();
+				if (show_buttons) {
+					range_click_timer->set_wait_time(0.6);
+					range_click_timer->set_one_shot(true);
+					range_click_timer->start();
+				}
 
-				drag.allowed = true;
+				drag.allowed = show_buttons;
 				drag.capture_pos = mb->get_position();
 			} break;
 			case MouseButton::RIGHT: {
@@ -391,8 +398,9 @@ void SpinBox::_line_edit_editing_toggled(bool p_toggled_on) {
 }
 
 inline void SpinBox::_compute_sizes() {
-	int buttons_block_wanted_width = theme_cache.buttons_width + theme_cache.field_and_buttons_separation;
-	int buttons_block_icon_enforced_width = _get_widest_button_icon_width() + theme_cache.field_and_buttons_separation;
+	const int field_and_buttons_separation = show_buttons ? theme_cache.field_and_buttons_separation : 0;
+	int buttons_block_wanted_width = show_buttons ? theme_cache.buttons_width + field_and_buttons_separation : 0;
+	int buttons_block_icon_enforced_width = show_buttons ? _get_widest_button_icon_width() + field_and_buttons_separation : 0;
 
 #ifndef DISABLE_DEPRECATED
 	const bool min_width_from_icons = theme_cache.set_min_buttons_width_from_icons || (theme_cache.buttons_width < 0);
@@ -409,7 +417,7 @@ inline void SpinBox::_compute_sizes() {
 
 	Size2i size = get_size();
 
-	sizing_cache.buttons_width = w - theme_cache.field_and_buttons_separation;
+	sizing_cache.buttons_width = w - field_and_buttons_separation;
 	sizing_cache.buttons_vertical_separation = CLAMP(theme_cache.buttons_vertical_separation, 0, size.height);
 	sizing_cache.buttons_left = is_layout_rtl() ? 0 : size.width - sizing_cache.buttons_width;
 	sizing_cache.button_up_height = (size.height - sizing_cache.buttons_vertical_separation) / 2;
@@ -418,7 +426,7 @@ inline void SpinBox::_compute_sizes() {
 
 	sizing_cache.buttons_separator_top = sizing_cache.button_up_height;
 	sizing_cache.field_and_buttons_separator_left = is_layout_rtl() ? sizing_cache.buttons_width : size.width - sizing_cache.buttons_block_width;
-	sizing_cache.field_and_buttons_separator_width = theme_cache.field_and_buttons_separation;
+	sizing_cache.field_and_buttons_separator_width = field_and_buttons_separation;
 }
 
 inline int SpinBox::_get_widest_button_icon_width() {
@@ -442,6 +450,9 @@ void SpinBox::_notification(int p_what) {
 		case NOTIFICATION_DRAW: {
 			_update_text(true);
 			_compute_sizes();
+			if (!show_buttons) {
+				break;
+			}
 
 			Size2i size = get_size();
 
@@ -619,6 +630,30 @@ bool SpinBox::is_editable() const {
 	return line_edit->is_editable();
 }
 
+void SpinBox::set_show_buttons(bool p_enabled) {
+	if (show_buttons == p_enabled) {
+		return;
+	}
+
+	show_buttons = p_enabled;
+	if (!show_buttons) {
+		range_click_timer->stop();
+		_release_mouse_from_drag_mode();
+		drag.allowed = false;
+		state_cache.up_button_hovered = false;
+		state_cache.up_button_pressed = false;
+		state_cache.down_button_hovered = false;
+		state_cache.down_button_pressed = false;
+	}
+	_compute_sizes();
+	update_minimum_size();
+	queue_redraw();
+}
+
+bool SpinBox::is_showing_buttons() const {
+	return show_buttons;
+}
+
 void SpinBox::apply() {
 	_text_submitted(line_edit->get_text());
 }
@@ -669,6 +704,8 @@ void SpinBox::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_prefix", "prefix"), &SpinBox::set_prefix);
 	ClassDB::bind_method(D_METHOD("get_prefix"), &SpinBox::get_prefix);
 	ClassDB::bind_method(D_METHOD("set_editable", "enabled"), &SpinBox::set_editable);
+	ClassDB::bind_method(D_METHOD("set_show_buttons", "enabled"), &SpinBox::set_show_buttons);
+	ClassDB::bind_method(D_METHOD("is_showing_buttons"), &SpinBox::is_showing_buttons);
 	ClassDB::bind_method(D_METHOD("set_custom_arrow_step", "arrow_step"), &SpinBox::set_custom_arrow_step);
 	ClassDB::bind_method(D_METHOD("get_custom_arrow_step"), &SpinBox::get_custom_arrow_step);
 	ClassDB::bind_method(D_METHOD("set_custom_arrow_round", "round"), &SpinBox::set_custom_arrow_round);
@@ -683,6 +720,7 @@ void SpinBox::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "alignment", PROPERTY_HINT_ENUM, "Left,Center,Right,Fill"), "set_horizontal_alignment", "get_horizontal_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "editable"), "set_editable", "is_editable");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "show_buttons"), "set_show_buttons", "is_showing_buttons");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "update_on_text_changed"), "set_update_on_text_changed", "get_update_on_text_changed");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "prefix"), "set_prefix", "get_prefix");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "suffix"), "set_suffix", "get_suffix");

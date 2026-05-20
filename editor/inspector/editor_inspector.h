@@ -196,6 +196,7 @@ private:
 
 	bool selectable = true;
 	bool selected = false;
+	bool row_hover = false;
 	int selected_focusable;
 	bool deferred_drag_mode = false;
 

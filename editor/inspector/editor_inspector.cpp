@@ -504,12 +504,12 @@ void EditorProperty::_notification(int p_what) {
 			} else if (sub_inspector_color_level >= 0 && theme_cache.sub_inspector_background[sub_inspector_color_level].is_valid()) {
 				draw_style_box(theme_cache.sub_inspector_background[sub_inspector_color_level], Rect2(Vector2(), size));
 			} else {
-				if (selected) {
+				if (row_hover && draw_background) {
 					Color row_color = theme_cache.property_color;
-					row_color.a = 0.045;
+					row_color.a = 0.035;
 					draw_rect(Rect2(Vector2(), full_size), row_color);
 				}
-				draw_style_box(selected ? theme_cache.background_selected : theme_cache.background, Rect2(Vector2(), size));
+				draw_style_box(theme_cache.background, Rect2(Vector2(), size));
 			}
 
 			if (draw_top_bg && right_child_rect != Rect2() && draw_background) {
@@ -792,13 +792,19 @@ void EditorProperty::_notification(int p_what) {
 
 		case NOTIFICATION_MOUSE_EXIT_SELF:
 		case NOTIFICATION_MOUSE_EXIT: {
-			if (keying_hover || revert_hover || check_hover || delete_hover) {
+			if (row_hover || keying_hover || revert_hover || check_hover || delete_hover) {
+				row_hover = false;
 				keying_hover = false;
 				revert_hover = false;
 				check_hover = false;
 				delete_hover = false;
 				queue_redraw();
 			}
+		} break;
+
+		case NOTIFICATION_MOUSE_ENTER: {
+			row_hover = true;
+			queue_redraw();
 		} break;
 	}
 }
@@ -2041,6 +2047,7 @@ Size2 EditorInspectorCategory::get_minimum_size() const {
 	if (theme_cache.background.is_valid()) {
 		ms.height += theme_cache.background->get_content_margin(SIDE_TOP) + theme_cache.background->get_content_margin(SIDE_BOTTOM);
 	}
+	ms.height = MAX(ms.height, Math::round(36 * EDSCALE));
 
 	return ms;
 }
@@ -2264,6 +2271,7 @@ int EditorInspectorSection::_get_header_height() const {
 		header_height = MAX(header_height, arrow->get_height());
 	}
 	header_height += theme_cache.vertical_separation + theme_cache.padding_size * 2;
+	header_height = MAX(header_height, Math::round(34 * EDSCALE));
 
 	return header_height;
 }
@@ -4586,7 +4594,7 @@ void EditorInspector::update_tree() {
 			current_category = category;
 			category_vbox = memnew(VBoxContainer);
 			category_vbox->set_theme_type_variation(SNAME("EditorPropertyContainer"));
-			category_vbox->add_theme_constant_override(SNAME("separation"), Math::round(2 * EDSCALE));
+			category_vbox->add_theme_constant_override(SNAME("separation"), Math::round(4 * EDSCALE));
 			category_vbox->hide();
 			main_vbox->add_child(category_vbox);
 			if (!is_custom_category) {
@@ -4773,17 +4781,6 @@ void EditorInspector::update_tree() {
 		if (category_vbox == nullptr) {
 			if (is_script_property) {
 				if (!script_vbox) {
-					Control *script_separator_spacer = memnew(Control);
-					script_separator_spacer->set_custom_minimum_size(Size2(0, 10) * EDSCALE);
-					script_section_vbox->add_child(script_separator_spacer);
-
-					HSeparator *script_separator = memnew(HSeparator);
-					script_section_vbox->add_child(script_separator);
-
-					Control *script_spacer = memnew(Control);
-					script_spacer->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
-					script_section_vbox->add_child(script_spacer);
-
 					PanelContainer *script_panel = memnew(PanelContainer);
 					script_panel->set_theme_type_variation(SNAME("EditorInspectorScriptPanel"));
 					script_section_vbox->add_child(script_panel);
@@ -4794,6 +4791,10 @@ void EditorInspector::update_tree() {
 					script_vbox->add_theme_constant_override(SNAME("separation"), 0);
 					script_vbox->hide();
 					script_panel->add_child(script_vbox);
+
+					Control *script_bottom_spacer = memnew(Control);
+					script_bottom_spacer->set_custom_minimum_size(Size2(0, 8) * EDSCALE);
+					script_section_vbox->add_child(script_bottom_spacer);
 				}
 				category_vbox = script_vbox;
 				script_section_vbox->show();
@@ -6544,14 +6545,14 @@ EditorInspector::EditorInspector() {
 	favorites_section->add_child(favorites_separator);
 	favorites_separator->hide();
 
-	main_vbox = memnew(VBoxContainer);
-	main_vbox->set_theme_type_variation(SNAME("EditorInspectorContainer"));
-	base_vbox->add_child(main_vbox);
-
 	script_section_vbox = memnew(VBoxContainer);
 	script_section_vbox->set_theme_type_variation(SNAME("EditorInspectorContainer"));
 	base_vbox->add_child(script_section_vbox);
 	script_section_vbox->hide();
+
+	main_vbox = memnew(VBoxContainer);
+	main_vbox->set_theme_type_variation(SNAME("EditorInspectorContainer"));
+	base_vbox->add_child(main_vbox);
 
 	set_horizontal_scroll_mode(SCROLL_MODE_DISABLED);
 	set_follow_focus(true);

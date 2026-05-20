@@ -10707,8 +10707,9 @@ Node3DEditor::Node3DEditor() {
 	snap_translate->set_max(10.0);
 	snap_translate->set_suffix("m");
 	snap_translate->set_allow_greater(true);
+	snap_translate->set_show_buttons(false);
 	snap_translate->set_select_all_on_focus(true);
-	snap_translate->set_custom_minimum_size(Size2(76, 0) * EDSCALE);
+	snap_translate->set_custom_minimum_size(Size2(60, 0) * EDSCALE);
 	snap_translate->set_accessibility_name(TTRC("Translate Snap"));
 	snap_translate->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
 
@@ -10726,8 +10727,9 @@ Node3DEditor::Node3DEditor() {
 	snap_rotate->set_step(MIN_ROTATE_SNAP);
 	snap_rotate->set_max(360);
 	snap_rotate->set_suffix(U"°");
+	snap_rotate->set_show_buttons(false);
 	snap_rotate->set_select_all_on_focus(true);
-	snap_rotate->set_custom_minimum_size(Size2(68, 0) * EDSCALE);
+	snap_rotate->set_custom_minimum_size(Size2(52, 0) * EDSCALE);
 	snap_rotate->set_accessibility_name(TTRC("Rotate Snap"));
 	snap_rotate->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
 
@@ -10745,8 +10747,9 @@ Node3DEditor::Node3DEditor() {
 	snap_scale->set_step(MIN_SCALE_SNAP);
 	snap_scale->set_max(100);
 	snap_scale->set_suffix("%");
+	snap_scale->set_show_buttons(false);
 	snap_scale->set_select_all_on_focus(true);
-	snap_scale->set_custom_minimum_size(Size2(68, 0) * EDSCALE);
+	snap_scale->set_custom_minimum_size(Size2(52, 0) * EDSCALE);
 	snap_scale->set_accessibility_name(TTRC("Scale Snap"));
 	snap_scale->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditor::_snap_value_changed));
 

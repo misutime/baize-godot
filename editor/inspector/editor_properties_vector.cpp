@@ -213,6 +213,7 @@ EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_
 
 	spin_sliders.resize(component_count);
 	EditorSpinSlider **spin = spin_sliders.ptrw();
+	const Size2 inline_control_minimum_size = p_inline ? Size2(0, 44) * EDSCALE : Size2();
 
 	for (int i = 0; i < component_count; i++) {
 		spin[i] = memnew(EditorSpinSlider);
@@ -220,6 +221,11 @@ EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_
 		spin[i]->set_flat(true);
 		spin[i]->set_label(String(COMPONENT_LABELS[i]));
 		spin[i]->set_accessibility_name(String(COMPONENT_LABELS[i]));
+		if (p_inline) {
+			// Node3D 的 Position/Rotation/Scale 同行显示时，内部控件高度不同；
+			// 统一最小高度，避免 Position 因为没有滑条而显得比其它行矮。
+			spin[i]->set_custom_minimum_size(inline_control_minimum_size);
+		}
 		if (horizontal) {
 			spin[i]->set_h_size_flags(SIZE_EXPAND_FILL);
 		}
@@ -233,6 +239,9 @@ EditorPropertyVectorN::EditorPropertyVectorN(Variant::Type p_type, bool p_force_
 	linked = memnew(TextureButton);
 	linked->set_toggle_mode(true);
 	linked->set_stretch_mode(TextureButton::STRETCH_KEEP_CENTERED);
+	if (p_inline) {
+		linked->set_custom_minimum_size(inline_control_minimum_size);
+	}
 	linked->set_tooltip_text(TTR("Lock/Unlock Component Ratio"));
 	linked->connect(SceneStringName(pressed), callable_mp(this, &EditorPropertyVectorN::_update_ratio));
 	linked->connect(SceneStringName(toggled), callable_mp(this, &EditorPropertyVectorN::_store_link));
