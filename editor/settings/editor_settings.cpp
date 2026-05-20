@@ -951,8 +951,8 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	// Camera3D node as the 3D viewport doesn't span the whole screen.
 	// This means it's technically viewed from a further distance, which warrants a narrower FOV.
 	EDITOR_SETTING_BASIC(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/default_fov", 70.0, "1,179,0.1,degrees")
-	EDITOR_SETTING_BASIC(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/default_z_near", 0.05, "0.01,10,0.01,or_greater,suffix:m")
-	EDITOR_SETTING_BASIC(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/default_z_far", 4000.0, "0.1,4000,0.1,or_greater,suffix:m")
+	EDITOR_SETTING_BASIC(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/default_z_near", 0.25, "0.01,10,0.01,or_greater,suffix:m")
+	EDITOR_SETTING_BASIC(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/default_z_far", 400.0, "0.1,4000,0.1,or_greater,suffix:m")
 
 	// 3D: Navigation
 	_initial_set("editors/3d/navigation/invert_x_axis", false, true);
