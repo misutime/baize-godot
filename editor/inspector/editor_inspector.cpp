@@ -4151,16 +4151,13 @@ void EditorInspector::_ensure_inspector_path_folding_loaded() {
 	}
 
 	session_folded_inspector_paths_loaded = true;
-	Variant saved_folded_paths = settings->get_project_metadata(GLOBAL_INSPECTOR_FOLDING_METADATA_SECTION, GLOBAL_INSPECTOR_FOLDING_METADATA_KEY, Variant());
-	if (saved_folded_paths.get_type() == Variant::NIL) {
-		// 第一次没有保存过折叠偏好时，先让基础 Node 分类默认收起。
-		for (const char *path : DEFAULT_FOLDED_INSPECTOR_PATHS) {
-			session_folded_inspector_paths.insert(path);
-		}
-		_save_inspector_path_folding();
-		return;
+	PackedStringArray default_folded_paths;
+	for (const char *path : DEFAULT_FOLDED_INSPECTOR_PATHS) {
+		default_folded_paths.push_back(path);
 	}
 
+	// 第一次没有保存过折叠偏好时，用明确的默认值，避免 ConfigFile 把 NIL 当成“没有默认值”并报错。
+	Variant saved_folded_paths = settings->get_project_metadata(GLOBAL_INSPECTOR_FOLDING_METADATA_SECTION, GLOBAL_INSPECTOR_FOLDING_METADATA_KEY, default_folded_paths);
 	const PackedStringArray folded_paths = saved_folded_paths;
 	for (const String &path : folded_paths) {
 		if (!path.is_empty()) {

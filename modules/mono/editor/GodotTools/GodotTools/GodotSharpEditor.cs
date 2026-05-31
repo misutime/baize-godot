@@ -535,6 +535,12 @@ namespace GodotTools
 
             EditorInterface.Singleton.GetCommandPalette().AddCommand("Build C# project".TTR(), "dotnet/build_solution", Callable.From(BuildProjectPressed), _toolBarBuildButton.Shortcut.GetAsText());
 
+            // 定制版默认把项目当作 C# 项目使用。首次打开时如果缺少工程文件，就自动补齐。
+            if (!File.Exists(GodotSharpDirs.ProjectSlnPath) || !File.Exists(GodotSharpDirs.ProjectCsProjPath))
+            {
+                CreateProjectSolution();
+            }
+
             if (File.Exists(GodotSharpDirs.ProjectCsProjPath))
             {
                 ApplyNecessaryChangesToSolution();

@@ -44,7 +44,8 @@
 Windows：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
+python misc\scripts\install_d3d12_sdk_windows.py
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 ```
 
 macOS：
@@ -53,7 +54,7 @@ macOS：
 ./misc/customization/build-macos.sh --preset dev --jobs 10
 ```
 
-这两条命令适合早期开发：保留编辑器和 3D 运行能力，先跳过可选额外依赖。Windows 默认先跳过 D3D12、AccessKit、ANGLE；macOS 默认使用 Metal，先跳过 Vulkan/MoltenVK。
+这两条命令适合早期开发：保留编辑器和 3D 运行能力。Windows 默认启用 D3D12，和新项目默认渲染驱动保持一致；AccessKit、ANGLE 仍先跳过。macOS 默认使用 Metal，先跳过 Vulkan/MoltenVK。
 
 构建完成后，macOS 不要直接执行 `.app` 目录。用：
 

@@ -81,7 +81,7 @@
 - 2D 物理和 2D 导航运行时。当前阶段不处理，因为它们只能用于 export template 裁剪，不能用于 editor 构建；未来确认是否作为可选 2D 支持保留。
 - VR/XR 相关模块，例如 OpenXR、Mobile VR、WebXR。
 - AAA 写实、重型多人、大型团队协作专用入口。
-- 各平台专属的可选额外依赖。比如 Windows 的 AccessKit、ANGLE、D3D12 依赖，macOS 的可选系统集成或额外打包依赖。平台发布链本身默认保留。
+- 各平台专属的可选额外依赖。比如 Windows 的 AccessKit、ANGLE，macOS 的可选系统集成或额外打包依赖。平台发布链本身默认保留。D3D12 是 Windows 桌面 3D 当前推荐路径，不作为日常裁剪项。
 - 示例、测试、文档中与发行无关的大型资源，注意不要影响上游同步。
 
 ### D 级：禁止粗暴删除
@@ -106,7 +106,7 @@
 验证：
 
 ```powershell
-scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
+scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j8
 .\bin\godot.windows.editor.dev.x86_64.exe --version
 ```
 
@@ -114,16 +114,15 @@ scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
 
 目标：只针对 editor，让编辑器体验先聚焦 3D，不删除源码。
 
-构建层可用项很少，当前只保留：
+构建层可用项很少，当前日常基线只保留：
 
-- `d3d12=no`
 - `accesskit=no`
 - `angle=no`
 - `module_openxr_enabled=no`
 - `module_webxr_enabled=no`
 - `module_mobile_vr_enabled=no`
 
-编辑器体验层优先项：
+`d3d12=no` 已从日常 Windows 基线回滚，只保留给临时排查依赖问题。编辑器体验层优先项：
 
 - 隐藏或弱化 2D 工作区入口。
 - 默认打开 3D 工作区。

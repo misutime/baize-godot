@@ -1553,9 +1553,66 @@ Error OS_Windows::execute(const String &p_path, const List<String> &p_arguments,
 	return OK;
 }
 
+static bool _windows_process_path_has_directory(const String &p_path) {
+	return p_path.contains("/") || p_path.contains("\\");
+}
+
+static String _windows_search_process_path(const String &p_path) {
+	if (p_path.is_empty() || _windows_process_path_has_directory(p_path)) {
+		return p_path;
+	}
+
+	PackedStringArray extensions;
+	if (!p_path.get_extension().is_empty()) {
+		extensions.push_back("");
+	} else {
+		// Windows 终端会先按 PATHEXT 找可执行后缀。VS Code 的 `code` 同时有无后缀文件和 `code.cmd`，
+		// 这里要优先命中 `code.cmd`，否则 CreateProcess 不能直接运行无后缀 shim。
+		const int pathext_len = GetEnvironmentVariableW(L"PATHEXT", nullptr, 0);
+		if (pathext_len > 0) {
+			Vector<wchar_t> pathext;
+			pathext.resize(pathext_len);
+			GetEnvironmentVariableW(L"PATHEXT", pathext.ptrw(), pathext_len);
+
+			for (const String &extension : String::utf16((const char16_t *)pathext.ptr()).split(";", false)) {
+				const String cleaned_extension = extension.strip_edges();
+				if (!cleaned_extension.is_empty()) {
+					extensions.push_back(cleaned_extension);
+				}
+			}
+		} else {
+			extensions.push_back(".COM");
+			extensions.push_back(".EXE");
+			extensions.push_back(".BAT");
+			extensions.push_back(".CMD");
+		}
+
+		extensions.push_back("");
+	}
+
+	for (const String &extension : extensions) {
+		char16_t resolved_path_wc[32767];
+		if (SearchPathW(nullptr, (LPCWSTR)p_path.utf16().get_data(), extension.is_empty() ? nullptr : (LPCWSTR)extension.utf16().get_data(), 32767, (LPWSTR)resolved_path_wc, nullptr)) {
+			return String::utf16(resolved_path_wc);
+		}
+	}
+
+	return p_path;
+}
+
 Error OS_Windows::create_process(const String &p_path, const List<String> &p_arguments, ProcessID *r_child_id, bool p_open_console) {
-	String path = p_path.is_absolute_path() ? fix_path(p_path) : p_path;
-	String command = _quote_command_line_argument(path);
+	String path = p_path.is_absolute_path() ? fix_path(p_path) : _windows_search_process_path(p_path);
+	String command;
+	if (path.get_extension().to_lower() == "cmd" || path.get_extension().to_lower() == "bat") {
+		// 允许外部编辑器等设置直接填写 PATH 中的命令，例如 VS Code 的 `code` 会解析到 `code.cmd`。
+		String command_shell = get_environment("ComSpec");
+		if (command_shell.is_empty()) {
+			command_shell = "cmd.exe";
+		}
+		command = _quote_command_line_argument(command_shell) + " /C " + _quote_command_line_argument(path);
+	} else {
+		command = _quote_command_line_argument(path);
+	}
 	for (const String &E : p_arguments) {
 		command += " " + _quote_command_line_argument(E);
 	}

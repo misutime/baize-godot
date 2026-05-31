@@ -6,6 +6,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using Microsoft.VisualStudio.SolutionPersistence.Model;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 
 namespace GodotTools.ProjectEditor
 {
@@ -80,6 +83,34 @@ EndProject";
             if (!Directory.Exists(DirectoryPath))
                 throw new FileNotFoundException("The solution directory does not exist.");
 
+            SaveSlnx();
+        }
+
+        private void SaveSlnx()
+        {
+            var model = new SolutionModel();
+
+            foreach (var config in _projects.Values.SelectMany(project => project.Configs).Distinct())
+            {
+                model.AddBuildType(config);
+            }
+
+            foreach (var pair in _projects)
+            {
+                string name = pair.Key;
+                ProjectInfo projectInfo = pair.Value;
+                string projectPath = projectInfo.PathRelativeToSolution.Replace("\\", "/", StringComparison.Ordinal);
+                SolutionProjectModel project = model.AddProject(projectPath, projectTypeName: null, folder: null);
+                project.DisplayName = name;
+            }
+
+            // 定制版默认面向 VS 2026 / .NET 10，新项目直接生成更清晰的 XML 解决方案。
+            string solutionPath = Path.Combine(DirectoryPath, Name + ".slnx");
+            SolutionSerializers.SlnXml.SaveAsync(solutionPath, model, CancellationToken.None).Wait();
+        }
+
+        private void SaveLegacySln()
+        {
             string projectsDecl = string.Empty;
             string slnPlatformsCfg = string.Empty;
             string projPlatformsCfg = string.Empty;
@@ -129,6 +160,9 @@ EndProject";
         public static void MigrateFromOldConfigNames(string slnPath)
         {
             if (!File.Exists(slnPath))
+                return;
+
+            if (Path.GetExtension(slnPath).Equals(".slnx", StringComparison.OrdinalIgnoreCase))
                 return;
 
             string input = File.ReadAllText(slnPath);

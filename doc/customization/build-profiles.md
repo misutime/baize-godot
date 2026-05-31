@@ -7,13 +7,14 @@
 Windows 首次开发基线：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
+python misc\scripts\install_d3d12_sdk_windows.py
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 ```
 
-安装 D3D12 依赖后：
+如果只是临时排查新机器依赖问题，可以先用不带 D3D12 的 fallback：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
+.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
 ```
 
 macOS 开发基线：
@@ -27,8 +28,8 @@ macOS 开发基线：
 Windows：
 
 ```powershell
-scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
 scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
+scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
 ```
 
 macOS：
@@ -42,7 +43,7 @@ scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j10
 - `platform=windows`：构建 Windows 编辑器。
 - `platform=macos`：构建 macOS 编辑器。
 - `dev_build=yes`：开发构建，适合读源码、调试和改引擎。
-- `d3d12=no`：Windows 先关闭 D3D12 额外依赖，方便新机器跑通。
+- `d3d12=no`：只用于临时排查 D3D12 依赖问题，不再作为日常 Windows 3D 开发基线。
 - `accesskit=no`：先关闭屏幕阅读器支持依赖。
 - `angle=no`：先关闭 ANGLE 依赖。
 - `vulkan=no`：macOS 先关闭 Vulkan，避免准备 MoltenVK SDK。
@@ -70,7 +71,7 @@ Windows 命令行版本验证：
 1. 构建带 C# / .NET 支持的编辑器：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16 module_mono_enabled=yes
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16 module_mono_enabled=yes
 ```
 
 2. 生成 C# glue：
@@ -159,7 +160,7 @@ Godot 不允许 editor 构建使用这些选项：
 Windows：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 .\bin\godot.windows.editor.dev.x86_64.console.exe --version
 ```
 
