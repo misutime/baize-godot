@@ -63,6 +63,40 @@ Windows 命令行版本验证：
 .\bin\godot.windows.editor.dev.x86_64.console.exe --version
 ```
 
+## C# / .NET 构建
+
+首次生成完整的 Windows C# 编辑器时，按顺序执行三步。
+
+1. 构建带 C# / .NET 支持的编辑器：
+
+```powershell
+.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16 module_mono_enabled=yes
+```
+
+2. 生成 C# glue：
+
+```powershell
+.\bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --generate-mono-glue modules/mono/glue
+```
+
+3. 构建 GodotSharp 托管库：
+
+```powershell
+python .\modules\mono\build_scripts\build_assemblies.py --godot-output-dir .\bin --godot-platform=windows
+```
+
+定制版默认新建和升级 C# 游戏项目到 `net10.0`。这里不改 GodotSharp 和编辑器 C# 工具自身的 `net8.0` 目标框架，它们继续作为引擎内部兼容基线。
+
+如果只是修改编辑器 UI、菜单、面板、默认入口等界面逻辑，没有修改暴露给脚本或 C# 的 API，通常只需要重新执行第 1 步。
+
+如果修改了 `_bind_methods()`、`ClassDB::bind_method`、属性、信号、枚举、常量、`modules/mono`、C# glue 或 GodotSharp 相关内容，需要重新执行完整三步。
+
+Windows C# 编辑器入口：
+
+```powershell
+.\bin\godot.windows.editor.dev.x86_64.mono.exe
+```
+
 macOS 编辑器 app：
 
 ```bash
