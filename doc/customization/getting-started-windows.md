@@ -28,23 +28,37 @@ python --version
 scons --version
 ```
 
-## 2. 构建编辑器
+## 2. 准备 D3D12 依赖
 
-新机器第一次构建，先跳过 D3D12：
+定制版新项目默认使用 D3D12，所以 Windows 日常构建也默认启用 D3D12。第一次构建前先安装官方脚本需要的 D3D12 依赖：
 
 ```powershell
-.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
+python misc\scripts\install_d3d12_sdk_windows.py
+```
+
+## 3. 构建编辑器
+
+日常开发基线：
+
+```powershell
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 ```
 
 等价的 profile 写法：
 
 ```powershell
-scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
+scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
 ```
 
-这条命令保留编辑器和 3D 运行能力，同时先关闭 D3D12、AccessKit、ANGLE 这类额外依赖，方便先跑通工具链。
+这条命令保留编辑器和 3D 运行能力，启用 D3D12，同时先关闭 AccessKit、ANGLE 这类额外依赖。
 
-## 3. 运行编辑器
+如果新机器上只是为了排查工具链，且 D3D12 依赖还没准备好，可以临时使用：
+
+```powershell
+.\misc\customization\build-windows.ps1 -Preset dev-no-d3d12 -Jobs 16
+```
+
+## 4. 运行编辑器
 
 编译完成后运行：
 
@@ -58,37 +72,16 @@ scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
 .\bin\godot.windows.editor.dev.x86_64.console.exe --version
 ```
 
-## 4. 启用 D3D12
-
-D3D12 是 Windows 桌面 3D 的相关能力，不建议永久删除。如果你愿意安装依赖，可以现在就启用。
-
-安装 D3D12 依赖：
-
-```powershell
-python misc\scripts\install_d3d12_sdk_windows.py
-```
-
-然后重新构建：
-
-```powershell
-.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
-```
-
-等价的 profile 写法：
-
-```powershell
-scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
-```
-
 ## 5. 当前推荐
 
 新机器第一次配置时，推荐顺序是：
 
-1. 先跑最短路径，确认工具链没问题。
-2. 再安装 D3D12 依赖。
-3. 再用启用 D3D12 的命令重新构建。
+1. 先安装 Python、SCons、Visual Studio C++ 工具链。
+2. 运行 D3D12 依赖安装脚本。
+3. 用 `dev` preset 构建。
+4. 如果失败，再根据错误区分是工具链问题还是 D3D12 依赖问题；只有排查时才临时用 `dev-no-d3d12`。
 
-这样排查问题最清楚：如果第一步失败，通常是 Python、SCons、Visual Studio 工具链问题；如果第二套命令失败，才重点看 D3D12 依赖。
+这样和编辑器创建的新 3D 项目保持一致：项目默认渲染驱动是 D3D12，构建出的编辑器也应该带 D3D12。
 
 ## 6. 当前不做的事
 

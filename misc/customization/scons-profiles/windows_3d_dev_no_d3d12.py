@@ -1,4 +1,4 @@
-# Windows 3D development baseline with D3D12 disabled.
+# Windows 3D fallback profile with D3D12 disabled.
 # Usage:
 #   scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j8
 

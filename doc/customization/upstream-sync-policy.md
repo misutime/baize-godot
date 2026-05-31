@@ -53,7 +53,7 @@
    最少验证：
 
    ```powershell
-   scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8
+   scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j8
    .\bin\godot.windows.editor.dev.x86_64.console.exe --version
    ```
 

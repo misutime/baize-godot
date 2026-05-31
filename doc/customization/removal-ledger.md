@@ -37,19 +37,19 @@
 
 ### 2026-05-14: Direct3D 12 支持
 
-- 状态：软禁用
+- 状态：回滚
 - 类型：构建选项 / Windows 渲染后端
 - 上游路径：`platform/windows`、`drivers/d3d12`、相关 thirdparty 依赖
-- 相关 SCons 选项：`d3d12=no`
-- 裁剪理由：早期开发只需要先编译和启动编辑器，D3D12 需要额外依赖，增加环境复杂度。
-- 3D 项目影响：仍可使用 Vulkan 等后端进行 3D 开发。需要 D3D12 专项测试时再恢复。
+- 相关 SCons 选项：日常基线不再设置；`d3d12=no` 只保留给临时排障 profile。
+- 裁剪理由：早期开发只需要先编译和启动编辑器，D3D12 需要额外依赖，增加环境复杂度。现在新项目默认渲染驱动是 D3D12，因此不再作为正式裁剪项。
+- 3D 项目影响：Windows 3D 项目默认走 D3D12，构建基线也应带 D3D12。只有排查依赖时才临时关闭。
 - 编辑器影响：无已知基础启动影响。
 - 已知依赖：DirectX Agility SDK、PIX 相关依赖。
 - 替代方案：使用 Vulkan / OpenGL 相关路径。
-- 回滚方式：移除 `d3d12=no`，按官方文档安装 D3D12 依赖后重新构建。
+- 回滚方式：已回滚。运行 `python misc\scripts\install_d3d12_sdk_windows.py` 后使用 `.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16`。
 - 官方同步策略：D3D12 是 Windows 桌面 3D 的相关能力，不做源码删除。官方 D3D12 更新如果涉及 Windows 渲染抽象、RD、Shader 编译或通用 3D 修复，应优先评估合入。
-- 验证命令：`scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8`
-- 验证结果：已成功编译出 Windows editor dev 可执行文件。
+- 验证命令：`.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16`
+- 验证结果：待重新完整构建验证。
 - 决策人/记录人：Codex
 
 ### 2026-05-14: AccessKit 屏幕阅读器支持
@@ -65,8 +65,8 @@
 - 替代方案：无障碍需求出现后恢复。
 - 回滚方式：运行 `python misc\scripts\install_accesskit.py`，移除 `accesskit=no` 后重新构建。
 - 官方同步策略：无障碍相关更新默认跳过，除非它影响编辑器基础 UI、Windows 消息处理或输入系统。
-- 验证命令：`scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8`
-- 验证结果：作为早期构建基线使用。
+- 验证命令：`.\misc\customization\build-windows.ps1 -Preset dev -Jobs 8`
+- 验证结果：作为当前 Windows 构建基线使用。
 - 决策人/记录人：Codex
 
 ### 2026-05-14: ANGLE 渲染驱动
@@ -82,8 +82,8 @@
 - 替代方案：优先使用 Vulkan。
 - 回滚方式：运行 `python misc\scripts\install_angle.py`，移除 `angle=no` 后重新构建。
 - 官方同步策略：ANGLE 是 Windows 兼容层，默认低优先级；如果涉及 Windows 图形初始化、兼容性或渲染崩溃修复，再评估。
-- 验证命令：`scons platform=windows dev_build=yes d3d12=no accesskit=no angle=no -j8`
-- 验证结果：作为早期构建基线使用。
+- 验证命令：`.\misc\customization\build-windows.ps1 -Preset dev -Jobs 8`
+- 验证结果：作为当前 Windows 构建基线使用。
 - 决策人/记录人：Codex
 
 ## 候选裁剪清单
