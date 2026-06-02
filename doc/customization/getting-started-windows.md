@@ -86,3 +86,17 @@ scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
 ## 6. 当前不做的事
 
 当前阶段只专注 editor 开发定制，不维护 export template 构建、打包和发布模板。不要把 `production=yes` 或 `target=template_release` 作为日常验证命令。
+
+## 7. 正式版编辑器发布
+
+```
+# 编译
+scons profile=misc/customization/scons-profiles/windows_3d_pro.py -j16
+
+# 编译完成后运行：
+.\bin\godot.windows.editor.x86_64.exe
+
+# 看版本：
+.\bin\godot.windows.editor.x86_64.console.exe --version
+
+```
