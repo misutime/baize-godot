@@ -8,6 +8,7 @@
 
 - Visual Studio 2022 或更新版本，并安装 C++ 桌面开发组件。
 - Python 3.8 或更新版本。安装时勾选 `Add Python to PATH`。
+- 如果要构建 C# / .NET 版编辑器，还需要 .NET SDK。当前定制版新建 C# 项目默认使用 `net10.0`。
 
 进入源码目录：
 
@@ -26,6 +27,7 @@ python -m pip install scons
 ```powershell
 python --version
 scons --version
+dotnet --info
 ```
 
 ## 2. 准备 D3D12 依赖
@@ -38,19 +40,31 @@ python misc\scripts\install_d3d12_sdk_windows.py
 
 ## 3. 构建编辑器
 
-日常开发基线：
+如果要改引擎源码、查问题，用 `dev`：
 
 ```powershell
 .\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 ```
 
-等价的 profile 写法：
+如果要日常打开项目、体验性能，用 `pro`：
 
 ```powershell
-scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
+.\misc\customization\build-windows.ps1 -Preset pro -Jobs 16
 ```
 
-这条命令保留编辑器和 3D 运行能力，启用 D3D12，同时先关闭 AccessKit、ANGLE 这类额外依赖。
+这两个 preset 都保留编辑器和 3D 运行能力，启用 D3D12，同时先关闭 AccessKit、ANGLE 这类额外依赖。
+
+如果需要 C# / .NET 版，也同样用 `-Preset` 选择版本：
+
+```powershell
+# C# 开发版
+.\misc\customization\build-windows-csharp.ps1 -Preset dev -Jobs 16
+
+# C# 日常使用版
+.\misc\customization\build-windows-csharp.ps1 -Preset pro -Jobs 16
+```
+
+这个脚本会按顺序完成三步：构建带 C# 支持的编辑器、生成 C# glue、构建 GodotSharp 托管库。
 
 如果新机器上只是为了排查工具链，且 D3D12 依赖还没准备好，可以临时使用：
 
@@ -63,13 +77,31 @@ scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
 编译完成后运行：
 
 ```powershell
+# 普通 dev
 .\bin\godot.windows.editor.dev.x86_64.exe
+
+# 普通 pro
+.\bin\godot.windows.editor.x86_64.exe
 ```
 
 也可以先看版本：
 
 ```powershell
+# 普通 dev
 .\bin\godot.windows.editor.dev.x86_64.console.exe --version
+
+# 普通 pro
+.\bin\godot.windows.editor.x86_64.console.exe --version
+```
+
+C# / .NET 版编辑器入口：
+
+```powershell
+# C# dev
+.\bin\godot.windows.editor.dev.x86_64.mono.exe
+
+# C# pro
+.\bin\godot.windows.editor.x86_64.mono.exe
 ```
 
 ## 5. 当前推荐
@@ -78,7 +110,7 @@ scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
 
 1. 先安装 Python、SCons、Visual Studio C++ 工具链。
 2. 运行 D3D12 依赖安装脚本。
-3. 用 `dev` preset 构建。
+3. 改引擎时用 `dev` preset；日常体验性能时用 `pro` preset。
 4. 如果失败，再根据错误区分是工具链问题还是 D3D12 依赖问题；只有排查时才临时用 `dev-no-d3d12`。
 
 这样和编辑器创建的新 3D 项目保持一致：项目默认渲染驱动是 D3D12，构建出的编辑器也应该带 D3D12。

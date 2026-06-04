@@ -36,7 +36,6 @@
 #include "core/object/class_db.h"
 #include "core/string/string_builder.h"
 #include "core/string/ustring.h"
-#include "core/templates/hash_map.h"
 #include "core/typedefs.h"
 #include "editor/doc/doc_tools.h"
 #include "editor/doc/editor_help.h"
@@ -749,9 +748,6 @@ class BindingsGenerator {
 
 	NameCache name_cache;
 
-	HashMap<String, String> csharp_doc_translations;
-	bool csharp_doc_translations_loaded = false;
-
 	const ConstantInterface *find_constant_by_name(const String &p_name, const List<ConstantInterface> &p_constants) const {
 		for (const ConstantInterface &E : p_constants) {
 			if (E.name == p_name) {
@@ -796,8 +792,6 @@ class BindingsGenerator {
 
 	String bbcode_to_text(const String &p_bbcode, const TypeInterface *p_itype);
 	String bbcode_to_xml(const String &p_bbcode, const TypeInterface *p_itype, bool p_is_signal = false);
-	String _get_csharp_doc_description(const String &p_bbcode);
-	void _load_csharp_doc_translations();
 
 	void _append_text_method(StringBuilder &p_output, const TypeInterface *p_target_itype, const StringName &p_target_cname, const String &p_link_target, const Vector<String> &p_link_target_parts);
 	void _append_text_member(StringBuilder &p_output, const TypeInterface *p_target_itype, const StringName &p_target_cname, const String &p_link_target, const Vector<String> &p_link_target_parts);

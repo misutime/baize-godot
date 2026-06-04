@@ -176,114 +176,6 @@ static String fix_doc_description(const String &p_bbcode) {
 			.strip_edges();
 }
 
-static String parse_po_quoted_text(const String &p_line) {
-	int begin = p_line.find_char('"');
-	int end = p_line.rfind_char('"');
-
-	if (begin < 0 || end <= begin) {
-		return String();
-	}
-
-	String raw = p_line.substr(begin + 1, end - begin - 1);
-	StringBuilder result;
-
-	for (int i = 0; i < raw.length(); i++) {
-		char32_t c = raw[i];
-		if (c != '\\' || i + 1 >= raw.length()) {
-			result.append(String::chr(c));
-			continue;
-		}
-
-		char32_t escaped = raw[++i];
-		switch (escaped) {
-			case 'n':
-				result.append("\n");
-				break;
-			case 'r':
-				result.append("\r");
-				break;
-			case 't':
-				result.append("\t");
-				break;
-			case '"':
-				result.append("\"");
-				break;
-			case '\\':
-				result.append("\\");
-				break;
-			default:
-				result.append(String::chr(escaped));
-				break;
-		}
-	}
-
-	return result.as_string();
-}
-
-void BindingsGenerator::_load_csharp_doc_translations() {
-	if (csharp_doc_translations_loaded) {
-		return;
-	}
-	csharp_doc_translations_loaded = true;
-
-	const String po_path = "doc/translations/zh_Hans.po";
-	Ref<FileAccess> file = FileAccess::open(po_path, FileAccess::READ);
-	if (file.is_null()) {
-		// 定制版优先生成中文 C# 悬停文档；没有翻译文件时保持英文，避免阻断 glue 生成。
-		_log("C# doc translation file not found: %s\n", po_path.utf8().get_data());
-		return;
-	}
-
-	String msgid;
-	String msgstr;
-	String active;
-
-	auto flush_entry = [&]() {
-		if (!msgid.is_empty() && !msgstr.is_empty()) {
-			csharp_doc_translations[fix_doc_description(msgid)] = fix_doc_description(msgstr);
-		}
-		msgid = String();
-		msgstr = String();
-		active = String();
-	};
-
-	while (!file->eof_reached()) {
-		String line = file->get_line();
-
-		if (line.begins_with("msgid ")) {
-			flush_entry();
-			active = "msgid";
-			msgid = parse_po_quoted_text(line);
-		} else if (line.begins_with("msgstr ")) {
-			active = "msgstr";
-			msgstr = parse_po_quoted_text(line);
-		} else if (line.begins_with("\"")) {
-			if (active == "msgid") {
-				msgid += parse_po_quoted_text(line);
-			} else if (active == "msgstr") {
-				msgstr += parse_po_quoted_text(line);
-			}
-		} else if (line.is_empty()) {
-			flush_entry();
-		}
-	}
-
-	flush_entry();
-	_log("Loaded %d C# doc translations from %s\n", csharp_doc_translations.size(), po_path.utf8().get_data());
-}
-
-String BindingsGenerator::_get_csharp_doc_description(const String &p_bbcode) {
-	String english = fix_doc_description(p_bbcode);
-	_load_csharp_doc_translations();
-
-	const String *translated = csharp_doc_translations.getptr(english);
-	if (translated && !translated->is_empty()) {
-		return *translated;
-	}
-
-	return english;
-}
-
 String BindingsGenerator::bbcode_to_text(const String &p_bbcode, const TypeInterface *p_itype) {
 	// Based on the version in EditorHelp.
 
@@ -1752,7 +1644,7 @@ void BindingsGenerator::_generate_global_constants(StringBuilder &p_output) {
 
 	for (const ConstantInterface &iconstant : global_constants) {
 		if (iconstant.const_doc && iconstant.const_doc->description.size()) {
-			String xml_summary = bbcode_to_xml(_get_csharp_doc_description(iconstant.const_doc->description), nullptr);
+			String xml_summary = bbcode_to_xml(fix_doc_description(iconstant.const_doc->description), nullptr);
 			Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 			if (summary_lines.size()) {
@@ -1816,7 +1708,7 @@ void BindingsGenerator::_generate_global_constants(StringBuilder &p_output) {
 
 		for (const ConstantInterface &iconstant : ienum.constants) {
 			if (iconstant.const_doc && iconstant.const_doc->description.size()) {
-				String xml_summary = bbcode_to_xml(_get_csharp_doc_description(iconstant.const_doc->description), nullptr);
+				String xml_summary = bbcode_to_xml(fix_doc_description(iconstant.const_doc->description), nullptr);
 				Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 				if (summary_lines.size()) {
@@ -2278,7 +2170,7 @@ Error BindingsGenerator::_generate_cs_type(const TypeInterface &itype, const Str
 	const DocData::ClassDoc *class_doc = itype.class_doc;
 
 	if (class_doc && class_doc->description.size()) {
-		String xml_summary = bbcode_to_xml(_get_csharp_doc_description(class_doc->description), &itype);
+		String xml_summary = bbcode_to_xml(fix_doc_description(class_doc->description), &itype);
 		Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 		if (summary_lines.size()) {
@@ -2340,7 +2232,7 @@ Error BindingsGenerator::_generate_cs_type(const TypeInterface &itype, const Str
 
 	for (const ConstantInterface &iconstant : itype.constants) {
 		if (iconstant.const_doc && iconstant.const_doc->description.size()) {
-			String xml_summary = bbcode_to_xml(_get_csharp_doc_description(iconstant.const_doc->description), &itype);
+			String xml_summary = bbcode_to_xml(fix_doc_description(iconstant.const_doc->description), &itype);
 			Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 			if (summary_lines.size()) {
@@ -2390,7 +2282,7 @@ Error BindingsGenerator::_generate_cs_type(const TypeInterface &itype, const Str
 		const ConstantInterface &last = ienum.constants.back()->get();
 		for (const ConstantInterface &iconstant : ienum.constants) {
 			if (iconstant.const_doc && iconstant.const_doc->description.size()) {
-				String xml_summary = bbcode_to_xml(_get_csharp_doc_description(iconstant.const_doc->description), &itype);
+				String xml_summary = bbcode_to_xml(fix_doc_description(iconstant.const_doc->description), &itype);
 				Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 				if (summary_lines.size()) {
@@ -2872,7 +2764,7 @@ Error BindingsGenerator::_generate_cs_property(const BindingsGenerator::TypeInte
 	}
 
 	if (p_iprop.prop_doc && p_iprop.prop_doc->description.size()) {
-		String xml_summary = bbcode_to_xml(_get_csharp_doc_description(p_iprop.prop_doc->description), &p_itype);
+		String xml_summary = bbcode_to_xml(fix_doc_description(p_iprop.prop_doc->description), &p_itype);
 		Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 		if (summary_lines.size()) {
@@ -3176,7 +3068,7 @@ Error BindingsGenerator::_generate_cs_method(const BindingsGenerator::TypeInterf
 		}
 
 		if (p_imethod.method_doc && p_imethod.method_doc->description.size()) {
-			String xml_summary = bbcode_to_xml(_get_csharp_doc_description(p_imethod.method_doc->description), &p_itype);
+			String xml_summary = bbcode_to_xml(fix_doc_description(p_imethod.method_doc->description), &p_itype);
 			Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 			if (summary_lines.size()) {
@@ -3387,7 +3279,7 @@ Error BindingsGenerator::_generate_cs_signal(const BindingsGenerator::TypeInterf
 		}
 
 		if (p_isignal.method_doc && p_isignal.method_doc->description.size()) {
-			String xml_summary = bbcode_to_xml(_get_csharp_doc_description(p_isignal.method_doc->description), &p_itype, true);
+			String xml_summary = bbcode_to_xml(fix_doc_description(p_isignal.method_doc->description), &p_itype, true);
 			Vector<String> summary_lines = xml_summary.length() ? xml_summary.split("\n") : Vector<String>();
 
 			if (summary_lines.size()) {

@@ -34,8 +34,11 @@ case "$PRESET" in
 	dev)
 		PROFILE_PATH="misc/customization/scons-profiles/macos_3d_dev.py"
 		;;
+	pro)
+		PROFILE_PATH="misc/customization/scons-profiles/macos_3d_pro.py"
+		;;
 	*)
-		echo "Unknown preset '$PRESET'. Available presets: dev" >&2
+		echo "Unknown preset '$PRESET'. Available presets: dev, pro" >&2
 		exit 2
 		;;
 esac

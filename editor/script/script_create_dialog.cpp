@@ -902,10 +902,7 @@ ScriptCreateDialog::ScriptCreateDialog() {
 	for (int i = 0; i < ScriptServer::get_language_count(); i++) {
 		String lang = ScriptServer::get_language(i)->get_name();
 		language_menu->add_item(lang);
-		// 定制版默认优先使用 C#；如果没有 C#，再回到 Godot 原本的 GDScript。
-		if (lang == "C#") {
-			default_language = i;
-		} else if (lang == "GDScript" && default_language < 0) {
+		if (lang == "GDScript") {
 			default_language = i;
 		}
 	}
@@ -916,10 +913,10 @@ ScriptCreateDialog::ScriptCreateDialog() {
 		language_menu->set_auto_translate_mode(AUTO_TRANSLATE_MODE_ALWAYS);
 		language_menu->add_item(TTR("No Scripting Languages Available"));
 	} else if (default_language >= 0) {
-		// Normal Case: Use the customized default language.
+		// Normal Case: GDScript is available, select it.
 		language_menu->select(default_language);
 	} else {
-		// Edge Case 2: Languages exist, but none matches the customized default.
+		// Edge Case 2: Languages exist (like C#), but GDScript is disabled.
 		language_menu->select(0);
 	}
 
