@@ -10,7 +10,8 @@ namespace GodotTools.ProjectEditor
 {
     public static class ProjectGenerator
     {
-        public static string GodotSdkAttrValue => $"Godot.NET.Sdk/{GeneratedGodotNupkgsVersions.GodotNETSdk}";
+        // 用户项目引用定制版 SDK 包；版本来自本次构建生成的 NuGet 包版本。
+        public static string GodotSdkAttrValue => $"Baize.Godot.NET.Sdk/{GeneratedGodotNupkgsVersions.GodotNETSdk}";
 
         // 定制版默认让用户项目直接使用 .NET 10；GodotSharp 自身仍保留上游的 net8.0 基线。
         public static string GodotMinimumRequiredTfm => "net10.0";
@@ -38,30 +39,6 @@ namespace GodotTools.ProjectEditor
             return root;
         }
 
-        public static void SaveNuGetConfig(string dir)
-        {
-            string toolsDir = Path.GetDirectoryName(typeof(ProjectGenerator).Assembly.Location) ?? string.Empty;
-            string nupkgsDir = Path.Combine(toolsDir, "nupkgs");
-
-            if (!Directory.Exists(nupkgsDir))
-                return;
-
-            string relativeNupkgsDir = Path.GetRelativePath(dir, nupkgsDir).Replace('\\', '/');
-            string nugetConfigPath = Path.Combine(dir, "NuGet.config");
-
-            // 定制版 SDK 和 GodotSharp 都是本地构建出来的包；写入项目级 NuGet 源，避免 VS Code 只去 nuget.org 找官方包。
-            string content =
-                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
-                "<configuration>\n" +
-                "  <packageSources>\n" +
-                "    <add key=\"Baize Godot Local\" value=\"" + relativeNupkgsDir + "\" />\n" +
-                "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n" +
-                "  </packageSources>\n" +
-                "</configuration>\n";
-
-            File.WriteAllText(nugetConfigPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        }
-
         public static string GenAndSaveGameProject(string dir, string name)
         {
             if (name.Length == 0)
@@ -73,7 +50,6 @@ namespace GodotTools.ProjectEditor
 
             // Save (without BOM)
             root.Save(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            SaveNuGetConfig(dir);
 
             return Guid.NewGuid().ToString().ToUpperInvariant();
         }
