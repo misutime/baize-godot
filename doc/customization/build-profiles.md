@@ -11,6 +11,12 @@ python misc\scripts\install_d3d12_sdk_windows.py
 .\misc\customization\build-windows.ps1 -Preset dev -Jobs 16
 ```
 
+Windows 日常使用构建：
+
+```powershell
+.\misc\customization\build-windows.ps1 -Preset pro -Jobs 16
+```
+
 如果只是临时排查新机器依赖问题，可以先用不带 D3D12 的 fallback：
 
 ```powershell
@@ -23,12 +29,31 @@ macOS 开发基线：
 ./misc/customization/build-macos.sh --preset dev --jobs 10
 ```
 
+macOS 日常使用构建：
+
+```bash
+./misc/customization/build-macos.sh --preset pro --jobs 10
+```
+
+C# / .NET 完整构建：
+
+```powershell
+.\misc\customization\build-windows-csharp.ps1 -Preset dev -Jobs 16
+.\misc\customization\build-windows-csharp.ps1 -Preset pro -Jobs 16
+```
+
+```bash
+./misc/customization/build-macos-csharp.sh --preset dev --jobs 10
+./misc/customization/build-macos-csharp.sh --preset pro --jobs 10
+```
+
 ## 对应 profile
 
 Windows：
 
 ```powershell
 scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j16
+scons profile=misc/customization/scons-profiles/windows_3d_pro.py -j16
 scons profile=misc/customization/scons-profiles/windows_3d_dev_no_d3d12.py -j16
 ```
 
@@ -36,6 +61,7 @@ macOS：
 
 ```bash
 scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j10
+scons profile=misc/customization/scons-profiles/macos_3d_pro.py -j10
 ```
 
 ## 关键参数
@@ -43,6 +69,7 @@ scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j10
 - `platform=windows`：构建 Windows 编辑器。
 - `platform=macos`：构建 macOS 编辑器。
 - `dev_build=yes`：开发构建，适合读源码、调试和改引擎。
+- `pro`：不启用 `dev_build=yes` 的编辑器构建，适合日常打开项目和体验性能。
 - `d3d12=no`：只用于临时排查 D3D12 依赖问题，不再作为日常 Windows 3D 开发基线。
 - `accesskit=no`：先关闭屏幕阅读器支持依赖。
 - `angle=no`：先关闭 ANGLE 依赖。
@@ -58,16 +85,94 @@ Windows dev 编辑器：
 .\bin\godot.windows.editor.dev.x86_64.exe
 ```
 
+Windows pro 编辑器：
+
+```powershell
+.\bin\godot.windows.editor.x86_64.exe
+```
+
 Windows 命令行版本验证：
 
 ```powershell
 .\bin\godot.windows.editor.dev.x86_64.console.exe --version
+.\bin\godot.windows.editor.x86_64.console.exe --version
+```
+
+## C# / .NET 构建
+
+首次生成完整的 C# 编辑器时，优先用项目脚本一条命令完成：
+
+```powershell
+.\misc\customization\build-windows-csharp.ps1 -Preset dev -Jobs 16
+.\misc\customization\build-windows-csharp.ps1 -Preset pro -Jobs 16
+```
+
+```bash
+./misc/customization/build-macos-csharp.sh --preset dev --jobs 10
+./misc/customization/build-macos-csharp.sh --preset pro --jobs 10
+```
+
+Windows 脚本内部会按顺序执行三步。
+macOS 脚本会额外在 GodotSharp 生成后重新生成 `.app`，避免首次构建时 bundle 过早查找 `bin/GodotSharp`。
+
+1. 构建带 C# / .NET 支持的编辑器：
+
+```powershell
+.\misc\customization\build-windows.ps1 -Preset dev -Jobs 16 module_mono_enabled=yes
+```
+
+```bash
+./misc/customization/build-macos.sh --preset dev --jobs 10 module_mono_enabled=yes
+```
+
+如果要手动拆开构建 `pro` 版，把上面的 `dev` 换成 `pro`，后续二进制名也去掉 `.dev`。
+
+2. 生成 C# glue：
+
+```powershell
+.\bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --generate-mono-glue modules/mono/glue
+```
+
+```bash
+./bin/godot.macos.editor.dev.arm64.mono --headless --generate-mono-glue modules/mono/glue
+```
+
+3. 构建 GodotSharp 托管库：
+
+```powershell
+python .\modules\mono\build_scripts\build_assemblies.py --godot-output-dir .\bin --godot-platform=windows
+```
+
+```bash
+./modules/mono/build_scripts/build_assemblies.py --godot-output-dir ./bin --godot-platform=macos
+```
+
+定制版默认新建和升级 C# 游戏项目到 `net10.0`。这里不改 GodotSharp 和编辑器 C# 工具自身的 `net8.0` 目标框架，它们继续作为引擎内部兼容基线。
+
+如果只是修改编辑器 UI、菜单、面板、默认入口等界面逻辑，没有修改暴露给脚本或 C# 的 API，通常只需要重新执行第 1 步。
+
+如果修改了 `_bind_methods()`、`ClassDB::bind_method`、属性、信号、枚举、常量、`modules/mono`、C# glue 或 GodotSharp 相关内容，需要重新执行完整三步。
+
+Windows C# 编辑器入口：
+
+```powershell
+.\bin\godot.windows.editor.dev.x86_64.mono.exe
+.\bin\godot.windows.editor.x86_64.mono.exe
+```
+
+macOS C# 编辑器命令行验证：
+
+```bash
+./bin/godot.macos.editor.dev.arm64.mono --version
 ```
 
 macOS 编辑器 app：
 
 ```bash
 open bin/godot_macos_editor_dev.app
+open bin/godot_macos_editor.app
+open bin/godot_macos_editor_dev_mono.app
+open bin/godot_macos_editor_mono.app
 ```
 
 macOS 终端日志入口：

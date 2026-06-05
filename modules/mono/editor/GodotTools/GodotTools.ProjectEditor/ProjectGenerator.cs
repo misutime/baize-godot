@@ -10,9 +10,11 @@ namespace GodotTools.ProjectEditor
 {
     public static class ProjectGenerator
     {
-        public static string GodotSdkAttrValue => $"Godot.NET.Sdk/{GeneratedGodotNupkgsVersions.GodotNETSdk}";
+        // 用户项目引用定制版 SDK 包；版本来自本次构建生成的 NuGet 包版本。
+        public static string GodotSdkAttrValue => $"Baize.Godot.NET.Sdk/{GeneratedGodotNupkgsVersions.GodotNETSdk}";
 
-        public static string GodotMinimumRequiredTfm => "net8.0";
+        // 定制版默认让用户项目直接使用 .NET 10；GodotSharp 自身仍保留上游的 net8.0 基线。
+        public static string GodotMinimumRequiredTfm => "net10.0";
 
         public static ProjectRootElement GenGameProject(string name)
         {
@@ -25,10 +27,6 @@ namespace GodotTools.ProjectEditor
 
             var mainGroup = root.AddPropertyGroup();
             mainGroup.AddProperty("TargetFramework", GodotMinimumRequiredTfm);
-
-            // Non-gradle builds require .NET 9 to match the jar libraries included in the export template.
-            var net9 = mainGroup.AddProperty("TargetFramework", "net9.0");
-            net9.Condition = " '$(GodotTargetPlatform)' == 'android' ";
 
             mainGroup.AddProperty("EnableDynamicLoading", "true");
 

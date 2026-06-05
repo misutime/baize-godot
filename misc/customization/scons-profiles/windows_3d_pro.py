@@ -1,6 +1,6 @@
-# Windows 3D development baseline.
+# Windows 3D daily-use editor build.
 # Usage:
-#   scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j8
+#   scons profile=misc/customization/scons-profiles/windows_3d_pro.py -j8
 
 platform = "windows"
 

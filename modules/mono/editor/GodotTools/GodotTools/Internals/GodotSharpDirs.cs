@@ -95,11 +95,11 @@ namespace GodotTools.Internals
             string slnAbsolutePath = Path.GetFullPath(ProjectSettings.GlobalizePath(directory));
 
             List<string> solutionFilePaths = new();
-            solutionFilePaths.AddRange(Directory.GetFiles(slnAbsolutePath, "*.sln"));
             solutionFilePaths.AddRange(Directory.GetFiles(slnAbsolutePath, "*.slnx"));
+            solutionFilePaths.AddRange(Directory.GetFiles(slnAbsolutePath, "*.sln"));
 
             if (solutionFilePaths.Count == 0)
-                return Path.Combine(slnAbsolutePath, $"{assemblyName}.sln");
+                return Path.Combine(slnAbsolutePath, $"{assemblyName}.slnx");
 
             List<string> matchingSolutions = new();
 
@@ -139,7 +139,7 @@ namespace GodotTools.Internals
                     break;
             }
 
-            return Path.Combine(slnAbsolutePath, $"{assemblyName}.sln");
+            return Path.Combine(slnAbsolutePath, $"{assemblyName}.slnx");
         }
 
         private static string? _projectAssemblyName;

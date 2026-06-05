@@ -1,0 +1,36 @@
+{
+  "packages": [
+    {
+      "id": "Baize.Godot.NET.Sdk",
+      "version": "4.7.0-baize.1",
+      "file": "Baize.Godot.NET.Sdk.4.7.0-baize.1.nupkg",
+      "sha256": "0bbff5608fc3418cab1ea5f8aa1e07b157a1ddf00d8b0b32fd1b57af3d1f0266",
+      "payload_sha256": "e4702ffc1783a0f30773bd5d1b27582135029d17da3977135409a13d7925122c",
+      "published_at": "2026-06-05T01:44:22.487356+00:00"
+    },
+    {
+      "id": "Baize.Godot.SourceGenerators",
+      "version": "4.7.0-baize.1",
+      "file": "Baize.Godot.SourceGenerators.4.7.0-baize.1.nupkg",
+      "sha256": "7f01d67530de365b5b5a6a1ff256e5717636bc6d082b784416fc7268377b31f2",
+      "payload_sha256": "5980035918a708eebb9e63e16cc5cb2f10edd35ba18bfb5c9d0c527d0b3d45dd",
+      "published_at": "2026-06-05T01:44:22.487356+00:00"
+    },
+    {
+      "id": "Baize.GodotSharp",
+      "version": "4.7.0-baize.1",
+      "file": "Baize.GodotSharp.4.7.0-baize.1.nupkg",
+      "sha256": "87f8216b147331d076c75ebc2d884e5178648a602507dbc95a76469977e66d90",
+      "payload_sha256": "fbf526a018650c36d72c67f947f985dff0f1238116c794627f4fa870d3bc63cd",
+      "published_at": "2026-06-05T01:44:22.487356+00:00"
+    },
+    {
+      "id": "Baize.GodotSharpEditor",
+      "version": "4.7.0-baize.1",
+      "file": "Baize.GodotSharpEditor.4.7.0-baize.1.nupkg",
+      "sha256": "66503d33bed6dac57f237f194088b3c1032ffe99d2c522cc3796d1fcb5cc6293",
+      "payload_sha256": "a014958d34284dd71bac7158d0d38d0be90d191696d612b2b03692f51fcdc4ba",
+      "published_at": "2026-06-05T01:44:22.487356+00:00"
+    }
+  ]
+}

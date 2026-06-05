@@ -61,7 +61,8 @@ namespace GodotTools
         [UsedImplicitly]
         private bool CreateProjectSolutionIfNeeded()
         {
-            if (!File.Exists(GodotSharpDirs.ProjectSlnPath) || !File.Exists(GodotSharpDirs.ProjectCsProjPath))
+            // C# 版编辑器首次打开空项目时，自动补齐基础工程文件；已有一部分文件时不静默覆盖。
+            if (!File.Exists(GodotSharpDirs.ProjectSlnPath) && !File.Exists(GodotSharpDirs.ProjectCsProjPath))
             {
                 return CreateProjectSolution();
             }
@@ -534,6 +535,8 @@ namespace GodotTools
             _toolBarBuildButton.GetParent().MoveChild(_toolBarBuildButton, 0);
 
             EditorInterface.Singleton.GetCommandPalette().AddCommand("Build C# project".TTR(), "dotnet/build_solution", Callable.From(BuildProjectPressed), _toolBarBuildButton.Shortcut.GetAsText());
+
+            CreateProjectSolutionIfNeeded();
 
             if (File.Exists(GodotSharpDirs.ProjectCsProjPath))
             {
