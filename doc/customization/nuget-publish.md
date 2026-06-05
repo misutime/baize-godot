@@ -101,11 +101,13 @@ nuget.org 不允许覆盖已上传的同名同版本包。版本号一旦发布�
 doc/customization/nuget-publish-manifest.json
 ```
 
-每次成功上传后，清单会记录包名、版本和 sha256。下次上传前脚本会检查：
+每次成功上传后，清单会记录包名、版本、整包 sha256 和有效内容 sha256。下次上传前脚本会检查有效内容：
 
 - 同版本同内容：提示无需重复上传。
 - 同版本但内容变化：拒绝上传，要求先递增 `version.py` 的 `status`。
 - 新版本或新包：允许上传。
+
+有效内容校验会忽略 NuGet 签名、ZIP 容器元数据和 `package/services/metadata/core-properties`。这些内容会因为重新构建或 nuget.org 仓库签名而变化，不代表 C# SDK/API 内容真的改变。
 
 首次发布 `Baize.*` 包时，建议在 nuget.org 申请 `Baize` 包名前缀，避免别人占用相近包名。
 

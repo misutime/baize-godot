@@ -15,6 +15,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zipfile import ZipFile
 
 
 DEFAULT_SOURCE = "https://api.nuget.org/v3/index.json"
@@ -62,6 +63,25 @@ def file_sha256(path: Path) -> str:
     return sha.hexdigest()
 
 
+def should_skip_payload_entry(name: str) -> bool:
+    return (
+        name == ".signature.p7s" or
+        name == "_rels/.rels" or
+        name.startswith("package/services/metadata/core-properties/")
+    )
+
+
+def package_payload_sha256(path: Path) -> str:
+    sha = hashlib.sha256()
+    with ZipFile(path) as package_file:
+        names = sorted(name for name in package_file.namelist() if not should_skip_payload_entry(name))
+        for name in names:
+            sha.update(name.encode("utf-8"))
+            sha.update(b"\0")
+            sha.update(hashlib.sha256(package_file.read(name)).digest())
+    return sha.hexdigest()
+
+
 def parse_package_id_and_version(package: Path) -> tuple[str, str]:
     suffixes = [".nupkg", ".snupkg"]
     name = package.name
@@ -99,12 +119,13 @@ def build_package_records(packages: list[Path]) -> list[dict]:
                 "version": version,
                 "file": package.name,
                 "sha256": file_sha256(package),
+                "payload_sha256": package_payload_sha256(package),
             }
         )
     return records
 
 
-def validate_manifest(manifest: dict, records: list[dict]) -> bool:
+def validate_manifest(manifest: dict, records: list[dict]) -> str:
     published = {
         (package["id"], package["version"], package["file"]): package
         for package in manifest.get("packages", [])
@@ -120,7 +141,8 @@ def validate_manifest(manifest: dict, records: list[dict]) -> bool:
             all_same = False
             continue
 
-        if old_record.get("sha256") != record["sha256"]:
+        old_payload_sha256 = old_record.get("payload_sha256", old_record.get("sha256"))
+        if old_payload_sha256 != record["payload_sha256"]:
             print(
                 "包内容已变化，但包名和版本没有变化："
                 f"{record['file']}\n"
@@ -131,13 +153,13 @@ def validate_manifest(manifest: dict, records: list[dict]) -> bool:
             has_error = True
 
     if has_error:
-        return False
+        return "error"
 
     if all_same and records:
         print("当前包和发布清单记录完全一致，无需重复上传。")
-        return False
+        return "noop"
 
-    return True
+    return "upload"
 
 
 def update_manifest(manifest: dict, records: list[dict]) -> dict:
@@ -230,8 +252,12 @@ def main() -> int:
     manifest = load_manifest(manifest_path)
     records = build_package_records(packages)
 
-    if not args.no_manifest_check and not validate_manifest(manifest, records):
-        return 1
+    if not args.no_manifest_check:
+        validate_result = validate_manifest(manifest, records)
+        if validate_result == "error":
+            return 1
+        if validate_result == "noop":
+            return 0
 
     print(f"NuGet 源：{args.source}")
     print(f"包目录：{package_dir}")
