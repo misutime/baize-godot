@@ -103,7 +103,7 @@ platform/web/node_modules/
 
 # Misc
 *.debug
-
+.codegraph/
 #############################
 ### IDE and tool specific ###
 #############################
