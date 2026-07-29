@@ -1,0 +1,21 @@
+version: '3'
+
+dotenv:
+  - .env.worktree
+  - .env
+
+vars:
+  PYTHON: '{{if eq .OS "windows"}}python{{else}}python3{{end}}'
+
+tasks:
+  default:
+    desc: "列出可用任务"
+    cmd: task --list
+
+  dev:
+    desc: "构建当前平台开发版编辑器"
+    cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "16"}}'
+
+  pro:
+    desc: "构建当前平台 pro 版编辑器"
+    cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
