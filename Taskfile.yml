@@ -19,3 +19,24 @@ tasks:
   pro:
     desc: "构建当前平台 pro 版编辑器"
     cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
+
+
+  dev-install:
+    desc: "构建并安装开发版编辑器"
+    platforms: [darwin]
+    cmds:
+      - task: dev
+        vars:
+          JOBS: '{{.JOBS | default "16"}}'
+      - mkdir -p ~/Applications
+      - ditto bin/godot_macos_editor.app ~/Applications/Godot.app
+
+  pro-install:
+    desc: "构建并安装 pro 版编辑器"
+    platforms: [darwin]
+    cmds:
+      - task: pro
+        vars:
+          JOBS: '{{.JOBS | default "16"}}'
+      - mkdir -p ~/Applications
+      - ditto bin/godot_macos_editor.app ~/Applications/Godot.app
