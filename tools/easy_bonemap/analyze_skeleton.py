@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from analyzer.candidate_generation import generate_body_candidates
 from analyzer.pipeline import analyze_facts, analyze_glb_skeleton, read_glb_facts, write_json_report
 
 
@@ -27,18 +28,29 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Optionally dump the full factual descriptor for debugging; not for normal AI input",
     )
+    parser.add_argument(
+        "--candidates",
+        type=Path,
+        metavar="PATH",
+        help="Optionally write the body and limb candidate report as JSON",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.debug_facts is None:
+    if args.debug_facts is None and args.candidates is None:
         report = analyze_glb_skeleton(args.input)
     else:
         facts = read_glb_facts(args.input)
-        write_json_report(facts, args.debug_facts)
+        if args.debug_facts is not None:
+            write_json_report(facts, args.debug_facts)
+            print(f"Wrote debug facts: {args.debug_facts}")
         report = analyze_facts(facts)
-        print(f"Wrote debug facts: {args.debug_facts}")
+        if args.candidates is not None:
+            candidates = generate_body_candidates(facts)
+            write_json_report(candidates, args.candidates)
+            print(f"Wrote body candidates: {args.candidates}")
     if args.output is None:
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0

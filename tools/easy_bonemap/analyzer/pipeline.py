@@ -8,11 +8,16 @@ from typing import Any
 
 from analyzer.glb_reader import read_glb
 from analyzer.skeleton_graph import analyze_skeleton_graph
+from analyzer.candidate_generation import generate_body_candidates
 
 
 def read_glb_facts(input_path: str | Path) -> dict[str, Any]:
     """Read one GLB and return only facts present in the asset."""
     return read_glb(input_path)
+
+def generate_glb_candidates(input_path: str | Path) -> dict[str, Any]:
+    """Read one GLB and generate body and limb candidates."""
+    return generate_body_candidates(read_glb_facts(input_path))
 
 
 def write_json_report(report: dict[str, Any], output_path: str | Path) -> None:
@@ -56,7 +61,7 @@ def analyze_facts(facts: dict[str, Any]) -> dict[str, Any]:
             "binding_count": len(facts.get("skinning", [])),
             "top_influences": top_influences,
         },
-        "next_stage": "candidate_generation",
+        "next_stage": "hand_analysis",
         "facts_retained_in_memory": True,
     }
 
@@ -64,3 +69,4 @@ def analyze_facts(facts: dict[str, Any]) -> dict[str, Any]:
 def analyze_glb_skeleton(input_path: str | Path) -> dict[str, Any]:
     """Read GLB facts and return a compact structural skeleton report."""
     return analyze_facts(read_glb_facts(input_path))
+

@@ -62,6 +62,28 @@ python tools/easy_bonemap/analyze_skeleton.py "D:/misutime/104_game/hades/entiti
 
 这个报告适合人工查看或作为后续 AI 判断的输入，不包含完整逐顶点蒙皮数组。
 
+## 生成身体与四肢候选
+
+使用 `--candidates` 输出方案 A2 的确定性候选报告：
+
+```powershell
+python tools/easy_bonemap/analyze_skeleton.py "D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb" `
+  -o "tools/easy_bonemap/output/SpiderGwen.json" `
+  --candidates "tools/easy_bonemap/output/SpiderGwen.candidates.json"
+```
+
+当前候选范围：
+
+```text
+Root / Hips / Spine / Chest / Neck / Head
+左右 UpperArm / LowerArm / Hand
+左右 UpperLeg / LowerLeg / Foot
+```
+
+候选报告只保留拓扑、位置、方向、长度、对称和蒙皮特征分数，并输出证据、置信度和 `Unknown/Ambiguous` 状态。它不会生成最终 BoneMap，也不会修改模型或 Godot 导入配置。
+
+候选生成实现位于 `analyzer/candidate_generation.py`，主流程通过 `--candidates` 写出独立 JSON。
+
 ## 输出内容
 
 当前报告包含：
@@ -182,25 +204,15 @@ root hips 同时连接脊柱和骨盆方向的分支
 
 ## 下一步
 
-下一阶段计划增加候选生成函数，而不是立即增加大量独立工具：
+当前已完成身体主干和四肢候选生成，下一阶段按方案 A3 独立处理手掌和五指：
 
 ```text
-analyze_facts()
-    ↓
 candidate generation
-    ├── body candidates
-    ├── limb candidates
-    ├── hand candidates
-    └── auxiliary candidates
+    ↓
+hand analysis
+    ├── palm
+    ├── thumb
+    └── index / middle / ring / little chains
 ```
 
-后续才会处理：
-
-```text
-Hips / Spine / Chest
-左右手臂和腿
-手掌和五指
-眼睛和 Jaw
-Unknown / Ambiguous
-BoneMap 输出
-```
+之后再处理眼睛、Jaw、辅助骨、映射验证和 BoneMap 输出。
