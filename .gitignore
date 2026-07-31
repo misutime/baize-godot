@@ -80,6 +80,9 @@ __pycache__/
 # Python modules
 .*_cache/
 
+# EasyBoneMap generated analysis reports and debug dumps
+tools/easy_bonemap/output/
+
 # Documentation
 doc/_build/
 
