@@ -1,218 +1,125 @@
-# EasyBoneMap
+# Normalized Skeleton Graph
 
-`EasyBoneMap` 是一个独立的离线骨骼分析工具层，当前用于分析已经带有骨骼和蒙皮的 GLB 模型。
+第一阶段工具：从带骨骼的 GLB/GLTF 中提取真实 joints，正确计算完整父子 Transform，并输出归一化 Skeleton Graph。
 
-当前阶段不接入 Pi/OMP，不修改 Godot 导入配置，也不生成最终 BoneMap。目标是先把模型事实和骨骼结构分析清楚。
-
-## 当前流程
+## 当前目标
 
 ```text
-GLB
+GLB/GLTF
   ↓
-analyze_skeleton.py
+Khronos glTF Validator
   ↓
-analyzer.pipeline
-  ├── read_glb_facts()
-  │     ↓
-  │   analyzer.glb_reader.read_glb()
-  │
-  └── analyze_facts()
-        ├── analyzer.skeleton_graph.analyze_skeleton_graph()
-        └── 蒙皮影响汇总
+pygltflib
   ↓
-紧凑骨骼分析报告
+完整 Matrix/TRS 世界 Transform
+  ↓
+skins[].joints 骨骼提取
+  ↓
+Normalized Skeleton Graph
 ```
 
-## 目录结构
+本阶段不做：
 
-```text
-easy_bonemap/
-├── analyze_skeleton.py       # 主入口：输出紧凑骨骼分析报告
-├── analyzer/
-│   ├── pipeline.py           # 分析流程和函数编排
-│   ├── glb_reader.py         # 纯事实 GLB 读取，不做语义判断
-│   ├── skeleton_graph.py     # 父子关系、分支和深度分析
-│   └── __init__.py
-├── output/                   # 分析输出
-└── README.md
-```
+- AI 骨骼语义判断；
+- 最终 BoneMap；
+- 修改原始模型或 Godot 导入配置；
+- 从裸 Mesh 生成新骨架；
+- 强行补齐 Godot 56 根实际骨骼。
 
-## 运行紧凑分析
+Godot `SkeletonProfileHumanoid` 的 56 个槽位是后续匹配目标，不等于模型实际骨骼数量。
 
-在 `baize-godot` 根目录运行：
+## 运行
+
+默认使用官方 Khronos Validator 预检：
 
 ```bash
-python tools/easy_bonemap/analyze_skeleton.py \\
-  D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb \\
-  -o tools/easy_bonemap/output/SpiderGwen.json
+python tools/easy_bonemap/extract_skeleton.py \
+  /path/to/character.glb \
+  -o tools/easy_bonemap/output/character.skeleton.normalized.json
 ```
 
-Windows PowerShell 也可以写成一行：
+如果明确需要跳过 Validator：
 
-```powershell
-python tools/easy_bonemap/analyze_skeleton.py "D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb" -o "tools/easy_bonemap/output/SpiderGwen.json"
+```bash
+python tools/easy_bonemap/extract_skeleton.py \
+  /path/to/character.glb \
+  --skip-validator \
+  -o /tmp/character.skeleton.normalized.json
 ```
 
-当前 SpiderGwen 输出约为：
+## 输出契约
 
-```text
-217 行
-4922 字节
-```
-
-这个报告适合人工查看或作为后续 AI 判断的输入，不包含完整逐顶点蒙皮数组。
-
-## 生成身体与四肢候选
-
-使用 `--candidates` 输出方案 A2 的确定性候选报告：
-
-```powershell
-python tools/easy_bonemap/analyze_skeleton.py "D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb" `
-  -o "tools/easy_bonemap/output/SpiderGwen.json" `
-  --candidates "tools/easy_bonemap/output/SpiderGwen.candidates.json"
-```
-
-当前候选范围：
-
-```text
-Root / Hips / Spine / Chest / Neck / Head
-左右 UpperArm / LowerArm / Hand
-左右 UpperLeg / LowerLeg / Foot
-```
-
-候选报告只保留拓扑、位置、方向、长度、对称和蒙皮特征分数，并输出证据、置信度和 `Unknown/Ambiguous` 状态。它不会生成最终 BoneMap，也不会修改模型或 Godot 导入配置。
-
-候选生成实现位于 `analyzer/candidate_generation.py`，主流程通过 `--candidates` 写出独立 JSON。
-
-## 输出内容
-
-当前报告包含：
+顶层字段：
 
 ```text
 format
 source
-asset
-mesh_count
-skin_count
-skeleton
-skinning
-next_stage
-facts_retained_in_memory
+bone_count
+bones
+roots
+degeneracies
+warnings
 ```
 
-`skeleton` 部分包括：
+每根骨骼包含：
 
 ```text
-node_count
-root_nodes
-leaf_count
-branch_nodes
-max_depth
+index                 # GLTF node index
+name                  # 仅用于来源追溯，不参与计算
+parent                # joint 子集中的父节点，根为 -1
+local                 # matrix 或 TRS
+world_position
+normalized_position
+local_to_world
+parent_edge
+child_edges
+depth
+world_rotation
+world_scale
 ```
 
-`branch_nodes` 只表示结构事实，例如：
+骨骼集合只来自 `skins[].joints`。普通 Mesh、Camera、Light、Attachment 节点不会自动变成骨骼。支持多根 joints；`skin.skeleton` 只作为来源提示，不覆盖实际 parent 图。
 
-```json
-{
-  "name": "Bone016",
-  "parent_index": 33,
-  "children": [15, 19, 23, 27, 31],
-  "child_count": 5,
-  "depth": 8
-}
+## 归一化规则
+
+- 原点：单根使用根节点位置，多根使用根节点几何中心；
+- 尺度：所有 root-to-leaf 路径长度中的最大值；
+- 位置：`(world_position - origin) / scale`；
+- 长度：`raw_length / scale`；
+- 方向：父子世界位置差的单位向量；
+- 根节点没有伪造的方向和长度；
+- 退化骨架输出 `degeneracies`，不使用静默的 `scale = 1` 回退。
+
+整体平移和 uniform scale 不应改变归一化结果。
+
+## 依赖
+
+Python：
+
+```bash
+python -m pip install -r tools/easy_bonemap/requirements.txt
 ```
 
-这表示 `Bone016` 有五个子分支，但当前工具不会直接断言它是手掌或手部骨骼。
+当前核心依赖：
 
-## 调试完整事实数据
+- `pygltflib`：GLB/GLTF 结构读取；
+- `numpy`：矩阵、向量和数值计算。
 
-如果需要排查 GLB Reader，可以使用主入口的 `--debug-facts`：
+Node 开发/CI 预检依赖：
 
-```powershell
-python tools/easy_bonemap/analyze_skeleton.py "D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb" `
-  --debug-facts "tools/easy_bonemap/output/SpiderGwen.debug.json" `
-  -o "tools/easy_bonemap/output/SpiderGwen.json"
+```bash
+cd tools/easy_bonemap
+npm install
 ```
 
-该模式会在一次读取中完成：
+- `gltf-validator`：Khronos 官方 glTF 2.0 Validator。
 
-```text
-read_glb_facts()
-    ├── 写出完整事实调试文件
-    └── 使用内存中的 facts 继续生成紧凑分析报告
-```
+## 参考
 
-完整事实文件可能较大，只用于调试，不应作为常规 AI 输入。
+- Khronos glTF Skin Tutorial：<https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_020_Skins.md>
+- Khronos glTF Validator：<https://github.com/KhronosGroup/glTF-Validator>
+- glTF skeleton root 讨论：<https://github.com/KhronosGroup/glTF/issues/1270>
+- Godot SkeletonProfileHumanoid：<https://docs.godotengine.org/en/4.7/classes/class_skeletonprofilehumanoid.html>
+- Godot BoneMap：<https://docs.godotengine.org/en/4.7/classes/class_bonemap.html>
 
-## 纯事实读取原则
-
-`analyzer/glb_reader.py` 只负责读取 GLB 中存在的数据：
-
-```text
-GLB header/chunks
-node name
-parent/children
-local transform
-skin joints
-inverse bind matrices
-mesh attributes
-JOINTS_0
-WEIGHTS_0
-per-joint skinning summary
-```
-
-它不负责：
-
-```text
-识别 Hips
-识别手掌
-识别手指
-判断左右
-生成 BoneMap
-修改模型
-```
-
-语义分析应放在后续的 candidate generation 阶段。
-
-## 当前 SpiderGwen 事实
-
-当前输入：
-
-```text
-D:/misutime/104_game/hades/entities/characters/hero/visual/SpiderGwen.glb
-```
-
-已读取到：
-
-```text
-Mesh: 1
-Skin: 1
-Node: 77
-Animation: 0
-```
-
-结构分析中可见：
-
-```text
-Bone016 有 5 个子分支
-Bone016(mirrored) 有 5 个子分支
-Spine upper 是多个身体分支的汇合点
-root hips 同时连接脊柱和骨盆方向的分支
-```
-
-这些只是后续语义判断的结构证据，尚未生成任何 BoneMap。
-
-## 下一步
-
-当前已完成身体主干和四肢候选生成，下一阶段按方案 A3 独立处理手掌和五指：
-
-```text
-candidate generation
-    ↓
-hand analysis
-    ├── palm
-    ├── thumb
-    └── index / middle / ring / little chains
-```
-
-之后再处理眼睛、Jaw、辅助骨、映射验证和 BoneMap 输出。
+后续阶段再实现 Godot 56 Profile 的匿名几何匹配、候选映射、验证和 BoneMap 输出。
