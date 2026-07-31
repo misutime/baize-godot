@@ -549,7 +549,129 @@ Blender 核验的核心内容是：
 - 每根骨骼归一化 head position 误差；
 - 三栏视觉对照图。
 
+## 10.1 FBX 支持实现与验证
+
+FBX 采用输入适配，不引入第二套 Skeleton Graph：
+
+```text
+FBX
+  ↓
+Blender 5.1 headless import_scene.fbx
+  ↓
+临时 GLB（保留 skins 和 animations）
+  ↓
+现有 pygltflib / Transform / Skeleton Graph / Normalizer
+```
+
+实现文件：
+
+- `analyzer/fbx_converter.py`：Blender 路径解析、临时目录、FBX→GLB、失败诊断；
+- `analyzer/gltf_reader.py`：`.fbx` 路由，`.glb/.gltf` 原行为不变；
+- `extract_skeleton.py`：FBX 先转换和验证临时 GLB，报告 `source` 保留原始 FBX 路径；
+- `tests/test_fbx_support.py`：FBX 适配、失败传播和 CLI 契约测试。
+
+Blender 查找顺序：
+
+```text
+EASY_BONEMAP_BLENDER
+    ↓
+PATH 中的 blender
+    ↓
+/Applications/Blender.app/Contents/MacOS/Blender
+```
+
+适配器使用 `TemporaryDirectory`，不会修改原始 FBX，也不会在 FBX 所在目录写出临时文件。转换失败会携带输入路径、Blender 路径和失败阶段。
+
+### FBX 真实样例
+
+#### Running.fbx
+
+```text
+输入：/Users/misu/misutime/102_games/kai-hades/entities/characters/hero/animations/Running.fbx
+转换后 joints：99
+转换后 skins：1
+转换后 animations：1
+归一化 Graph bone_count：99
+roots： [98]
+degeneracies：[]
+warnings： ["fbx_converted_via_blender"]
+```
+
+#### Robot.FBX
+
+```text
+输入：/Users/misu/Downloads/biped-robot/source/Robot.zip/Robot.FBX
+转换后 joints：41
+转换后 skins：1
+转换后 animations：1
+归一化 Graph bone_count：41
+roots： [40]
+degeneracies：[]
+warnings： ["fbx_converted_via_blender"]
+```
+
+两个报告的 `source` 都是原始 `.fbx` 路径，不是临时 `.glb` 路径。
+
+### FBX 自动化测试
+
+默认测试：
+
+```text
+76 tests OK
+1 skipped（真实 FBX smoke test 未设置样例目录）
+```
+
+设置真实样例目录后：
+
+```bash
+EASY_BONEMAP_SMOKE_FBX_DIR=/path/to/fbx-samples \
+EASY_BONEMAP_BLENDER=/Applications/Blender.app/Contents/MacOS/Blender \
+python -m unittest discover -s tools/easy_bonemap/tests
+```
+
+本次真实烟测结果：
+
+```text
+79 tests OK
+0 skipped
+Running.fbx → 99 bones
+Robot.FBX   → 41 bones
+skins/animations 保留
+输入 FBX 未被修改
+```
+
+FBX 测试还覆盖：
+
+- `.fbx` 和 `.FBX` 后缀路由；
+- `.glb/.gltf` 不调用 FBX 转换器；
+- Blender 命令参数和超时；
+- 环境变量、PATH 和 macOS Blender 路径解析；
+- 临时目录生命周期；
+- 缺失 Blender、导入失败、缺失 marker、缺失输出和坏 GLB；
+- Validator 运行在转换后的 GLB，而不是原始 FBX；
+- 原始 FBX 路径保留在报告 source；
+- 旧 GLB Graph 行为回归。
+
+### Assimp 方案排除记录
+
+本机 `assimp info` 结果：
+
+```text
+Running.fbx：Bones = 0，Animation Channels = 52
+Robot.FBX：Bones = 95
+```
+
+而 Blender Armature 实际得到：
+
+```text
+Running.fbx：99 bones
+Robot.FBX：41 bones
+```
+
+因此 Assimp 没有被选为第一版 FBX 骨骼读取后端；它对动画型 FBX 和 Robot 的骨骼数量都不能直接作为本项目统一 Skeleton Graph 的可靠来源。
+
 ---
+
 
 ## 11. PR 审查清单
 
@@ -564,26 +686,32 @@ Blender 核验的核心内容是：
 - [x] 不把普通节点当骨骼；
 - [x] 输出 Root-relative 和尺度归一化数据；
 - [x] Godot 56 Profile 元数据独立保存；
-- [x] 输入异常显式报告。
+- [x] 输入异常显式报告；
+- [x] FBX 通过 Blender 临时 GLB 适配接入同一流程；
+- [x] FBX 转换不修改原始输入。
 
 ### 自动化测试
-
-- [x] 44 个行为测试通过；
+- [x] 44 个 GLB Skeleton Graph 行为测试通过；
+- [x] 32 个 FBX 适配测试通过；
+- [x] 真实 Blender smoke test 3 项通过；
 - [x] 覆盖旋转和非均匀缩放；
 - [x] 覆盖 matrix/TRS 优先级；
 - [x] 覆盖 joints 筛选和多根；
 - [x] 覆盖平移/uniform scale 不变量；
-- [x] 覆盖退化数据。
+- [x] 覆盖退化数据；
+- [x] 覆盖 FBX 路由、临时目录、失败传播和 source 保留。
 
 ### 外部数据核验
 
 - [x] 两个真实 GLB Validator 无错误；
+- [x] Running.fbx 和 Robot.FBX 经 Blender 转换后 Validator 无错误；
 - [x] 独立 Python 世界矩阵误差小于 `5e-9`；
 - [x] inverseBindMatrices 残差小于 `2.2e-6`；
 - [x] Blender 骨骼数量完全一致；
 - [x] Blender parent mismatch 为 0；
 - [x] Blender 归一化 head 最大误差小于 `5e-7`；
-- [x] 生成全身三栏可视化核验图。
+- [x] 生成全身三栏可视化核验图；
+- [x] FBX 转换后的 skins 和 animations 保留。
 
 ---
 
@@ -597,10 +725,10 @@ Blender 核验的核心内容是：
 - A-Pose/T-Pose 自动识别；
 - 模型左右方向的语义判定；
 - 裸 Mesh 自动生成骨架；
-- 多种导出器和非 GLTF 格式兼容性。
+- 其他导出器和未覆盖的非 GLTF 格式兼容性。
 
 这些属于下一阶段 Profile Matcher、BoneMap Emitter 和 Retargeting 验证范围。
 
 当前阶段的结论仅是：
 
-> **Normalized Skeleton Graph 已正确反映这两个 GLB 的真实骨骼拓扑和 Rest 空间关系，并且通过了独立 Python、Khronos Validator 和 Blender glTF Importer 三层验证。**
+> **Normalized Skeleton Graph 已正确反映两个 GLB 和两个 FBX 测试资产的真实骨骼拓扑与 Rest 空间关系。FBX 通过 Blender 临时 GLB 适配后，和 GLB 共享同一套 Transform、joints 提取和归一化流程，并通过独立 Python、Khronos Validator 和 Blender glTF Importer 三层验证。**

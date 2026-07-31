@@ -1,15 +1,22 @@
-"""GLTF/GLB loading and node-parent facts."""
+"""GLTF/GLB/FBX loading and node-parent facts."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 from pygltflib import GLTF2
 
+from .fbx_converter import convert_fbx_to_gltf
+
 
 def load_document(path: str | Path) -> GLTF2:
     source = Path(path)
-    if source.suffix.lower() not in {".glb", ".gltf"}:
-        raise ValueError(f"Expected .glb or .gltf input, got {source}")
+    suffix = source.suffix.lower()
+    if suffix == ".fbx":
+        # FBX is converted to a temporary GLB via Blender; the returned
+        # document is a plain GLTF2 and the input FBX is never modified.
+        return convert_fbx_to_gltf(source)
+    if suffix not in {".glb", ".gltf"}:
+        raise ValueError(f"Expected .glb, .gltf, or .fbx input, got {source}")
     if not source.is_file():
         raise FileNotFoundError(source)
     return GLTF2().load(str(source))

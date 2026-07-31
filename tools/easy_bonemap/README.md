@@ -18,6 +18,20 @@ skins[].joints 骨骼提取
 Normalized Skeleton Graph
 ```
 
+FBX 使用 Blender headless 转换为临时 GLB，后续完全复用同一套 GLTF Transform、joints 提取和归一化逻辑：
+
+```text
+FBX
+  ↓
+Blender CLI 临时转换 GLB
+  ↓
+Khronos glTF Validator
+  ↓
+同一套 Normalized Skeleton Graph 流程
+```
+
+原始 FBX 不会被修改，报告的 `source` 仍然是原始 FBX 路径。
+
 本阶段不做：
 
 - AI 骨骼语义判断；
@@ -30,13 +44,25 @@ Godot `SkeletonProfileHumanoid` 的 56 个槽位是后续匹配目标，不等�
 
 ## 运行
 
-默认使用官方 Khronos Validator 预检：
+默认使用官方 Khronos Validator 预检。
+
+GLB/GLTF 输入：
 
 ```bash
 python tools/easy_bonemap/extract_skeleton.py \
   /path/to/character.glb \
   -o tools/easy_bonemap/output/character.skeleton.normalized.json
 ```
+
+FBX 输入需要可用的 Blender：
+
+```bash
+python tools/easy_bonemap/extract_skeleton.py \
+  /path/to/character.fbx \
+  -o tools/easy_bonemap/output/character.skeleton.normalized.json
+```
+
+Blender 查找顺序：`EASY_BONEMAP_BLENDER`、PATH 中的 `blender`、macOS 默认应用路径。
 
 如果明确需要跳过 Validator：
 
@@ -103,7 +129,8 @@ python -m pip install -r tools/easy_bonemap/requirements.txt
 当前核心依赖：
 
 - `pygltflib`：GLB/GLTF 结构读取；
-- `numpy`：矩阵、向量和数值计算。
+- `numpy`：矩阵、向量和数值计算；
+- Blender 5.x：FBX headless 导入和临时 GLB 导出。
 
 Node 开发/CI 预检依赖：
 
