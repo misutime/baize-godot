@@ -883,6 +883,13 @@ private:
 
 	void _keying_changed();
 
+	void _populate_property_map(EditorProperty *p_ep, const PropertyInfo &p_property_info, const EditorInspectorPlugin::AddedEditor &p_editor, const Vector<String> &p_properties, const String &p_property_label_string);
+	void _apply_property_editor_flags(EditorProperty *p_ep, bool p_sub_inspector_use_filter, bool p_disable_favorite, bool p_property_read_only, bool p_all_read_only, bool p_checkable, bool p_checked, bool p_draw_warning);
+	void _connect_property_editor_signals(EditorProperty *p_ep, bool p_update_all);
+	void _apply_property_editor_doc(EditorProperty *p_ep, const PropertyInfo &p_property_info, const String &p_doc_tooltip_text, const String &p_doc_path);
+	void _search_and_connect_sections(EditorProperty *p_ep, Node *p_section_search);
+	void _update_property_editor(EditorProperty *p_ep);
+
 	void _parse_added_editors(VBoxContainer *p_current_vbox, EditorInspectorSection *p_section, Ref<EditorInspectorPlugin> p_plugin);
 
 	void _vscroll_changed(double);
@@ -920,6 +927,9 @@ public:
 	static void set_property_clipboard(PropertyClipboard::Type p_type, const Variant &p_value);
 	static PropertyClipboard::Type get_property_clipboard_type() { return property_clipboard.type; }
 	static Variant get_property_clipboard_value() { return property_clipboard.value; }
+
+	static void set_property_clipboard_property_value(const Variant &p_value);
+	static Variant get_property_clipboard_property_value();
 
 	static EditorInspector *create_default_inspector(LineEdit *p_filter_line_edit = nullptr);
 

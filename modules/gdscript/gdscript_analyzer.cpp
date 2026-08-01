@@ -912,7 +912,7 @@ GDScriptParser::DataType GDScriptAnalyzer::resolve_datatype(GDScriptParser::Type
 							}
 							[[fallthrough]];
 						default:
-							push_error(vformat(R"("%s" is a %s but does not contain a type.)", first, member.get_type_name()), p_type);
+							push_error(vformat(R"("%s" is a %s, so it can't be used as a type.)", first, member.get_type_name()), p_type);
 							return bad_type;
 					}
 				}
@@ -934,7 +934,7 @@ GDScriptParser::DataType GDScriptAnalyzer::resolve_datatype(GDScriptParser::Type
 				if (!result.is_set()) {
 					push_error(vformat(R"(Could not find type "%s" under base "%s".)", p_type->type_chain[i]->name, base.to_string()), p_type->type_chain[1]);
 					return bad_type;
-				} else if (!result.is_meta_type) {
+				} else if (!result.is_meta_type || !result.is_constant) {
 					push_error(vformat(R"(Member "%s" under base "%s" is not a valid type.)", p_type->type_chain[i]->name, base.to_string()), p_type->type_chain[1]);
 					return bad_type;
 				}
@@ -1825,9 +1825,6 @@ void GDScriptAnalyzer::resolve_function_signature(GDScriptParser::FunctionNode *
 			inferred_type.kind = GDScriptParser::DataType::BUILTIN;
 			inferred_type.builtin_type = Variant::ARRAY;
 			p_function->rest_parameter->type_constraint = inferred_type;
-#ifdef DEBUG_ENABLED
-			parser->push_warning(p_function->rest_parameter, GDScriptWarning::UNTYPED_DECLARATION, "Parameter", p_function->rest_parameter->identifier->name);
-#endif
 		}
 #ifdef DEBUG_ENABLED
 		is_shadowing(p_function->rest_parameter->identifier, "function parameter", true);
