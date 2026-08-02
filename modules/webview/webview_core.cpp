@@ -30,12 +30,20 @@
 
 #include "webview_core.h"
 
+#if defined(_WIN32)
 // windows.h 的 min/max 宏会破坏 CEF 头内的 std::max/std::min(cef_ref_counted.h / cef_types_wrappers.h)。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-
 #include <windows.h>
+#elif defined(__APPLE__)
+// mac 主机进程需显式加载 framework(Windows 由导入库自动加载 DLL);
+// 头在 SDK include/wrapper/(CEF_CXX 分支编译时 CPPPATH 已含 sdk_dir/include)。
+#include <wrapper/cef_library_loader.h>
+#include <crt_externs.h> // _NSGetArgc/_NSGetArgv:CefMainArgs 需要真实 argc/argv
+#else
+#error "webview 模块当前仅支持 Windows 与 macOS"
+#endif
 
 #include <cef_app.h>
 #include <cef_browser.h>
@@ -106,6 +114,9 @@ struct WebViewCore::Impl {
 	bool cef_initialized = false;
 	bool cef_failed = false; // 初始化失败为终态,禁止重试
 	bool cef_shutdown = false;
+#if defined(__APPLE__)
+	bool framework_loaded = false; // mac:cef_load_library 成功标志(shutdown 时对应 unload)
+#endif
 
 	// ---- 泵节流 ----
 	// 原子标志:OnScheduleMessageLoopWork 可能来自任意 CEF 线程(CEF 文档:any thread),
@@ -145,7 +156,15 @@ struct WebViewCore::Impl {
 
 		void onBeforeCommandLineProcessing(const CefString &p_process_type, CefRefPtr<CefCommandLine> p_command_line) override {
 			try {
-				// 保持 CEF 默认命令行;需要自定义开关时在此追加。
+#if defined(__APPLE__)
+				// NetworkService 在 mac 上启动时会访问钥匙串的 "Chromium Safe Storage"
+				// 项(OSCrypt cookie 加密密钥)。ad-hoc 签名每次构建/暂存都变 → CDHash 变 →
+				// 钥匙串 ACL 失配 → 每次启动都弹“godot 想访问钥匙串机密”密码框(CEF issue
+				// #2692 同款;Brave 开发构建同用此开关)。编辑器 WebDock 不需要持久 cookie,
+				// 用 mock keychain 免除弹窗(代价:加密密钥每次启动重生成,旧 cookie 不可解,
+				// 对本场景无影响)。
+				p_command_line->AppendSwitch("use-mock-keychain");
+#endif
 			} catch (const std::exception &e) {
 				log_callback_exception("AppDelegate::onBeforeCommandLineProcessing", e.what());
 			} catch (...) {
@@ -736,24 +755,61 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 		return false;
 	}
 
+#if defined(__APPLE__)
+	// mac 主机进程必须显式加载 framework 才能调用任何 CEF API(Windows 由导入库在进程
+	// 启动时自动加载 DLL)——wrapper 的 C API 经全局函数表分发,未加载即为 NULL 指针,
+	// 下方第一个 CEF 调用(CefCommandLine::GetGlobalCommandLine)即崩溃。
+	// 路径与 stage 暂存布局一致:<exe_dir>/Chromium Embedded Framework.framework/Chromium Embedded Framework。
+	const std::string framework_dir = p_exe_dir + "/Chromium Embedded Framework.framework";
+	const std::string framework_path = framework_dir + "/Chromium Embedded Framework";
+	if (cef_load_library(framework_path.c_str()) != 1) {
+		log_stderr("[webview_core] init: cef_load_library failed (framework not found or invalid)\n");
+		impl_->cef_failed = true; // 终态
+		return false;
+	}
+	impl_->framework_loaded = true;
+#endif
+
 	// 防御:若本 exe 以 CEF 子进程方式启动(命令行含 --type),走 CefExecuteProcess 而非
-	// 初始化。正常不会发生——browser_subprocess_path 指向 CefViewWing.exe,子进程由它承担。
+	// 初始化。正常不会发生——browser_subprocess_path 指向 CefViewWing(Windows exe /
+	// mac bundle 内可执行文件),子进程由它承担。
+#if defined(_WIN32)
 	CefMainArgs main_args(static_cast<HINSTANCE>(GetModuleHandleW(nullptr)));
+#elif defined(__APPLE__)
+	// mac 的 CefMainArgs 需要真实 argc/argv;编辑器是非 bundle 可执行文件,从运行时
+	// 全局取(main 的形参不可达,标准做法)。
+	CefMainArgs main_args(*_NSGetArgc(), *_NSGetArgv());
+#endif
 	CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
 	if (command_line && command_line->HasSwitch("type")) {
 		int exit_code = CefExecuteProcess(main_args, nullptr, nullptr);
 		log_stderr("[webview_core] init: launched as CEF subprocess, CefExecuteProcess handled it\n");
+#if defined(__APPLE__)
+		if (impl_->framework_loaded) {
+			cef_unload_library(); // 失败出口:与 load 对称,防 framework 驻留到进程退出
+			impl_->framework_loaded = false;
+		}
+#endif
 		impl_->cef_failed = true; // 本进程不是浏览器进程,禁止初始化(终态)
 		return false;
 	}
 
 	// CEF 151 硬性要求:非空路径必须是绝对路径(相对路径初始化失败)。
+#if defined(_WIN32)
 	const std::string subprocess_path = p_exe_dir + "/CefViewWing.exe"; // 必须与 helper 同目录,不变
+#elif defined(__APPLE__)
+	// mac helper 是 bundle:指向 bundle 内可执行文件。CEF 按 CEF_HELPER_APP_SUFFIXES
+	// 从该路径推导 " (Alerts)/(GPU)/(Plugin)/(Renderer)" 后缀的其余 helper bundle,
+	// 全部随 framework 同级分发(stage 暂存到 exe_dir)。
+	const std::string subprocess_path = p_exe_dir + "/CefViewWing.app/Contents/MacOS/CefViewWing";
+#endif
 
-	// CEF ≥120 同 root 单例:缓存放 %LOCALAPPDATA%/baize-godot/cef(用户数据目录,
-	// 不写 exe 目录)。用 GetEnvironmentVariableW 取 UTF-16 再转 UTF-8(CefString 的
-	// std::string 赋值按 UTF-8 处理);取不到时回退 exe_dir/webview/cef-data 并警告。
+	// CEF ≥120 同 root 单例:缓存放用户数据目录(不写 exe 目录)。
+	// Windows:%LOCALAPPDATA%/baize-godot/cef(GetEnvironmentVariableW 取 UTF-16 再转
+	// UTF-8,CefString 的 std::string 赋值按 UTF-8 处理);mac:~/Library/Caches/baize-godot/cef。
+	// 取不到时回退 exe_dir/webview/cef-data 并警告。
 	std::string cache_path;
+#if defined(_WIN32)
 	const DWORD env_len = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
 	if (env_len > 1) { // >1:值非空且含结尾 '\0'(0 或 1 = 未设置/空值,走回退)
 		std::vector<wchar_t> env_buf(env_len);
@@ -766,14 +822,36 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 			}
 		}
 	}
+#elif defined(__APPLE__)
+	const char *home = getenv("HOME");
+	if (home != nullptr && *home != '\0') {
+		cache_path = std::string(home) + "/Library/Caches/baize-godot/cef";
+	} else {
+		log_stderr("[webview_core] init: warning: HOME unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
+	}
+#endif
 	if (cache_path.empty()) {
 		cache_path = p_exe_dir + "/webview/cef-data"; // 回退:与原行为一致
-		log_stderr("[webview_core] init: warning: LOCALAPPDATA unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
+		log_stderr("[webview_core] init: warning: cache path env unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
 	}
 
 	CefSettings settings;
 	CefString(&settings.browser_subprocess_path) = subprocess_path;
 	CefString(&settings.root_cache_path) = cache_path;
+#if defined(__APPLE__)
+	// 非 bundle 可执行文件下 CEF 的 framework bundle 定位会落到错误路径(main bundle =
+	// exe 文件本身,Contents/Frameworks 不存在)→ ICU/资源加载失败。framework_dir_path
+	// 是官方机制:CefInitialize 时转成 --framework-dir-path 命令行开关,util_mac::
+	// BasicStartupComplete 据此 SetOverrideFrameworkBundlePath(见 libcef/common/
+	// chrome_main_delegate_cef.cc)。必须为绝对路径。
+	CefString(&settings.framework_dir_path) = framework_dir;
+	// 同样地,BaseBundleID(mach rendezvous 服务名前缀)来自 main bundle 的
+	// CFBundleIdentifier——裸可执行文件取不到,浏览器与 helper 各用各的 id 会导致
+	// bootstrap_look_up 失败。main_bundle_path 指向基础 helper bundle(其 Info.plist
+	// 的 bundle id 与全部 helper 统一为 com.cefview.CefViewWing,见 stage_webview.py
+	// patch_helper_plists),浏览器进程即取得同一 id。
+	CefString(&settings.main_bundle_path) = p_exe_dir + "/CefViewWing.app";
+#endif
 	settings.windowless_rendering_enabled = 1; // OSR 软件渲染(OnPaint)
 	settings.external_message_pump = 1; // 由宿主主循环 CefDoMessageLoopWork 驱动
 	settings.log_severity = LOGSEVERITY_DEFAULT; // debug.log 在 exe 目录
@@ -785,6 +863,12 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 		log_stderr("[webview_core] init: CefInitialize failed (terminal state)\n");
 		impl_->app = nullptr;
 		impl_->app_delegate.reset();
+#if defined(__APPLE__)
+		if (impl_->framework_loaded) {
+			cef_unload_library(); // 失败出口:与 load 对称,防 framework 驻留到进程退出
+			impl_->framework_loaded = false;
+		}
+#endif
 		impl_->cef_failed = true; // 终态
 		return false;
 	}
@@ -873,6 +957,13 @@ void WebViewCore::shutdown() {
 		impl_->app = nullptr;
 		impl_->app_delegate.reset();
 		CefShutdown();
+#if defined(__APPLE__)
+		// mac:与 init 的 cef_load_library 对应,卸载 framework(仅成功初始化过才卸载)。
+		if (impl_->framework_loaded) {
+			cef_unload_library();
+			impl_->framework_loaded = false;
+		}
+#endif
 	}
 
 	impl_->cef_initialized = false;

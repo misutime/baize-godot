@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>baize webview stub</title>
+</head>
+<body style="background:#223;color:#cfc;font-family:monospace;padding:16px">
+<h2>baize-godot webview stub</h2>
+<p id="status">verifying cefViewQuery...</p>
+<script>
+// 验证桩:直接实测注入的 cefViewQuery(CEF 151 对象式调用)。不装任何静默回退——
+// 注入缺失或调用失败都要在页面上明确显示,便于 Gate B3 验证与排障。
+(function () {
+  var status = document.getElementById("status");
+  if (typeof window.cefViewQuery !== "function") {
+    status.textContent = "ERROR: window.cefViewQuery not injected";
+    status.style.color = "#f88";
+    return;
+  }
+  var req = { request: "ping", persistent: false };
+  window.cefViewQuery(req, function (res) {
+    status.textContent = "query ok, response: " + res;
+    status.style.color = "#cfc";
+  });
+})();
+</script>
+</body>
+</html>

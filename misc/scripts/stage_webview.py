@@ -4,20 +4,21 @@
 方案 B(混合构建):本脚本自含"预构建"步骤——用 cmake 直接构建 CefViewWing 宿主进程
 与 libcef_dll_wrapper(不经 SCons、不经 Godot mySpawn),然后暂存到 bin/ 分发目录:
 - 预构建:cmake -S thirdparty/cefviewcore -B bin/obj/webview/cefviewcore → output/Release/
-  (bin/: CefViewWing.exe + CEF 运行时;lib/: libcef_dll_wrapper.lib 等)
+  (Windows:bin/ 下 CefViewWing.exe + CEF 运行时;mac:5 个 helper .app bundle + framework)
 - 版本校验:build 目录记 cef-version.txt(首行 CEF_SDK_VERSION,次行 SDK 内容指纹);
-  libcef_dll_wrapper.lib 存在且标记(版本+指纹)匹配 → 跳过 cmake 仅暂存;
+  libcef_dll_wrapper 存在且标记(版本+指纹)匹配 → 跳过 cmake 仅暂存;
   首次/换版本/SDK 内容变化(版本串未变)/产物缺失才真正构建。
+- 平台:构建宿主自动判定(cef_dist.sdk_dir_suffix),Windows x64 与 macOS arm64/x64 双平台。
 - 暂存:先全量拷到 bin/.webview-stage-tmp/ 校验后原子切换(旧文件先移入备份、失败
-  回滚),中途失败不破坏 bin/(编辑器 exe 旁:Windows DLL 搜索与 helper 子进程路径
-  都需要 exe 同目录);ui/ 页面 → <repo>/bin/webview/ui/
+  回滚),中途失败不破坏 bin/(Windows:编辑器 exe 旁 DLL 搜索;mac:framework 与 helper
+  bundle 需与 exe 同级);ui/ 页面 → <repo>/bin/webview/ui/
   (editor_web_dock 用 file:///<exe_dir>/webview/ui/bridge.html 加载)
 
 来源(路径直接关联,显式可见):
   BUILD_DIR    = bin/obj/webview/cefviewcore(cmake -B 固定路径,与 SCsub 切片一致)
-  WING_RUNTIME = <BUILD_DIR>/output/Release/bin/(预构建产物:CefViewWing + CEF 运行时)
-  WRAPPER_LIB  = <BUILD_DIR>/output/Release/lib/libcef_dll_wrapper.lib(SCsub 链接引用)
-  UI_SOURCE    = ../refers/cef-smoke-test/ui(MVP 阶段页面产物;后续为 ui/ 工程构建输出)
+  WING_RUNTIME = <BUILD_DIR>/output/Release/bin/(预构建产物:helper + CEF 运行时)
+  WRAPPER_LIB  = <BUILD_DIR>/output/Release/lib/libcef_dll_wrapper.{lib|a}(SCsub 链接引用)
+  UI_SOURCE    = modules/webview/ui/(模块内页面源;MVP 阶段直接收 html,后续可接 ui/ 工程构建输出)
   CEF 版本     = modules/webview/SCsub 的 CEF_SDK_VERSION 常量(单点,勿在多处硬编码)
   CEF SDK      = misc/scripts/cef_dist.py 缓存定位(默认 <repo>/bin/cef-dist/,CEF_DIST_ROOT 可覆盖,
                  缺失自动下载/手动放包,不再读 cef-dist 文本配置)
@@ -28,10 +29,12 @@
 
 import hashlib
 import os
+import plistlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -40,48 +43,81 @@ import cef_dist
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BIN_DIR = REPO_ROOT / "bin"
 
+
+def _host_arch() -> str:
+    """构建宿主 CPU 架构(arm64/x86_64),供 cmake PROJECT_ARCH。与 cef_dist 平台判定同源。"""
+    import platform as _sys_platform
+
+    machine = _sys_platform.machine().lower()
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    return "x86_64"
+
 # cmake -B 固定路径(与 SCsub 切片一致,增量构建快;产物在 output/Release/ 下)。
 BUILD_DIR = REPO_ROOT / "bin" / "obj" / "webview" / "cefviewcore"
 CEF_OUT_DIR = BUILD_DIR / "output" / "Release"
 WING_RUNTIME = CEF_OUT_DIR / "bin"
 CEF_LINK_LIB_DIR = CEF_OUT_DIR / "lib"
-WRAPPER_LIB = CEF_LINK_LIB_DIR / "libcef_dll_wrapper.lib"
+
+# 平台分支(双平台支持:Windows x64 MSVC 保持原状;macOS arm64/x64 新增)。
+# 平台判定与 CEF 包后缀共用 cef_dist(同一套宿主检测),保证 URL/产物/缓存一致。
+IS_WINDOWS = cef_dist.sdk_dir_suffix() == "windows64"
+WRAPPER_LIB_NAME = "libcef_dll_wrapper.lib" if IS_WINDOWS else "libcef_dll_wrapper.a"
+WRAPPER_LIB = CEF_LINK_LIB_DIR / WRAPPER_LIB_NAME
+# SDK 指纹的“导入库”文件(Windows:libcef.lib;mac:framework 二进制——mac SDK 的
+# Release/ 只有 framework,链接不直接用 libcef,运行时由 cef_load_library 加载)。
+SDK_LIB_REL = "Release/libcef.lib" if IS_WINDOWS else "Release/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+
 # 版本标记:记录构建时的 CEF_SDK_VERSION(首行),用于跳过判定;换版本自动重建。
 VERSION_MARKER = BUILD_DIR / "cef-version.txt"
-UI_SOURCE = REPO_ROOT.parent / "refers" / "cef-smoke-test" / "ui"
+UI_SOURCE = REPO_ROOT / "modules" / "webview" / "ui"
 WEBVIEW_DEST = BIN_DIR / "webview"
 UI_DEST = WEBVIEW_DEST / "ui"
 SCSUB = REPO_ROOT / "modules" / "webview" / "SCsub"
 CEFVIEW_WING_NAME = "CefViewWing"
 
-# 应用产物（CefViewWing.exe 及其调试符号；与 CEF 运行时同目录，一并拷到 bin/）。
-WING_FILES = [
-    "CefViewWing.exe",
-    "CefViewWing.pdb",
-]
+# 应用产物(Windows:CefViewWing.exe 及其调试符号;mac:helper app bundle——CEF 按
+# CEF_HELPER_APP_SUFFIXES 从 browser_subprocess_path 推导 (Alerts)/(GPU)/(Plugin)/
+# (Renderer) 后缀 bundle,故 5 个都要随 framework 同级分发)。目录条目递归拷贝,单文件直接拷。
+WING_FILES = (
+    ["CefViewWing.exe", "CefViewWing.pdb"]
+    if IS_WINDOWS
+    else [
+        "CefViewWing.app",
+        "CefViewWing (Alerts).app",
+        "CefViewWing (GPU).app",
+        "CefViewWing (Plugin).app",
+        "CefViewWing (Renderer).app",
+    ]
+)
 
-# CEF 运行时文件（与 libcef.dll 同级；需与编辑器 exe 同级以便 Windows DLL 搜索，
-# helper 子进程路径也指向 exe_dir）。目录条目递归拷贝，单文件直接拷。
-CEF_RUNTIME_FILES = [
-    "libcef.dll",
-    "bootstrap.exe",
-    "bootstrapc.exe",
-    "chrome_elf.dll",
-    "libEGL.dll",
-    "libGLESv2.dll",
-    "d3dcompiler_47.dll",
-    "dxcompiler.dll",
-    "dxil.dll",
-    "vk_swiftshader.dll",
-    "vk_swiftshader_icd.json",
-    "vulkan-1.dll",
-    "icudtl.dat",
-    "resources.pak",
-    "chrome_100_percent.pak",
-    "chrome_200_percent.pak",
-    "v8_context_snapshot.bin",
-    "locales",
-]
+# CEF 运行时文件(Windows:与 libcef.dll 同级;需与编辑器 exe 同级以便 Windows DLL 搜索,
+# helper 子进程路径也指向 exe_dir。mac:framework 自含资源,只需 framework 与 exe 同级,
+# 主机进程 cef_load_library 与 helper 的 LoadCefLibrary 均按该布局解析)。
+CEF_RUNTIME_FILES = (
+    [
+        "libcef.dll",
+        "bootstrap.exe",
+        "bootstrapc.exe",
+        "chrome_elf.dll",
+        "libEGL.dll",
+        "libGLESv2.dll",
+        "d3dcompiler_47.dll",
+        "dxcompiler.dll",
+        "dxil.dll",
+        "vk_swiftshader.dll",
+        "vk_swiftshader_icd.json",
+        "vulkan-1.dll",
+        "icudtl.dat",
+        "resources.pak",
+        "chrome_100_percent.pak",
+        "chrome_200_percent.pak",
+        "v8_context_snapshot.bin",
+        "locales",
+    ]
+    if IS_WINDOWS
+    else ["Chromium Embedded Framework.framework"]
+)
 
 
 def read_cef_constants() -> str:
@@ -126,6 +162,34 @@ def _read_marker_sdk_fingerprint() -> str:
         return ""
 
 
+def _read_marker_build_opts() -> str:
+    """读版本标记第三行(构建选项指纹);无标记/损坏返回空串。"""
+    try:
+        lines = VERSION_MARKER.read_text(encoding="utf-8").splitlines()
+        return lines[2].strip() if len(lines) > 2 else ""
+    except (OSError, IndexError):
+        return ""
+
+
+def _cmake_platform_args() -> list:
+    """平台专属 cmake 参数(Windows 保持原状;mac 开 USE_SANDBOX——见 prebuild 注释)。"""
+    if IS_WINDOWS:
+        return [
+            "-A", "x64",
+            "-DPROJECT_ARCH=x86_64",
+            "-DSTATIC_CRT=ON",
+        ]
+    return [
+        f"-DPROJECT_ARCH={_host_arch()}",
+        "-DUSE_SANDBOX=ON",
+    ]
+
+
+def build_opts_fingerprint() -> str:
+    """构建选项指纹(SHA-256 of 平台 cmake 参数):跳过判定与写入共用,换选项触发重建。"""
+    return hashlib.sha256("\n".join(_cmake_platform_args()).encode("utf-8")).hexdigest()
+
+
 def sdk_fingerprint(sdk_dir: Path) -> str:
     """SDK 内容指纹(SHA-256):include/ 全部头文件 + Release/libcef.lib。
 
@@ -140,7 +204,7 @@ def sdk_fingerprint(sdk_dir: Path) -> str:
     inc = sdk_dir / "include"
     if inc.is_dir():
         files.extend(sorted(p.relative_to(sdk_dir).as_posix() for p in inc.rglob("*") if p.is_file()))
-    lib = sdk_dir / "Release" / "libcef.lib"
+    lib = sdk_dir / SDK_LIB_REL
     if lib.is_file():
         files.append(lib.relative_to(sdk_dir).as_posix())
     for rel in files:
@@ -152,16 +216,16 @@ def sdk_fingerprint(sdk_dir: Path) -> str:
 
 
 def ensure_wrapper_lib() -> Path:
-    """确保 libcef_dll_wrapper.lib 位于约定链接路径(output/Release/lib/),供 SCsub 链接引用。
+    """确保 libcef_dll_wrapper(静态库)位于约定链接路径(output/Release/lib/),供 SCsub 链接引用。
 
     正常由 CMake 的 CMAKE_ARCHIVE_OUTPUT_DIRECTORY 直接产出;若未落到该路径,
     从构建目录搜索并拷贝到约定路径。找不到则抛 RuntimeError。
     """
     if WRAPPER_LIB.is_file():
         return WRAPPER_LIB
-    hits = list(BUILD_DIR.rglob("libcef_dll_wrapper.lib"))
+    hits = list(BUILD_DIR.rglob(WRAPPER_LIB_NAME))
     if not hits:
-        raise RuntimeError(f"cmake 构建结束但未生成 libcef_dll_wrapper.lib(已搜索 {BUILD_DIR})")
+        raise RuntimeError(f"cmake 构建结束但未生成 {WRAPPER_LIB_NAME}(已搜索 {BUILD_DIR})")
     CEF_LINK_LIB_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(hits[0], WRAPPER_LIB)
     return WRAPPER_LIB
@@ -182,7 +246,8 @@ def prebuild(cef_version: str) -> bool:
     sdk_fp = sdk_fingerprint(sdk_dir)
     marker_version = _read_marker_version()
     marker_fp = _read_marker_sdk_fingerprint()
-    if sdk_fp and WRAPPER_LIB.is_file() and marker_version == cef_version and marker_fp == sdk_fp:
+    marker_build_opts = _read_marker_build_opts()
+    if sdk_fp and WRAPPER_LIB.is_file() and marker_version == cef_version and marker_fp == sdk_fp and marker_build_opts == build_opts_fingerprint():
         print(
             f"[stage-webview] CEF 预构建产物已就绪(version={cef_version}, "
             f"sdk_fp={sdk_fp[:12]}…, {WRAPPER_LIB}),跳过 cmake 构建"
@@ -192,8 +257,10 @@ def prebuild(cef_version: str) -> bool:
     if WRAPPER_LIB.is_file():
         if marker_version != cef_version:
             reason = f"CEF 版本变化({marker_version or '(无标记)'} -> {cef_version})"
-        else:
+        elif marker_fp != sdk_fp:
             reason = f"SDK 内容变化(指纹 {marker_fp[:12] or '(无)'} -> {sdk_fp[:12]})"
+        else:
+            reason = "构建选项变化(USE_SANDBOX 等)"
         print(f"[stage-webview] {reason}，重新预构建")
     else:
         print(f"[stage-webview] 未找到预构建产物 {WRAPPER_LIB}，开始 cmake 预构建")
@@ -203,15 +270,12 @@ def prebuild(cef_version: str) -> bool:
         "cmake",
         "-S", str(REPO_ROOT / "thirdparty" / "cefviewcore"),
         "-B", str(BUILD_DIR),
-        "-A", "x64",
-        "-DPROJECT_ARCH=x86_64",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_STANDARD=20",
-        "-DSTATIC_CRT=ON",
         f"-DCEF_SDK_VERSION={cef_version}",
         f"-DCUSTOM_CEF_SDK_DIR={sdk_dir}",
         f"-DCEFVIEW_WING_NAME={CEFVIEW_WING_NAME}",
-    ]
+    ] + _cmake_platform_args()
     print(f"[stage-webview] cmake 配置: {' '.join(cmake_cfg)}")
     subprocess.run(cmake_cfg, cwd=REPO_ROOT, check=True)
     print("[stage-webview] cmake 构建 Release(含 CefViewWing + libcef_dll_wrapper)...")
@@ -222,13 +286,100 @@ def prebuild(cef_version: str) -> bool:
     )
 
     ensure_wrapper_lib()
-    # 版本标记:首行 CEF_SDK_VERSION(跳过判定用),次行 SDK 内容指纹,末行构建时间(诊断用)。
+    # 版本标记:首行 CEF_SDK_VERSION(跳过判定用),次行 SDK 内容指纹,三行构建选项指纹
+    # (平台 cmake 参数——换选项如 USE_SANDBOX 也触发重建,防静默复用旧产物),末行时间。
     VERSION_MARKER.write_text(
-        f"{cef_version}\n{sdk_fp}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n",
+        f"{cef_version}\n{sdk_fp}\n{build_opts_fingerprint()}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n",
         encoding="utf-8",
     )
     print(f"[stage-webview] 预构建完成: {WING_RUNTIME} + {WRAPPER_LIB}(标记写入 {VERSION_MARKER})")
     return True
+
+
+# helper bundle 的 bundle id(mac)。上游 CMakeLists 按 CEF_HELPER_APP_SUFFIXES 给每个
+# helper 配了带后缀的 id(com.cefview.CefViewWing.gpu 等)——这会破坏 Chromium 的
+# mach rendezvous:服务名 = BaseBundleID.MachPortRendezvousServer.<pid>,浏览器与 helper
+# 各用自己进程的 BaseBundleID 构造,id 不一致则 bootstrap_look_up 失败、helper 启动即死。
+# Chromium 标准做法:所有 helper 与主程序共享同一 bundle id。故统一为无后缀的
+# com.cefview.CefViewWing(浏览器侧经 CefSettings.main_bundle_path 指向基础 helper
+# bundle 取得同一 id,见 webview_core.cpp)。
+_HELPER_BUNDLE_ID = f"com.cefview.{CEFVIEW_WING_NAME}"
+
+# helper bundle 名列表(与 WING_FILES 的 mac 分支一致)。
+_HELPER_BUNDLE_NAMES = [
+    "CefViewWing.app",
+    "CefViewWing (Alerts).app",
+    "CefViewWing (GPU).app",
+    "CefViewWing (Plugin).app",
+    "CefViewWing (Renderer).app",
+]
+
+
+def patch_helper_plists(root: Path) -> None:
+    """补齐 helper bundle Info.plist 的 Xcode 占位符并重新签名(仅 mac;Windows 无此问题)。
+
+    CefWing/mac/info.plist 模板用 $(EXECUTABLE_NAME)/$(PRODUCT_BUNDLE_IDENTIFIER) 等
+    Xcode 占位符,cmake 的 file(WRITE) 原样复制——只有 Xcode generator 会替换,Unix
+    Makefiles/Ninja 下保持字面量。未展开的 CFBundleIdentifier 会让 mach rendezvous
+    的 bootstrap 服务名变成字面量 "$(PRODUCT_BUNDLE_IDENTIFIER)",helper 连不上父进程
+    (bootstrap_look_up Unknown service name → 启动即死),CEF 主进程随后 FATAL。
+    暂存后把占位符替换为具体值,并统一 bundle id(见 _HELPER_BUNDLE_ID 注释)。
+
+    重新签名:Apple Silicon 上 V8(renderer)与 GPU/Metal 需要 MAP_JIT,内核要求进程
+    签名含 com.apple.security.cs.allow-jit entitlement(ad-hoc 签名=空 entitlement →
+    v8_internal_simulator_ProbeMemory SIGTRAP / GPU process exit 5)。cmake 只做了
+    链接器 ad-hoc 签名且不含 entitlements;plist 修改后原签名也已失效,统一在此
+    用仓库内的 CefViewWing.entitlements(allow-jit + allow-unsigned-executable-memory
+    + disable-library-validation)重新 ad-hoc 签名。
+    """
+    if IS_WINDOWS:
+        return
+    entitlements = REPO_ROOT / "thirdparty" / "cefviewcore" / "src" / "CefWing" / "mac" / "CefViewWing.entitlements"
+    # entitlements 是 mac helper 签名的必需输入(缺 allow-jit 等 entitlement,Apple Silicon 上
+    # renderer/GPU 会崩溃)——缺失必须显式失败,不静默跳过签名。
+    if not entitlements.is_file():
+        raise RuntimeError(f"mac helper 签名所需的 entitlements 缺失:{entitlements}")
+    for bundle_name in _HELPER_BUNDLE_NAMES:
+        bundle = root / bundle_name
+        plist = bundle / "Contents" / "Info.plist"
+        # plist 缺失/不可读 = 生成物损坏,必须显式失败(否则 bundle 以未补全/未签名状态安装,
+        # 运行期 helper 因无效元数据无法启动)。
+        if not plist.is_file():
+            raise RuntimeError(f"helper bundle 缺少 Info.plist:{plist}(cmake 生成物损坏?)")
+        # 可执行文件名 = bundle 名去 .app(上游按 CEF_HELPER_APP_SUFFIXES 的 OUTPUT_NAME
+        # 命名,如 "CefViewWing (Renderer)";CFBundleExecutable 必须与之匹配,
+        # 否则 codesign 与 LaunchServices 都会认错主可执行文件)。
+        exe_name = bundle_name[:-4]  # strip ".app"
+        try:
+            text = plist.read_text(encoding="utf-8")
+        except OSError as e:
+            raise RuntimeError(f"读取 helper Info.plist 失败:{plist}: {e}") from e
+        replaced = (
+            text.replace("$(EXECUTABLE_NAME)", exe_name)
+            .replace("$(PRODUCT_NAME)", CEFVIEW_WING_NAME)
+            .replace("$(PRODUCT_BUNDLE_IDENTIFIER)", _HELPER_BUNDLE_ID)
+            .replace("$(PRODUCT_BUNDLE_PACKAGE_TYPE)", "APPL")
+            .replace("$(DEVELOPMENT_LANGUAGE)", "en")
+            .replace("$(MACOSX_DEPLOYMENT_TARGET)", "12.0")
+        )
+        if replaced != text:
+            plist.write_text(replaced, encoding="utf-8")
+        # 上游 .entitlements 含 DOCTYPE,AMFI 解析器拒绝;plistlib 重写为无 DOCTYPE 的
+        # 标准 XML,写临时文件供 codesign(原文件保持只读不动)。
+        tmp_ent = None
+        try:
+            with open(entitlements, "rb") as f:
+                ent_dict = plistlib.load(f)
+            fd, tmp_ent = tempfile.mkstemp(suffix=".plist")
+            with os.fdopen(fd, "wb") as f:
+                plistlib.dump(ent_dict, f)
+            subprocess.run(
+                ["codesign", "--force", "--deep", "--sign", "-", "--entitlements", tmp_ent, str(bundle)],
+                check=True,
+            )
+        finally:
+            if tmp_ent:
+                os.unlink(tmp_ent)
 
 
 def stage_runtime(bin_dir: Path) -> list:
@@ -260,6 +411,10 @@ def stage_runtime(bin_dir: Path) -> list:
     if missing:
         shutil.rmtree(tmp)
         return missing
+
+    # mac:helper bundle 的 Info.plist 占位符补全(Unix Makefiles/Ninja 生成器不替换
+    # Xcode 变量;未展开的 CFBundleIdentifier 会让 helper 的 mach rendezvous 失败)。
+    patch_helper_plists(tmp)
 
     names = [n for n in WING_FILES + CEF_RUNTIME_FILES if (tmp / n).exists()]
     backup.mkdir(parents=True)
@@ -304,17 +459,19 @@ def stage_runtime(bin_dir: Path) -> list:
 def stage_ui() -> list:
     """全量重建 bin/webview/(原子:先建 .tmp 再整体替换)并拷页面产物。
 
-    UI 缺失只警告（页面 404，CEF 核心仍可运行）。
+    UI 缺失只警告（页面 404，CEF 核心仍可运行）。页面落到 <exe_dir>/webview/ui/
+    （editor_web_dock 用 file:///<exe_dir>/webview/ui/bridge.html 加载）。
     """
     tmp = BIN_DIR / ".webview-ui-tmp"
     if tmp.exists():
         shutil.rmtree(tmp)
     if not UI_SOURCE.is_dir():
         return ["ui 源目录缺失"]
-    tmp.mkdir(parents=True)
+    tmp_ui = tmp / "ui"
+    tmp_ui.mkdir(parents=True)
     for f in sorted(UI_SOURCE.glob("*.html")):
-        shutil.copy2(f, tmp / f.name)
-    if not (tmp / "bridge.html").is_file():
+        shutil.copy2(f, tmp_ui / f.name)
+    if not (tmp_ui / "bridge.html").is_file():
         shutil.rmtree(tmp, ignore_errors=True)
         return ["bridge.html"]
     if WEBVIEW_DEST.exists():
@@ -356,6 +513,8 @@ def main() -> int:
         )
 
     manifest = WEBVIEW_DEST / "MANIFEST.txt"
+    # UI 缺失时 stage_ui 不建 WEBVIEW_DEST(仅警告),MANIFEST 仍需落盘——父目录先确保。
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     file_count = sum(1 for _ in WEBVIEW_DEST.rglob("*") if _.is_file())
     manifest.write_text(
         "\n".join(
