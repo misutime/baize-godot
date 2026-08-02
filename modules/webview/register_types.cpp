@@ -41,9 +41,9 @@
 void initialize_webview_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		GDREGISTER_CLASS(WebPanel);
-		// B0 前置验证：模块内加载 gdcef 扩展（GDExtensionManager 是 level 感知的，
-		// 会补初始化到当前水位；SCENE 之后的 EDITOR level 由 main.cpp 的循环接管）。
-		WebViewManager::get_singleton()->load_cef_extension();
+		// C++ 路线：不再加载 gdcef 扩展；单例持有 WebViewCore，CEF 在首次
+		// create_browser（WebPanel::sync_size）时经 init_core 惰性初始化。
+		WebViewManager::get_singleton();
 	}
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
@@ -56,6 +56,7 @@ void initialize_webview_module(ModuleInitializationLevel p_level) {
 
 void uninitialize_webview_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		// free_singleton 内部先 shutdown_core（关闭全部浏览器 + CefShutdown），再释放单例。
 		WebViewManager::free_singleton();
 	}
 }

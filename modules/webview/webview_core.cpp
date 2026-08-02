@@ -1,0 +1,1015 @@
+/**************************************************************************/
+/*  webview_core.cpp                                                      */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+#include "webview_core.h"
+
+// windows.h 的 min/max 宏会破坏 CEF 头内的 std::max/std::min(cef_ref_counted.h / cef_types_wrappers.h)。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#include <windows.h>
+
+#include <cef_app.h>
+#include <cef_browser.h>
+#include <cef_command_line.h>
+#include <cef_render_handler.h>
+
+#include <CefViewBrowserApp.h>
+#include <CefViewBrowserAppDelegate.h>
+#include <CefViewBrowserClient.h>
+#include <CefViewBrowserClientDelegate.h>
+
+#include <atomic>
+#include <chrono>
+#include <climits>
+#include <cstdio>
+#include <unordered_map>
+#include <vector>
+
+namespace {
+
+// 泵送预热帧数:初始化后前 N 帧无条件泵送,防 CEF 首帧不通知 OnScheduleMessagePumpWork
+// 导致 renderer 不产出(4A 实测坑)。
+constexpr uint32_t kPumpWarmupFrames = 60;
+
+// 浏览器尺寸合法性:0 拒绝(CEF 要求非空视口),>INT_MAX 拒绝(GetViewRect 输出 int
+// 坐标,超限强转会变负)。create_browser 与 resize_browser 统一校验。
+bool is_valid_browser_size(uint32_t p_w, uint32_t p_h) {
+	return p_w > 0 && p_h > 0 && p_w <= static_cast<uint32_t>(INT_MAX) && p_h <= static_cast<uint32_t>(INT_MAX);
+}
+
+// 标准库日志出口:本编译单元不得 include 任何 Godot 头(CEF net_error 与 Godot enum Error
+// 枚举成员重名,同 TU 共存 C2365),日志直接写 stderr;宿主导航层负责 Godot 侧日志。
+void log_stderr(const char *p_msg) {
+	fputs(p_msg, stderr);
+	fflush(stderr);
+}
+
+// CEF 虚回调入口的 catch-all 记录:CEF 在禁异常边界外编译,宿主代码(/EHsc)抛出的
+// 异常绝不允许穿越回 CEF(未定义行为/崩溃)。所有从 CEF 进入本层的虚回调入口
+// 必须包 try/catch(...),捕获后记录回调名与异常信息,再返回默认值。
+void log_callback_exception(const char *p_callback, const char *p_what) {
+	char buf[512];
+	snprintf(buf, sizeof(buf), "[webview_core] CEF callback %s threw: %s\n", p_callback, p_what);
+	log_stderr(buf);
+}
+
+// 单调墙钟毫秒(steady_clock,不随系统时间调整)。
+uint64_t now_ms() {
+	return static_cast<uint64_t>(
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Impl:全部 CEF 对象与委托实现放在 .cpp(头文件保持纯 C++ API 面)。
+//
+// 委托实现类(Impl::AppDelegate / Impl::ClientDelegate)是 Impl 的嵌套成员,原因:
+// 它们持有 Impl* 并访问 Impl 私有状态;嵌套成员天然拥有对 Impl 的访问权,避免
+// 在匿名命名空间类中引用 WebViewCore::Impl(私有嵌套类型)造成访问违例。
+//
+// 已知坑(4A 实测):不要在 OnBeforeClose 路径加任何锁(曾因锁重入间歇卡死)。
+// 本核心层全部 API 与回调同线程(主线程),注册表与计数无锁访问,天然规避。
+// ---------------------------------------------------------------------------
+struct WebViewCore::Impl {
+	// ---- 状态 ----
+	Callbacks callbacks;
+	bool cef_initialized = false;
+	bool cef_failed = false; // 初始化失败为终态,禁止重试
+	bool cef_shutdown = false;
+
+	// ---- 泵节流 ----
+	// 原子标志:OnScheduleMessageLoopWork 可能来自任意 CEF 线程(CEF 文档:any thread),
+	// delegate 只允许原子置位;主线程 pump() 用 exchange(false) 读取并清除。
+	std::atomic<bool> pump_requested{false};
+	uint32_t pump_frame_count = 0; // 仅主线程访问(pump / init / shutdown)
+
+	// ---- CEF 对象 ----
+	std::shared_ptr<CefViewBrowserAppDelegateInterface> app_delegate;
+	CefRefPtr<CefViewBrowserApp> app;
+
+	// ---- 浏览器注册表 ----
+	// 每个浏览器一个 client/delegate(尺寸在创建前已知——4A 验证的时机,GetViewRect
+	// 直接读 delegate 自身状态,无需按 browser 反查;也规避了 CreateBrowserSync 期间
+	// GetViewRect 早于注册表插入的时序问题)。
+	struct BrowserEntry {
+		CefRefPtr<CefBrowser> browser;
+		CefRefPtr<CefViewBrowserClient> client;
+		std::shared_ptr<CefViewBrowserClientDelegateInterface> client_delegate;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		bool closing = false;
+	};
+	std::unordered_map<int32_t, BrowserEntry> browsers;
+	int pending_close = 0; // 待异步关闭的浏览器数(OnBeforeClose 递减)
+
+	// ---- paint 暂存(RGBA;仅回调期间有效) ----
+	std::vector<uint8_t> paint_buffer;
+
+	// =======================================================================
+	// CefViewBrowserAppDelegateInterface 实现:转发 CefViewBrowserApp 的 3 个钩子。
+	// =======================================================================
+	class AppDelegate final : public CefViewBrowserAppDelegateInterface {
+	public:
+		explicit AppDelegate(Impl *p_self)
+				: self_(p_self) {}
+
+		void onBeforeCommandLineProcessing(const CefString &p_process_type, CefRefPtr<CefCommandLine> p_command_line) override {
+			try {
+				// 保持 CEF 默认命令行;需要自定义开关时在此追加。
+			} catch (const std::exception &e) {
+				log_callback_exception("AppDelegate::onBeforeCommandLineProcessing", e.what());
+			} catch (...) {
+				log_callback_exception("AppDelegate::onBeforeCommandLineProcessing", "unknown");
+			}
+		}
+
+		void onBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> p_command_line) override {
+			try {
+				// helper(CefViewWing.exe)启动前的命令行调整点;暂无需求。
+			} catch (const std::exception &e) {
+				log_callback_exception("AppDelegate::onBeforeChildProcessLaunch", e.what());
+			} catch (...) {
+				log_callback_exception("AppDelegate::onBeforeChildProcessLaunch", "unknown");
+			}
+		}
+
+		void onScheduleMessageLoopWork(int64_t p_delay_ms) override {
+			// CEF 请求一次消息泵工作(节流依据)。可能来自任意 CEF 线程,这里只做
+			// 原子置位(relaxed 足够:仅为“有活要泵”的提示,CEF 内部有自己的同步),
+			// 不碰任何非原子宿主状态;实际泵送由主循环 pump() 完成。
+			try {
+				self_->pump_requested.store(true, std::memory_order_relaxed);
+			} catch (const std::exception &e) {
+				log_callback_exception("AppDelegate::onScheduleMessageLoopWork", e.what());
+			} catch (...) {
+				log_callback_exception("AppDelegate::onScheduleMessageLoopWork", "unknown");
+			}
+		}
+
+	private:
+		Impl *self_;
+	};
+
+	// =======================================================================
+	// CefViewBrowserClientDelegateInterface 实现:桥 / load / OSR 回调转发到宿主,
+	// 其余不关心的回调给默认(纯虚必须全部实现,语义按 CefViewCore 转发面)。
+	// =======================================================================
+	class ClientDelegate final : public CefViewBrowserClientDelegateInterface {
+	public:
+		ClientDelegate(Impl *p_self, int32_t p_id, uint32_t p_w, uint32_t p_h)
+				: self_(p_self), id_(p_id), width_(p_w), height_(p_h) {}
+
+		void set_size(uint32_t p_w, uint32_t p_h) {
+			width_ = p_w;
+			height_ = p_h;
+		}
+
+		// ---- 桥(renderer 进程) ----
+		void processUrlRequest(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_url) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::processUrlRequest", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::processUrlRequest", "unknown");
+			}
+		}
+
+		void processQueryRequest(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_query, const int64_t p_query_id) override {
+			// JS 侧 window.cefViewQuery(query, callback) → CefViewQueryHandler::OnQuery
+			// → 本回调。宿主应答走 WebViewCore::respond_query → client->ResponseQuery。
+			try {
+				self_->handle_query(id_, p_query.ToString(), p_query_id);
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::processQueryRequest", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::processQueryRequest", "unknown");
+			}
+		}
+
+		void focusedEditableNodeChanged(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, bool p_focus_on_editable_node) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::focusedEditableNodeChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::focusedEditableNodeChanged", "unknown");
+			}
+		}
+
+		void invokeMethodNotify(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_method, const CefRefPtr<CefListValue> &p_arguments) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::invokeMethodNotify", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::invokeMethodNotify", "unknown");
+			}
+		}
+
+		void reportJSResult(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_context, const CefRefPtr<CefValue> &p_result) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::reportJSResult", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::reportJSResult", "unknown");
+			}
+		}
+
+		// ---- 上下文菜单 ----
+		void onBeforeContextMenu(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, CefRefPtr<CefContextMenuParams> &p_params, CefRefPtr<CefMenuModel> &p_model) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onBeforeContextMenu", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onBeforeContextMenu", "unknown");
+			}
+		}
+
+		bool onRunContextMenu(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, CefRefPtr<CefContextMenuParams> &p_params, CefRefPtr<CefMenuModel> &p_model, CefRefPtr<CefRunContextMenuCallback> &p_callback) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onRunContextMenu", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onRunContextMenu", "unknown");
+			}
+			return false;
+		}
+
+		bool onContextMenuCommand(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, CefRefPtr<CefContextMenuParams> &p_params, int p_command_id, CefContextMenuHandler::EventFlags p_event_flags) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onContextMenuCommand", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onContextMenuCommand", "unknown");
+			}
+			return false;
+		}
+
+		void onContextMenuDismissed(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onContextMenuDismissed", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onContextMenuDismissed", "unknown");
+			}
+		}
+
+		// ---- 显示 ----
+		void addressChanged(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_url) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::addressChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::addressChanged", "unknown");
+			}
+		}
+
+		void titleChanged(CefRefPtr<CefBrowser> &p_browser, const CefString &p_title) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::titleChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::titleChanged", "unknown");
+			}
+		}
+
+		void faviconURLChanged(CefRefPtr<CefBrowser> &p_browser, const std::vector<CefString> &p_icon_urls) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::faviconURLChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::faviconURLChanged", "unknown");
+			}
+		}
+
+		bool tooltipMessage(CefRefPtr<CefBrowser> &p_browser, const CefString &p_text) override {
+			try {
+				return false; // 显示默认 tooltip
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::tooltipMessage", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::tooltipMessage", "unknown");
+			}
+			return false;
+		}
+
+		void fullscreenModeChanged(CefRefPtr<CefBrowser> &p_browser, bool p_fullscreen) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::fullscreenModeChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::fullscreenModeChanged", "unknown");
+			}
+		}
+
+		void statusMessage(CefRefPtr<CefBrowser> &p_browser, const CefString &p_value) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::statusMessage", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::statusMessage", "unknown");
+			}
+		}
+
+		void loadingProgressChanged(CefRefPtr<CefBrowser> &p_browser, double p_progress) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::loadingProgressChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::loadingProgressChanged", "unknown");
+			}
+		}
+
+		void consoleMessage(CefRefPtr<CefBrowser> &p_browser, const CefString &p_message, int p_level) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::consoleMessage", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::consoleMessage", "unknown");
+			}
+		}
+
+		bool cursorChanged(CefRefPtr<CefBrowser> &p_browser, CefCursorHandle p_cursor, cef_cursor_type_t p_type, const CefCursorInfo &p_custom_cursor_info) override {
+			try {
+				return false; // 使用默认光标
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::cursorChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::cursorChanged", "unknown");
+			}
+			return false;
+		}
+
+		// ---- 下载(嵌入式浏览器默认取消下载) ----
+		void onBeforeDownload(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefDownloadItem> &p_download_item, const CefString &p_suggested_name, CefRefPtr<CefBeforeDownloadCallback> &p_callback) override {
+			try {
+				if (p_callback) {
+					p_callback->Continue("", false);
+				}
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onBeforeDownload", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onBeforeDownload", "unknown");
+			}
+		}
+
+		void onDownloadUpdated(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefDownloadItem> &p_download_item, CefRefPtr<CefDownloadItemCallback> &p_callback) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onDownloadUpdated", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onDownloadUpdated", "unknown");
+			}
+		}
+
+		// ---- 拖拽 ----
+		void draggableRegionChanged(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const std::vector<CefDraggableRegion> &p_regions) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::draggableRegionChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::draggableRegionChanged", "unknown");
+			}
+		}
+
+		// ---- 焦点 ----
+		void takeFocus(CefRefPtr<CefBrowser> &p_browser, bool p_next) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::takeFocus", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::takeFocus", "unknown");
+			}
+		}
+
+		bool setFocus(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::setFocus", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::setFocus", "unknown");
+			}
+			return false;
+		}
+
+		void gotFocus(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::gotFocus", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::gotFocus", "unknown");
+			}
+		}
+
+		// ---- JS 对话框(false → CEF 默认原生对话框) ----
+		bool onJSDialog(CefRefPtr<CefBrowser> &p_browser, const CefString &p_origin_url, CefJSDialogHandler::JSDialogType p_dialog_type, const CefString &p_message_text, const CefString &p_default_prompt_text, CefRefPtr<CefJSDialogCallback> &p_callback, bool &p_suppress_message) override {
+			try {
+				p_suppress_message = false;
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onJSDialog", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onJSDialog", "unknown");
+			}
+			return false;
+		}
+
+		bool onBeforeUnloadDialog(CefRefPtr<CefBrowser> &p_browser, const CefString &p_message_text, bool p_is_reload, CefRefPtr<CefJSDialogCallback> &p_callback) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onBeforeUnloadDialog", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onBeforeUnloadDialog", "unknown");
+			}
+			return false;
+		}
+
+		void onResetDialogState(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onResetDialogState", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onResetDialogState", "unknown");
+			}
+		}
+
+		void onDialogClosed(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onDialogClosed", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onDialogClosed", "unknown");
+			}
+		}
+
+		// ---- 键盘 ----
+		bool onPreKeyEvent(CefRefPtr<CefBrowser> &p_browser, const CefKeyEvent &p_event, CefEventHandle p_os_event, bool *p_is_keyboard_shortcut) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onPreKeyEvent", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onPreKeyEvent", "unknown");
+			}
+			return false;
+		}
+
+		bool onKeyEvent(CefRefPtr<CefBrowser> &p_browser, const CefKeyEvent &p_event, CefEventHandle p_os_event) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onKeyEvent", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onKeyEvent", "unknown");
+			}
+			return false;
+		}
+
+		// ---- 生命周期 ----
+		bool onBeforePopup(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_target_url, const CefString &p_target_frame_name, CefLifeSpanHandler::WindowOpenDisposition p_target_disposition, CefWindowInfo &p_window_info, CefBrowserSettings &p_settings, bool &p_disable_javascript_access) override {
+			try {
+				// 阻止弹窗:OSR 单视图,编辑器嵌入式浏览器不应开新窗口(window.open 失效)。
+				return true;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onBeforePopup", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onBeforePopup", "unknown");
+			}
+			return true; // 异常时仍阻止弹窗
+		}
+
+		void onAfterCreate(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onAfterCreate", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onAfterCreate", "unknown");
+			}
+		}
+
+		bool doClose(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+				return false; // 允许关闭流程继续
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::doClose", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::doClose", "unknown");
+			}
+			return false;
+		}
+
+		bool requestClose(CefRefPtr<CefBrowser> &p_browser) override {
+			try {
+				return false;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::requestClose", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::requestClose", "unknown");
+			}
+			return false;
+		}
+
+		void onBeforeClose(CefRefPtr<CefBrowser> &p_browser) override {
+			// 异步关闭完成:移除注册表条目并递减计数。不加锁(见 Impl 注释)。
+			try {
+				self_->handle_before_close(id_);
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onBeforeClose", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onBeforeClose", "unknown");
+			}
+		}
+
+		// ---- 加载 ----
+		// loadingStateChanged 载荷(isLoading)不含 HTTP 状态码,与 loadEnd 重复触发;
+		// 状态由 loadEnd(HTTP 码)与 loadError(-1)承载(与 4A 一致)。
+		void loadingStateChanged(CefRefPtr<CefBrowser> &p_browser, bool p_is_loading, bool p_can_go_back, bool p_can_go_forward) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::loadingStateChanged", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::loadingStateChanged", "unknown");
+			}
+		}
+
+		void loadStart(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, int p_transition_type) override {
+			try {
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::loadStart", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::loadStart", "unknown");
+			}
+		}
+
+		void loadEnd(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, int p_http_status_code) override {
+			try {
+				// 仅主 frame 上报整页加载状态;iframe 完成不冒充整页。
+				if (p_frame->IsMain()) {
+					self_->handle_load_status(id_, p_http_status_code, p_frame->GetURL().ToString());
+				}
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::loadEnd", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::loadEnd", "unknown");
+			}
+		}
+
+		void loadError(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, int p_error_code, const CefString &p_error_msg, const CefString &p_failed_url, bool &p_handled) override {
+			try {
+				// 仅主 frame 上报;iframe 加载错误不作为整页失败上报。
+				if (p_frame->IsMain()) {
+					self_->handle_load_status(id_, -1, p_failed_url.ToString());
+				}
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::loadError", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::loadError", "unknown");
+			}
+		}
+
+		// ---- OSR 渲染 ----
+		bool getScreenInfo(CefRefPtr<CefBrowser> &p_browser, CefScreenInfo &p_screen_info) override {
+			try {
+				// M1b:无 DPI 缩放处理(device_scale_factor=1,与 4A 一致;V2 接 DisplayServer 缩放)。
+				p_screen_info.device_scale_factor = 1.0f;
+				p_screen_info.depth = 24;
+				p_screen_info.depth_per_component = 8;
+				p_screen_info.is_monochrome = 0;
+				return true;
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::getScreenInfo", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::getScreenInfo", "unknown");
+			}
+			return false;
+		}
+
+		void getViewRect(CefRefPtr<CefBrowser> &p_browser, CefRect &p_rect) override {
+			try {
+				// 尺寸在 create_browser / resize_browser 入口已校验(0 与 >INT_MAX 拒绝),
+				// 此处再防御性钳制,确保 CEF 始终拿到非空矩形(不出现 0/负宽高)。
+				const uint32_t w = (width_ == 0 || width_ > static_cast<uint32_t>(INT_MAX)) ? 1 : width_;
+				const uint32_t h = (height_ == 0 || height_ > static_cast<uint32_t>(INT_MAX)) ? 1 : height_;
+				p_rect.x = 0;
+				p_rect.y = 0;
+				p_rect.width = static_cast<int>(w);
+				p_rect.height = static_cast<int>(h);
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::getViewRect", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::getViewRect", "unknown");
+			}
+		}
+
+		void onPaint(CefRefPtr<CefBrowser> &p_browser, CefRenderHandler::PaintElementType p_type, const CefRenderHandler::RectList &p_dirty_rects, const void *p_buffer, int p_width, int p_height) override {
+			try {
+				// 只处理主视图(popup 合成后续切片)。注意:cef_paint_element_type_t 是无作用域枚举,
+				// 枚举值 PET_VIEW / PET_POPUP 在包含作用域,不能写成 PaintElementType::VIEW。
+				if (p_type != PET_VIEW) {
+					return;
+				}
+				if (p_buffer == nullptr || p_width <= 0 || p_height <= 0) {
+					return;
+				}
+				self_->handle_paint(id_, p_buffer, p_width, p_height);
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onPaint", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onPaint", "unknown");
+			}
+		}
+
+	private:
+		Impl *self_;
+		int32_t id_;
+		uint32_t width_;
+		uint32_t height_;
+	};
+
+	// =======================================================================
+	// 内部处理(全部在主线程,无锁)。
+	// =======================================================================
+
+	// OnPaint → BGRA→RGBA → 宿主回调(4A core.rs bgra_to_rgba 逻辑)。
+	void handle_paint(int32_t p_id, const void *p_buffer, int p_width, int p_height) {
+		if (!callbacks.on_paint) {
+			return;
+		}
+		const size_t byte_count = static_cast<size_t>(p_width) * static_cast<size_t>(p_height) * 4;
+		if (paint_buffer.size() < byte_count) {
+			paint_buffer.resize(byte_count);
+		}
+		// CEF OnPaint 输出 BGRA(上左原点);交换 R/B 得到 RGBA。
+		const uint8_t *src = static_cast<const uint8_t *>(p_buffer);
+		for (size_t i = 0; i < byte_count; i += 4) {
+			paint_buffer[i + 0] = src[i + 2]; // R
+			paint_buffer[i + 1] = src[i + 1]; // G
+			paint_buffer[i + 2] = src[i + 0]; // B
+			paint_buffer[i + 3] = src[i + 3]; // A
+		}
+		callbacks.on_paint(p_id, paint_buffer.data(), static_cast<uint32_t>(p_width), static_cast<uint32_t>(p_height));
+	}
+
+	void handle_query(int32_t p_id, const std::string &p_query, int64_t p_query_id) {
+		if (callbacks.on_query) {
+			callbacks.on_query(p_id, p_query, p_query_id);
+		}
+	}
+
+	void handle_load_status(int32_t p_id, int32_t p_status, const std::string &p_url) {
+		if (callbacks.on_load_status) {
+			callbacks.on_load_status(p_id, p_status, p_url);
+		}
+	}
+
+	// OnBeforeClose:移除条目;仅当该条目是宿主主动关闭(entry.closing)才递减 pending_close——
+	// 外部/JS 关闭的浏览器(entry.closing=false)不得抵掉宿主关闭计数,否则 shutdown 会提前。
+	// 条目从 map 移除前先读 closing,再 erase。
+	void handle_before_close(int32_t p_id) {
+		auto it = browsers.find(p_id);
+		if (it == browsers.end()) {
+			return;
+		}
+		const bool was_host_closing = it->second.closing;
+		browsers.erase(it);
+		if (was_host_closing && pending_close > 0) {
+			pending_close--;
+		}
+	}
+};
+
+// ---------------------------------------------------------------------------
+// WebViewCore
+// ---------------------------------------------------------------------------
+
+WebViewCore::WebViewCore()
+		: impl_(new Impl()) {}
+
+WebViewCore::~WebViewCore() {
+	shutdown(); // 宿主未显式 shutdown 时兜底(幂等)
+}
+
+bool WebViewCore::init(const std::string &p_exe_dir) {
+	if (impl_ == nullptr) {
+		return false;
+	}
+	if (impl_->cef_initialized && !impl_->cef_shutdown) {
+		return true; // 幂等
+	}
+	if (impl_->cef_failed || impl_->cef_shutdown) {
+		return false; // 终态,不可重试
+	}
+	if (p_exe_dir.empty()) {
+		log_stderr("[webview_core] init: exe_dir required (must be absolute)\n");
+		return false;
+	}
+
+	// 防御:若本 exe 以 CEF 子进程方式启动(命令行含 --type),走 CefExecuteProcess 而非
+	// 初始化。正常不会发生——browser_subprocess_path 指向 CefViewWing.exe,子进程由它承担。
+	CefMainArgs main_args(static_cast<HINSTANCE>(GetModuleHandleW(nullptr)));
+	CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
+	if (command_line && command_line->HasSwitch("type")) {
+		int exit_code = CefExecuteProcess(main_args, nullptr, nullptr);
+		log_stderr("[webview_core] init: launched as CEF subprocess, CefExecuteProcess handled it\n");
+		impl_->cef_failed = true; // 本进程不是浏览器进程,禁止初始化(终态)
+		return false;
+	}
+
+	// CEF 151 硬性要求:非空路径必须是绝对路径(相对路径初始化失败)。
+	const std::string subprocess_path = p_exe_dir + "/CefViewWing.exe"; // 必须与 helper 同目录,不变
+
+	// CEF ≥120 同 root 单例:缓存放 %LOCALAPPDATA%/baize-godot/cef(用户数据目录,
+	// 不写 exe 目录)。用 GetEnvironmentVariableW 取 UTF-16 再转 UTF-8(CefString 的
+	// std::string 赋值按 UTF-8 处理);取不到时回退 exe_dir/webview/cef-data 并警告。
+	std::string cache_path;
+	const DWORD env_len = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+	if (env_len > 1) { // >1:值非空且含结尾 '\0'(0 或 1 = 未设置/空值,走回退)
+		std::vector<wchar_t> env_buf(env_len);
+		if (GetEnvironmentVariableW(L"LOCALAPPDATA", env_buf.data(), env_len) > 0) {
+			const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, env_buf.data(), -1, nullptr, 0, nullptr, nullptr);
+			if (utf8_len > 1) {
+				cache_path.resize(static_cast<size_t>(utf8_len - 1));
+				WideCharToMultiByte(CP_UTF8, 0, env_buf.data(), -1, cache_path.data(), utf8_len, nullptr, nullptr);
+				cache_path += "/baize-godot/cef";
+			}
+		}
+	}
+	if (cache_path.empty()) {
+		cache_path = p_exe_dir + "/webview/cef-data"; // 回退:与原行为一致
+		log_stderr("[webview_core] init: warning: LOCALAPPDATA unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
+	}
+
+	CefSettings settings;
+	CefString(&settings.browser_subprocess_path) = subprocess_path;
+	CefString(&settings.root_cache_path) = cache_path;
+	settings.windowless_rendering_enabled = 1; // OSR 软件渲染(OnPaint)
+	settings.external_message_pump = 1; // 由宿主主循环 CefDoMessageLoopWork 驱动
+	settings.log_severity = LOGSEVERITY_DEFAULT; // debug.log 在 exe 目录
+
+	impl_->app_delegate = std::make_shared<Impl::AppDelegate>(impl_.get());
+	impl_->app = new CefViewBrowserApp(CefString(), CefString(), impl_->app_delegate);
+
+	if (!CefInitialize(main_args, settings, impl_->app, nullptr)) {
+		log_stderr("[webview_core] init: CefInitialize failed (terminal state)\n");
+		impl_->app = nullptr;
+		impl_->app_delegate.reset();
+		impl_->cef_failed = true; // 终态
+		return false;
+	}
+
+	impl_->cef_initialized = true;
+	impl_->pump_frame_count = 0;
+	log_stderr("[webview_core] init: CEF initialized\n");
+	return true;
+}
+
+void WebViewCore::pump() {
+	if (impl_ == nullptr) {
+		return;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return;
+	}
+
+	// 节流:前 kPumpWarmupFrames 帧无条件泵送(防首帧饥饿);之后仅当 CEF 请求泵送时工作。
+	const bool force = impl_->pump_frame_count < kPumpWarmupFrames;
+	// exchange(false):原子读取并清除,避免与 CEF 线程的 store(true) 竞争丢置位。
+	const bool requested = impl_->pump_requested.exchange(false, std::memory_order_relaxed);
+	if (!force && !requested) {
+		return;
+	}
+	impl_->pump_frame_count++;
+
+	CefDoMessageLoopWork();
+
+	// external_begin_frame 模式:pump 后显式 SendExternalBeginFrame 驱动产帧
+	// (4A 验证的组合;否则 renderer 不产出)。遍历前拷贝引用,防回调修改注册表。
+	std::vector<CefRefPtr<CefBrowser>> alive;
+	alive.reserve(impl_->browsers.size());
+	for (const auto &kv : impl_->browsers) {
+		alive.push_back(kv.second.browser);
+	}
+	for (const auto &browser : alive) {
+		if (browser) {
+			browser->GetHost()->SendExternalBeginFrame();
+		}
+	}
+}
+
+void WebViewCore::shutdown() {
+	if (impl_ == nullptr) {
+		return;
+	}
+	if (impl_->cef_shutdown) {
+		return; // 幂等
+	}
+
+	if (impl_->cef_initialized && !impl_->cef_failed) {
+		// 1. 关闭全部尚未关闭的浏览器(带活浏览器 CefShutdown 会断言/崩溃)。
+		for (auto &kv : impl_->browsers) {
+			Impl::BrowserEntry &entry = kv.second;
+			if (!entry.closing) {
+				entry.closing = true;
+				impl_->pending_close++;
+				entry.browser->GetHost()->CloseBrowser(true);
+			}
+		}
+
+		// 2. 有界泵等待异步关闭送达 OnBeforeClose(墙钟超时,避免死等;不能只用帧计数——
+		// 每帧 CefDoMessageLoopWork 可能很快,renderer 子进程回 OnBeforeClose 需要真实时间)。
+		// 注意:超时后不得 CefShutdown——CEF 要求所有浏览器 OnBeforeClose 后才可关闭。
+		const uint64_t kShutdownWaitMs = 3000; // 3 秒(墙钟,steady_clock)
+		const uint64_t shutdown_deadline_ms = now_ms() + kShutdownWaitMs;
+		while (impl_->pending_close > 0 && now_ms() < shutdown_deadline_ms) {
+			CefDoMessageLoopWork();
+		}
+
+		if (impl_->pending_close > 0) {
+			// 超时仍有浏览器未完成异步关闭:不 CefShutdown(会崩溃/断言),显式报错暴露问题。
+			log_stderr(("[webview_core] CefShutdown aborted: pending_close=" + std::to_string(impl_->pending_close) + " (timeout " + std::to_string(kShutdownWaitMs / 1000) + "s)\n").c_str());
+			impl_->cef_initialized = false;
+			impl_->cef_shutdown = true;
+			impl_->pump_requested.store(false, std::memory_order_relaxed);
+			impl_->pump_frame_count = 0;
+			impl_->paint_buffer.clear();
+			impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
+			return;
+		}
+
+		// 3. 释放 CEF 引用(先 client 后 app:client 析构会 CheckOutClient 到 app),再 CefShutdown。
+		impl_->browsers.clear();
+		impl_->app = nullptr;
+		impl_->app_delegate.reset();
+		CefShutdown();
+	}
+
+	impl_->cef_initialized = false;
+	impl_->cef_shutdown = true;
+	impl_->pump_requested.store(false, std::memory_order_relaxed);
+	impl_->pump_frame_count = 0;
+	impl_->pending_close = 0;
+	impl_->paint_buffer.clear();
+	impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
+}
+
+int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h) {
+	if (impl_ == nullptr) {
+		return -1;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return -1;
+	}
+	if (!is_valid_browser_size(p_w, p_h)) {
+		return -1;
+	}
+	if (impl_->browsers.count(p_id) > 0) {
+		return -1;
+	}
+
+	CefWindowInfo window_info;
+	window_info.windowless_rendering_enabled = 1; // OSR
+	window_info.shared_texture_enabled = 0; // 软件路径 → OnPaint(BGRA)
+	window_info.external_begin_frame_enabled = 1; // pump 显式 SendExternalBeginFrame 驱动产帧
+
+	CefBrowserSettings browser_settings;
+	browser_settings.windowless_frame_rate = 60;
+
+	// 每个浏览器一个 client/delegate:id 与尺寸在创建前绑定(GetViewRect 直接读取)。
+	auto client_delegate = std::make_shared<Impl::ClientDelegate>(impl_.get(), p_id, p_w, p_h);
+	CefRefPtr<CefViewBrowserClient> client = new CefViewBrowserClient(impl_->app, client_delegate);
+
+	CefRefPtr<CefBrowser> browser = CefBrowserHost::CreateBrowserSync(window_info, client, p_url, browser_settings, nullptr, nullptr);
+	if (!browser) {
+		return -1; // client 的 CefRefPtr 随作用域释放(CefViewBrowserClient 析构 CheckOutClient)
+	}
+
+	Impl::BrowserEntry entry;
+	entry.browser = browser;
+	entry.client = client;
+	entry.client_delegate = client_delegate;
+	entry.width = p_w;
+	entry.height = p_h;
+	impl_->browsers[p_id] = std::move(entry);
+	return 0;
+}
+
+int WebViewCore::resize_browser(int32_t p_id, uint32_t p_w, uint32_t p_h) {
+	if (impl_ == nullptr) {
+		return -1;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return -1;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return -1;
+	}
+	if (!is_valid_browser_size(p_w, p_h)) {
+		return -1; // 与 create_browser 统一校验:0 与 >INT_MAX 拒绝,防 GetViewRect 空/负
+	}
+
+	Impl::BrowserEntry &entry = it->second;
+	entry.width = p_w;
+	entry.height = p_h;
+	// 同步 delegate 内尺寸(GetViewRect 直接读取,无需跨结构查找)。
+	static_cast<Impl::ClientDelegate *>(entry.client_delegate.get())->set_size(p_w, p_h);
+	entry.browser->GetHost()->WasResized(); // 通知 CEF 重新查询 GetViewRect
+	return 0;
+}
+
+int WebViewCore::navigate_browser(int32_t p_id, const std::string &p_url) {
+	if (impl_ == nullptr) {
+		return -1;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return -1;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return -1;
+	}
+	CefRefPtr<CefFrame> frame = it->second.browser->GetMainFrame();
+	if (!frame) {
+		return -1;
+	}
+	frame->LoadURL(p_url);
+	return 0;
+}
+
+void WebViewCore::destroy_browser(int32_t p_id) {
+	if (impl_ == nullptr) {
+		return;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	Impl::BrowserEntry &entry = it->second;
+	if (!entry.closing) {
+		entry.closing = true;
+		impl_->pending_close++;
+		entry.browser->GetHost()->CloseBrowser(true); // force:跳过 unload 延迟
+	}
+	// 条目保留至 OnBeforeClose 回调移除(防重复 CloseBrowser)。
+}
+
+bool WebViewCore::respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const std::string &p_response, int p_error) {
+	if (impl_ == nullptr) {
+		return false;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return false;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return false;
+	}
+	// CefViewQueryHandler::Response:从待应答表移除 query_id 并回调 JS 侧 callback。
+	return it->second.client->ResponseQuery(p_query_id, p_success, p_response, p_error);
+}
+
+void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {
+	if (impl_ == nullptr) {
+		return;
+	}
+	impl_->callbacks = p_callbacks;
+}
+
+bool WebViewCore::is_initialized() const {
+	return impl_ != nullptr && impl_->cef_initialized && !impl_->cef_failed && !impl_->cef_shutdown;
+}

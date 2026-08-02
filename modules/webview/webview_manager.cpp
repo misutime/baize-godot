@@ -30,11 +30,31 @@
 
 #include "webview_manager.h"
 
-#include "core/extension/gdextension_manager.h"
-#include "core/io/file_access.h"
+#include "web_panel.h"
+
+#include "core/object/callable_mp.h"
+#include "core/object/object.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
+#include "scene/main/scene_tree.h"
+
+namespace {
+
+// 每帧消息泵驱动器：CEF 初始化成功后挂到 SceneTree::process_frame，使 pump 与面板
+// 数量解耦——最后一个面板退出后、异步关闭（OnBeforeClose）送达前仍持续泵送。
+// 独立 Object（非 GDCLASS 注册，仅作信号连接目标）自身无状态，转发到单例 pump。
+class WebViewPumpDriver : public Object {
+public:
+	void on_process_frame() {
+		WebViewManager *mgr = WebViewManager::peek_singleton();
+		if (mgr) {
+			mgr->pump();
+		}
+	}
+};
+
+} // namespace
 
 WebViewManager *WebViewManager::singleton = nullptr;
 
@@ -45,37 +65,164 @@ WebViewManager *WebViewManager::get_singleton() {
 	return singleton;
 }
 
+WebViewManager *WebViewManager::peek_singleton() {
+	return singleton; // 可空读取，不创建——静态回调在 teardown 后调用时直接返回，防复活单例
+}
+
 void WebViewManager::free_singleton() {
+	if (!singleton) {
+		return;
+	}
+	singleton->stop_frame_pump(); // 先摘除每帧泵（SceneTree 可能已销毁，幂等）
+	// 先关 CEF（关闭全部浏览器并等待异步关闭），再释放单例。
+	singleton->shutdown_core();
 	memdelete(singleton);
 	singleton = nullptr;
 }
 
-void WebViewManager::load_cef_extension() {
-	// 分发目录约定：<exe_dir>/webview/（开发态 = bin/webview/，由 `just webview-stage` 暂存）。
-	const String ext_path = OS::get_singleton()->get_executable_path().get_base_dir()
-									.path_join("webview")
-									.path_join("godot_cef.gdextension");
-
-	if (!FileAccess::exists(ext_path)) {
-		// 未暂存 = 模块惰性状态，但不静默：打印可观测提示。
-		print_line("[WebView] CEF extension not staged at " + ext_path + " — run `just webview-stage` first.");
+void WebViewManager::init_core() {
+	if (core_initialized_) {
 		return;
 	}
-
-	print_line("[WebView] Loading CEF extension: " + ext_path);
-	const GDExtensionManager::LoadStatus status = GDExtensionManager::get_singleton()->load_extension(ext_path);
-	switch (status) {
-		case GDExtensionManager::LOAD_STATUS_OK:
-			print_line("[WebView] CEF extension loaded OK.");
-			break;
-		case GDExtensionManager::LOAD_STATUS_ALREADY_LOADED:
-			print_line("[WebView] CEF extension already loaded.");
-			break;
-		case GDExtensionManager::LOAD_STATUS_NEEDS_RESTART:
-			print_line("[WebView] CEF extension load requires restart (minimum level mismatch).");
-			break;
-		default:
-			ERR_PRINT("[WebView] CEF extension load FAILED (status " + itos(status) + ").");
-			break;
+	core_initialized_ = true; // CEF 初始化失败为终态，禁止重试
+	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+	WebViewCore::Callbacks cbs;
+	cbs.on_paint = &WebViewManager::_on_paint;
+	cbs.on_load_status = &WebViewManager::_on_load_status;
+	cbs.on_query = &WebViewManager::_on_query;
+	core_.set_callbacks(cbs);
+	if (!core_.init(exe_dir.utf8().get_data())) {
+		ERR_PRINT("[WebView] CEF core init failed (terminal) — exe_dir=" + exe_dir);
+		return;
 	}
+	// 单例接管每帧泵：挂 SceneTree::process_frame（面板不再各自 pump）。
+	start_frame_pump();
+	print_line("[WebView] CEF core initialized (C++ route).");
+}
+
+void WebViewManager::start_frame_pump() {
+	if (pump_driver_) {
+		return; // 幂等
+	}
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree) {
+		// 防御：init_core 由树内面板触发，SceneTree 必然存在；此处仅记录。
+		WARN_PRINT("[WebView] SceneTree unavailable, message pump not started.");
+		return;
+	}
+	// 成员是 Object*（头文件不暴露具体类型），此处经局部变量还原完整类型供模板推导。
+	auto *driver = memnew(WebViewPumpDriver);
+	pump_driver_ = driver;
+	tree->connect(SNAME("process_frame"), callable_mp(driver, &WebViewPumpDriver::on_process_frame));
+}
+
+void WebViewManager::stop_frame_pump() {
+	if (!pump_driver_) {
+		return; // 幂等
+	}
+	auto *driver = static_cast<WebViewPumpDriver *>(pump_driver_);
+	SceneTree *tree = SceneTree::get_singleton();
+	const Callable cb = callable_mp(driver, &WebViewPumpDriver::on_process_frame);
+	if (tree && tree->is_connected(SNAME("process_frame"), cb)) {
+		tree->disconnect(SNAME("process_frame"), cb);
+	}
+	memdelete(driver);
+	pump_driver_ = nullptr;
+}
+
+void WebViewManager::shutdown_core() {
+	core_.shutdown();
+}
+
+void WebViewManager::pump() {
+	core_.pump();
+}
+
+void WebViewManager::register_panel(WebPanel *p_panel) {
+	int32_t id = next_browser_id_++;
+	p_panel->set_browser_id(id);
+	panels_[id] = p_panel;
+}
+
+void WebViewManager::unregister_panel(int32_t p_id) {
+	panels_.erase(p_id);
+}
+
+int WebViewManager::create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h) {
+	init_core(); // 惰性：首次 create_browser 时初始化 CEF
+	if (!core_.is_initialized()) {
+		ERR_PRINT("[WebView] create_browser before core ready.");
+		return -1;
+	}
+	const CharString url = p_url.utf8();
+	return core_.create_browser(p_id, url.get_data(), (uint32_t)p_w, (uint32_t)p_h);
+}
+
+void WebViewManager::resize_browser(int32_t p_id, int32_t p_w, int32_t p_h) {
+	if (core_.is_initialized()) {
+		core_.resize_browser(p_id, (uint32_t)p_w, (uint32_t)p_h);
+	}
+}
+
+void WebViewManager::destroy_browser(int32_t p_id) {
+	if (core_.is_initialized()) {
+		core_.destroy_browser(p_id);
+	}
+}
+
+void WebViewManager::navigate_browser(int32_t p_id, const String &p_url) {
+	if (core_.is_initialized()) {
+		const CharString url = p_url.utf8();
+		core_.navigate_browser(p_id, url.get_data());
+	}
+}
+
+bool WebViewManager::respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const String &p_response, int p_error) {
+	if (!core_.is_initialized()) {
+		return false;
+	}
+	const CharString response = p_response.utf8();
+	return core_.respond_query(p_id, p_query_id, p_success, response.get_data(), p_error);
+}
+
+void WebViewManager::_on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
+	// 静态回调（C++ 核心层经 std::function 调用）：peek 不创建——单例为 null
+	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。
+	WebViewManager *mgr = peek_singleton();
+	if (!mgr) {
+		return;
+	}
+	WebPanel **slot = mgr->panels_.getptr(p_id);
+	if (slot && *slot) {
+		(*slot)->set_paint(p_rgba, p_w, p_h); // 回调期间缓冲有效，set_paint 内部拷贝
+	}
+}
+
+void WebViewManager::_on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url) {
+	WebViewManager *mgr = peek_singleton(); // 可空读取，不创建（防 teardown 后复活单例）
+	if (!mgr) {
+		return;
+	}
+	WebPanel **slot = mgr->panels_.getptr(p_id);
+	const String url = String(p_url.c_str());
+	if (slot && *slot) {
+		// 面板级可观测：保留 load_finished / load_error 日志语义。
+		if (p_status >= 0) {
+			(*slot)->_on_load_finished(url, p_status);
+		} else {
+			(*slot)->_on_load_error(url, p_status, "[WebView] load failed");
+		}
+	} else {
+		print_line("[WebView] load status: id=" + itos(p_id) + " status=" + itos(p_status) + " url=" + url);
+	}
+}
+
+void WebViewManager::_on_query(int32_t p_id, const std::string &p_query, int64_t p_query_id) {
+	print_line("[WebView] query: id=" + itos(p_id) + " query_id=" + itos(p_query_id) + " body=" + String(p_query.c_str()));
+	// 立即经消息路由回传确定性应答（echo 请求体），驱动 JS 侧 onSuccess 回调。
+	WebViewManager *mgr = peek_singleton(); // 可空读取，不创建（防 teardown 后复活单例）
+	if (!mgr) {
+		return;
+	}
+	mgr->respond_query(p_id, p_query_id, true, "echo: " + String(p_query.c_str()), 0);
 }

@@ -1,8 +1,182 @@
 #!/usr/bin/env python
 from misc.utility.scons_hints import *
 
+import os
+import sys
+from pathlib import Path
+
+from SCons.Errors import SConsEnvironmentError
+
+# 共享模块定位:misc/scripts/ 加入 sys.path 后 import cef_dist,与 stage 切片
+# (misc/scripts/stage_webview.py)共用同一份 SDK 缓存定位逻辑,保证版本一致。
+sys.path.insert(0, Dir("#/misc/scripts").abspath)
+import cef_dist
+
 Import("env")
 Import("env_modules")
 
+# ---------------------------------------------------------------------------
+# 平台门控:本次仅支持 Windows x86_64 MSVC(与 4A 相同);其他平台显式报错,不静默。
+# env["msvc"] 由 platform/windows/detect.py:1047 设置(env.msvc = "mingw" not in env["TOOLS"]),
+# 比 4A 的 env.get("mingw", False) 可靠(本仓库构建系统未定义 "mingw" 键)。
+# ---------------------------------------------------------------------------
+platform = env["platform"]
+arch = env["arch"]
+if not (platform == "windows" and arch == "x86_64" and env.msvc):
+    raise SConsEnvironmentError(
+        f"[webview] webview 模块(CefViewCore 路线)当前仅支持 Windows x86_64 MSVC,"
+        f"当前 platform={platform} arch={arch} msvc={env.msvc}"
+    )
+
+# ---------------------------------------------------------------------------
+# CEF 配置:SDK 经共享模块 misc/scripts/cef_dist.py 定位(缓存机制,配置期不下载)。
+# 缓存结构:<repo>/bin/cef-dist/<CEF_SDK_VERSION>/cef_binary_<CEF_SDK_VERSION>_windows64/
+# (环境变量 CEF_DIST_ROOT 可覆盖根目录)。CEF_SDK_VERSION 为本文件单点常量,升级 CEF 只改这里;
+# 下载/解压由 stage 切片(task stage-webview → misc/scripts/stage_webview.py)负责,
+# SCsub 配置期仅定位已缓存 SDK(allow_download=False,不做网络操作)。
+# ---------------------------------------------------------------------------
+CEF_SDK_VERSION = "151.3.12+gd9cea67+chromium-151.0.7922.47"
+CEFVIEW_WING_NAME = "CefViewWing"  # helper 进程 exe 名(stage 预构建产出,SCsub 不构建)
+
+try:
+    cef_sdk_dir = str(cef_dist.ensure_sdk(Path(Dir("#/").abspath), CEF_SDK_VERSION, allow_download=False))
+except cef_dist.CefDistError as e:
+    raise SConsEnvironmentError(f"[webview] CEF SDK 定位失败:{e}")
+
+# ---------------------------------------------------------------------------
+# 链接库(方案 B 混合构建,与 stage 切片对齐):
+# - libcef.lib:SDK 自带 IMPORTED 库,直接引用 SDK Release/(SDK 锁版本,无需拷贝)。
+# - libcef_dll_wrapper.lib:stage 预构建产物,约定路径 = cmake -B 输出目录
+#   bin/obj/webview/cefviewcore/output/Release/lib/(cmake -B 固定路径不变,stage
+#   stage_webview.py 预构建后按 cef-version.txt 版本标记跳过/重建;产物在 bin/obj/ 下,
+#   天然避让 stage_ui 对 bin/webview/ 的 rmtree)。SCsub 只引用,缺失即明确报错。
+# - CefViewCore.lib 不再需要:CefViewCore 源码直接编入 SCons(见下),符号进 module_webview.lib。
+# ---------------------------------------------------------------------------
+cef_wrapper_lib_abs = os.path.join(
+    Dir("#/bin/obj/webview/cefviewcore").abspath, "output", "Release", "lib", "libcef_dll_wrapper.lib"
+)
+cef_libcef_lib_abs = os.path.join(cef_sdk_dir, "Release", "libcef.lib")
+
+if not os.path.isfile(cef_wrapper_lib_abs):
+    raise SConsEnvironmentError(
+        f"[webview] 缺少 stage 预构建产物 libcef_dll_wrapper.lib:{cef_wrapper_lib_abs}\n"
+        f"请先运行 task stage-webview(预构建 libcef_dll_wrapper.lib + {CEFVIEW_WING_NAME}.exe + CEF 运行时)。"
+    )
+if not os.path.isfile(cef_libcef_lib_abs):
+    raise SConsEnvironmentError(
+        f"[webview] 缺少 CEF SDK 导入库 libcef.lib:{cef_libcef_lib_abs}\n"
+        f"请检查 CEF SDK 缓存目录完整性(或重新运行 task stage-webview)。"
+    )
+
+cef_wrapper_lib = File(cef_wrapper_lib_abs)
+cef_libcef_lib = File(cef_libcef_lib_abs)
+
+# ---------------------------------------------------------------------------
+# CefViewCore 源码(方案 B 核心):显式列出、编入 SCons,与 thirdparty/cefviewcore/
+# src/CMakeLists.txt 的 CefViewCore target 源集合一致(Shared/*.cpp + CefView/
+# CefBrowserApp 递归 *.cpp),不含 CefWing(CefViewWing.exe 由 stage 预构建)。
+# 禁 glob:新增源文件必须显式登记,保证改动可审。
+# ---------------------------------------------------------------------------
+cefviewcore_sources = [
+    # Shared/Common(2)——CefViewCore_SHARED_SRC_FILES
+    "#/thirdparty/cefviewcore/src/Shared/Common/CefViewCoreLog.cpp",
+    "#/thirdparty/cefviewcore/src/Shared/Common/CefViewDebug.cpp",
+    # CefView/CefBrowserApp 根(17)——CefViewBrowserApp + CefViewBrowserClient + 15 个 handler
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserApp.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_ContextMenuHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_DialogHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_DisplayHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_DownloadHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_DragHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_FindHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_FocusHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_JSDialogHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_KeyboardHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_LifeSpanHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_LoadHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_PermissionHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_RenderHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_RequestHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewBrowserClient_ResourceRequestHandler.cpp",
+    # CefView/CefBrowserApp/CefViewSchemeHandler(2)
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewSchemeHandler/CefViewSchemeHandler.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewSchemeHandler/CefViewSchemeHandlerFactory.cpp",
+    # CefView/CefBrowserApp/CefViewQueryHandler(1)
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewQueryHandler/CefViewQueryHandler.cpp",
+    # CefView/CefBrowserApp/CefViewDirectoryProvider(2)
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewDirectoryProvider/CefViewDirectoryProvider.cpp",
+    "#/thirdparty/cefviewcore/src/CefView/CefBrowserApp/CefViewDirectoryProvider/CefViewStreamResourceHandler.cpp",
+]
+
+# ---------------------------------------------------------------------------
+# 模块编译:壳层文件(C++17,只 include 零 CEF 依赖的 webview_core.h)
+# 与 CEF 侧源文件(C++20 + CEF 头)分 env 编译。
+# 显式列出文件,不用 "*.cpp" 通配——CEF 侧需要特殊 flags。
+# ---------------------------------------------------------------------------
 env_webview = env_modules.Clone()
-env_webview.add_source_files(env.modules_sources, "*.cpp")
+env_webview.add_source_files(
+    env.modules_sources,
+    ["editor_web_dock.cpp", "register_types.cpp", "web_panel.cpp", "webview_manager.cpp"],
+)
+
+# CEF 侧源文件(webview_core.cpp + CefViewCore 源码):CEF 151 头文件要求(已实测)
+# C++20(覆盖全局 /std:c++17,否则 convertible_to concept 语法错)+ NOMINMAX(防 min/max
+# 宏破坏 CEF 头的 std::min/max)+ WIN32_LEAN_AND_MEAN(去 windows.h 无关声明)。
+# CXXFLAGS 是列表,Clone 后移除旧标准再追加。
+env_cef = env_webview.Clone()
+if "/std:c++17" in env_cef.get("CXXFLAGS", []):
+    env_cef["CXXFLAGS"].remove("/std:c++17")
+env_cef.Append(CXXFLAGS=["/std:c++20", "/DNOMINMAX", "/DWIN32_LEAN_AND_MEAN"])
+# NDEBUG 必须:CEF 头在 Release(NDEBUG)下把 ~RefCountedThreadSafeBase 等基类析构
+# 内联为 = default;stage 预构建的 libcef_dll_wrapper.lib 是 cmake Release(NDEBUG)。
+# Godot dev 构建不定义 NDEBUG → DCHECK_IS_ON()=true → 引用外部析构 → 链接 LNK2019。
+# CEF 侧源文件统一 NDEBUG 与 Release wrapper 保持 ABI 一致(cmake 构建 CefViewCore 亦如此)。
+env_cef.Append(CPPDEFINES=["NDEBUG"])
+# CEF 头搜索路径:SDK 根(cef_*.h 内部以 "include/..." 相对包含)+ SDK/include(<cef_app.h>)
+# + thirdparty/cefviewcore/include(<CefViewBrowserApp.h> 等公开头)
+# + thirdparty/cefviewcore/src/Shared(<Common/CefViewCoreLog.h>,与 CMake 的
+#   target_include_directories PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Shared" 一致)。
+# 相对头("CefViewQueryHandler/CefViewQueryHandler.h" 等)由源文件同目录自动解析,无需额外路径。
+# 绝对路径,不依赖 SCsub cwd。
+env_cef.Append(
+    CPPPATH=[
+        Dir("#/thirdparty/cefviewcore/include").abspath,
+        Dir("#/thirdparty/cefviewcore/src/Shared").abspath,
+        cef_sdk_dir,
+        os.path.join(cef_sdk_dir, "include"),
+    ]
+)
+env_cef.add_source_files(env.modules_sources, "webview_core.cpp")
+env_cef.add_source_files(env.modules_sources, cefviewcore_sources)
+
+# ---------------------------------------------------------------------------
+# 链接:CEF 静态库必须用 LIBS 而非 LINKFLAGS(LINKFLAGS 先于 $SOURCES 扫描,
+# 符号解析不到;LIBS 在链接行尾部)。modules/SCsub 会把 module_webview.lib Prepend 到
+# LIBS 最前,故链接顺序为:module_webview(含全部 CefViewCore 符号)→ libcef →
+# libcef_dll_wrapper(libcef_dll_wrapper 静态库实现 CEF C++ API,引用 libcef.dll 导入
+# 符号,故排在 libcef 之后)。
+# CEF 标准库走 LINKFLAGS:LIBS 里的裸库名会被 Godot 的 redirect_build_objects emitter
+# 误判为构建目标(加 .windows.editor.dev.x86_64 后缀报 LNK1181)——detect.py 的系统库
+# 在平台阶段加入不受影响,SCsub 阶段必须用 LINKFLAGS(platform/windows/SCsub:139 同款
+# "version.lib" 惯例,直接传链接器)。清单取自 SDK cmake/cef_variables.cmake 的
+# CEF_STANDARD_LIBS(Windows 分支)。
+# ---------------------------------------------------------------------------
+env.Append(
+    LIBS=[
+        cef_libcef_lib,
+        cef_wrapper_lib,
+    ]
+)
+env.Append(
+    LINKFLAGS=[
+        "comctl32.lib",
+        "crypt32.lib",
+        "delayimp.lib",
+        "gdi32.lib",
+        "rpcrt4.lib",
+        "shlwapi.lib",
+        "wintrust.lib",
+        "ws2_32.lib",
+    ]
+)

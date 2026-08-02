@@ -24,7 +24,7 @@ tasks:
     cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
 
   stage-webview:
-    desc: "暂存 godot-cef 产物到编辑器分发目录 bin/webview/（源码独立，只消费编译产物）"
+    desc: "预构建 CEF 产物（libcef_dll_wrapper + CefViewWing + CEF 运行时）并暂存到分发目录（首次/换 CEF 版本才构建，产物存在则跳过）"
     cmd: '{{.PYTHON}} misc/scripts/stage_webview.py'
 
 

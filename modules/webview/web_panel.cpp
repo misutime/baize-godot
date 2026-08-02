@@ -30,14 +30,16 @@
 
 #include "web_panel.h"
 
-#include "core/object/callable_mp.h"
+#include "webview_manager.h"
+
 #include "core/object/class_db.h"
 #include "core/string/print_string.h"
+#include "core/string/ustring.h"
 
-WebPanel::~WebPanel() {
-	// cef_object 是 GDExtension 对象，随本 Control 从场景树移除后由引擎引用计数释放；
-	// 这里不手动释放（GDExtension 对象生命周期归 ClassDB 引用管理）。
-}
+#include <climits>
+#include <cstring>
+
+WebPanel::~WebPanel() = default;
 
 void WebPanel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_url", "url"), &WebPanel::set_url);
@@ -53,41 +55,112 @@ void WebPanel::_bind_methods() {
 void WebPanel::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY: {
-			_ensure_cef();
-			set_url(url);
+			// 显示纹理：OSR paint 经 Image → ImageTexture 到此 TextureRect。
+			texture_rect = memnew(TextureRect);
+			texture_rect->set_anchors_preset(Control::PRESET_FULL_RECT);
+			texture_rect->set_stretch_mode(TextureRect::STRETCH_SCALE);
+			add_child(texture_rect);
+			// 注册面板分配 browser_id；立即按当前尺寸创建浏览器。
+			// 注意：NOTIFICATION_RESIZED 可能早于 READY 触发，届时 id 未分配，见 sync_size 守卫。
+			// 消息泵不再由面板驱动：WebViewManager 在 init_core 成功后挂 SceneTree::process_frame
+			// 每帧恰好泵一次（与面板数量解耦，最后面板退出后仍持续泵到异步关闭送达）。
+			WebViewManager::get_singleton()->register_panel(this);
+			sync_size();
+		} break;
+		case NOTIFICATION_RESIZED: {
+			sync_size();
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
-			// CefTexture 随场景树移除，置空指针避免悬挂。
-			cef_object = nullptr;
+			if (browser_created) {
+				WebViewManager::get_singleton()->destroy_browser(browser_id);
+				browser_created = false;
+			}
+			if (browser_id >= 0) {
+				WebViewManager::get_singleton()->unregister_panel(browser_id);
+				browser_id = -1;
+			}
 		} break;
 		default:
 			break;
 	}
 }
 
-void WebPanel::_ensure_cef() {
-	if (cef_object) {
+void WebPanel::set_url(const String &p_url) {
+	url = p_url;
+	if (browser_created) {
+		// 已建浏览器：直接导航到新 URL（而非只缓存字符串）。
+		WebViewManager::get_singleton()->navigate_browser(browser_id, url);
+	}
+}
+
+String WebPanel::get_url() const {
+	return url;
+}
+
+void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
+	if (p_w == 0 || p_h == 0 || !p_rgba) {
 		return;
 	}
-	// 必须用 instantiate_no_placeholders：CefTexture 是非 tool 类（gdext 默认 ToolClassesOnly），
-	// 编辑器进程里普通 instantiate 会返回占位对象（通知 no-op）→ CEF 永不初始化、页面空白。
-	cef_object = ClassDB::instantiate_no_placeholders(SNAME("CefTexture"));
-	if (!cef_object) {
-		ERR_PRINT("[WebView] CefTexture class not found — gdcef extension not loaded?");
+	// checked 乘法:按 size_t(64 位)计算,拒绝超过 Vector 容量(int)的尺寸——
+	// 防 4K/60fps 下 uint32 乘法溢出导致负长度 resize 或截断拷贝。
+	const size_t byte_count = static_cast<size_t>(p_w) * static_cast<size_t>(p_h) * 4;
+	if (byte_count > static_cast<size_t>(INT_MAX)) {
+		ERR_PRINT("[WebView] set_paint: buffer too large (" + itos(p_w) + "x" + itos(p_h) + ")");
 		return;
 	}
-	Control *cef_control = Object::cast_to<Control>(cef_object);
-	if (!cef_control) {
-		ERR_PRINT("[WebView] CefTexture is not a Control.");
-		cef_object = nullptr;
+	if (paint_image.is_null() || paint_width != p_w || paint_height != p_h) {
+		// 尺寸变化才重建 Image + ImageTexture(尺寸/格式变化必须重建)。
+		paint_width = p_w;
+		paint_height = p_h;
+		paint_buffer.resize(static_cast<int>(byte_count));
+		memcpy(paint_buffer.ptrw(), p_rgba, byte_count);
+		paint_image = Image::create_from_data(p_w, p_h, false, Image::FORMAT_RGBA8, paint_buffer);
+		if (paint_image.is_null()) {
+			return;
+		}
+		texture = ImageTexture::create_from_image(paint_image);
+	} else {
+		// 尺寸不变:复用 Image(拷贝到已有缓冲后 set_data 覆盖)与 ImageTexture(update 上传),
+		// 避免每帧重建 Vector/Image/ImageTexture 的分配压力。
+		memcpy(paint_buffer.ptrw(), p_rgba, byte_count);
+		paint_image->set_data(p_w, p_h, false, Image::FORMAT_RGBA8, paint_buffer);
+		texture->update(paint_image);
+	}
+	if (texture_rect) {
+		texture_rect->set_texture(texture);
+	}
+}
+
+void WebPanel::sync_size() {
+	// RESIZED 可能早于 READY（注册分配 id）触发——未注册时不创建，等 READY 主动同步。
+	if (browser_id < 0) {
 		return;
 	}
-	cef_control->set_anchors_preset(Control::PRESET_FULL_RECT);
-	add_child(cef_control);
-	cef_object->connect(SNAME("ipc_message"), callable_mp(this, &WebPanel::_on_ipc_message));
-	// 页面加载的可观测性：状态/错误直接打日志，避免静默空白。
-	cef_object->connect(SNAME("load_finished"), callable_mp(this, &WebPanel::_on_load_finished));
-	cef_object->connect(SNAME("load_error"), callable_mp(this, &WebPanel::_on_load_error));
+	const Size2i size = get_size();
+	if (size.x <= 0 || size.y <= 0) {
+		return;
+	}
+	if (browser_created) {
+		WebViewManager::get_singleton()->resize_browser(browser_id, size.x, size.y);
+	} else {
+		const int ret = WebViewManager::get_singleton()->create_browser(browser_id, url, size.x, size.y);
+		if (ret == 0) {
+			browser_created = true;
+			print_line("[WebView] WebPanel browser created: id=" + itos(browser_id) + " url=" + url);
+		} else {
+			ERR_PRINT("[WebView] WebPanel browser create failed: id=" + itos(browser_id));
+		}
+	}
+}
+
+void WebPanel::send_message(const String &p_msg) {
+	// M2：JS 查询应答经 WebViewManager::respond_query 下发（需 on_query 侧维护 pending 查询）；
+	// 当前 IPC 通路未接，仅打印日志保持 API 契约。
+	print_line("[WebView] send_message (M2 pending, not delivered): " + p_msg);
+}
+
+void WebPanel::_on_ipc_message(const String &p_msg) {
+	emit_signal(SNAME("on_message"), p_msg);
 }
 
 void WebPanel::_on_load_finished(const String &p_url, int p_http_status) {
@@ -96,24 +169,4 @@ void WebPanel::_on_load_finished(const String &p_url, int p_http_status) {
 
 void WebPanel::_on_load_error(const String &p_url, int p_error_code, const String &p_error_text) {
 	ERR_PRINT("[WebView] page load error " + itos(p_error_code) + ": " + p_error_text + " (" + p_url + ")");
-}
-
-void WebPanel::set_url(const String &p_url) {
-	url = p_url;
-	if (cef_object) {
-		cef_object->set(SNAME("url"), url);
-	}
-}
-
-String WebPanel::get_url() const {
-	return url;
-}
-
-void WebPanel::send_message(const String &p_msg) {
-	ERR_FAIL_COND_MSG(!cef_object, "[WebView] send_message before CefTexture ready.");
-	cef_object->call(SNAME("send_ipc_message"), p_msg);
-}
-
-void WebPanel::_on_ipc_message(const String &p_msg) {
-	emit_signal(SNAME("on_message"), p_msg);
 }
