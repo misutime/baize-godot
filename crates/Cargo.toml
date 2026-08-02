@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["webview-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+# 最低支持版本（MSRV）：构建用最新 stable（rust-toolchain.toml），
+# 此字段是兼容底线——工具链过旧时编译报错。
+rust-version = "1.95"

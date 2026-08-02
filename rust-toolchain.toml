@@ -1,0 +1,6 @@
+# Rust 工具链（crates/ workspace 统一使用）。
+# channel = "stable"：跟随最新稳定版（rustup 自动切换），不做 nightly/mise（4A 决策）。
+# 实际构建版本 = 本机已安装的 stable（当前 1.95.0）。
+# 兼容底线由 crates/Cargo.toml 的 workspace.package.rust-version（1.95）保证。
+[toolchain]
+channel = "stable"

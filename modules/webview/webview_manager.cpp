@@ -50,6 +50,33 @@ void WebViewManager::free_singleton() {
 	singleton = nullptr;
 }
 
+void WebViewManager::init_core() {
+	if (core) {
+		return;
+	}
+	// M0：创建 Rust 核心句柄；回调（paint/message/load）在 M1 接入。
+	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+	core = wv_create(exe_dir.utf8().get_data(), nullptr, nullptr);
+	if (!core) {
+		ERR_PRINT("[WebView] Rust core create failed.");
+		return;
+	}
+	print_line("[WebView] Rust core created (4A M0).");
+}
+
+void WebViewManager::shutdown_core() {
+	if (core) {
+		wv_destroy(core);
+		core = nullptr;
+	}
+}
+
+void WebViewManager::pump() {
+	if (core) {
+		wv_pump(core);
+	}
+}
+
 void WebViewManager::load_cef_extension() {
 	// 分发目录约定：<exe_dir>/webview/（开发态 = bin/webview/，由 `just webview-stage` 暂存）。
 	const String ext_path = OS::get_singleton()->get_executable_path().get_base_dir()

@@ -43,7 +43,10 @@ void initialize_webview_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(WebPanel);
 		// B0 前置验证：模块内加载 gdcef 扩展（GDExtensionManager 是 level 感知的，
 		// 会补初始化到当前水位；SCENE 之后的 EDITOR level 由 main.cpp 的循环接管）。
+		// B-Host 遗留路径，M1（4A 渲染切换）后移除。
 		WebViewManager::get_singleton()->load_cef_extension();
+		// 4A M0：创建 Rust 核心（crates/webview-core）。
+		WebViewManager::get_singleton()->init_core();
 	}
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
@@ -56,6 +59,7 @@ void initialize_webview_module(ModuleInitializationLevel p_level) {
 
 void uninitialize_webview_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		WebViewManager::get_singleton()->shutdown_core();
 		WebViewManager::free_singleton();
 	}
 }

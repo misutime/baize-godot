@@ -30,6 +30,8 @@
 
 #include "web_panel.h"
 
+#include "webview_manager.h"
+
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/string/print_string.h"
@@ -55,6 +57,11 @@ void WebPanel::_notification(int p_what) {
 		case NOTIFICATION_READY: {
 			_ensure_cef();
 			set_url(url);
+			set_process(true); // 4A M0: 驱动 Rust 核心消息泵（每帧 wv_pump）
+		} break;
+		case NOTIFICATION_PROCESS: {
+			// 4A M0: 消息泵空转（Rust 核心句柄已创建）；M1 起由 C ABI 驱动 CEF。
+			WebViewManager::get_singleton()->pump();
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
 			// CefTexture 随场景树移除，置空指针避免悬挂。

@@ -6,3 +6,37 @@ Import("env_modules")
 
 env_webview = env_modules.Clone()
 env_webview.add_source_files(env.modules_sources, "*.cpp")
+
+# --- 4A: Rust 核心 staticlib（crates/webview-core）---
+# 目标感知：artifact 名与 target triple 由 SCons 平台/架构/工具链推导。
+# M0 支持 Windows x86_64（MSVC/GNU）；其他平台显式报错（不静默），后续里程碑扩展。
+platform = env["platform"]
+arch = env["arch"]
+mingw = env.get("mingw", False)
+
+if platform == "windows" and arch == "x86_64" and not mingw:
+    rust_target = "x86_64-pc-windows-msvc"
+    lib_name = "webview_core.lib"
+elif platform == "windows" and arch == "x86_64" and mingw:
+    rust_target = "x86_64-pc-windows-gnu"
+    lib_name = "libwebview_core.a"
+else:
+    raise SConsEnvironmentError(
+        f"[webview] 4A M0 仅支持 Windows x86_64，当前 platform={platform} arch={arch} mingw={mingw}"
+    )
+
+# cargo 输入全量跟踪：workspace 清单 + 锁文件 + crate 清单 + 全部 Rust 源（避免改文件后静默链接旧产物）。
+cargo_inputs = (
+    ["#/crates/Cargo.toml", "#/crates/Cargo.lock", "#/crates/webview-core/Cargo.toml"]
+    + Glob("#/crates/webview-core/src/*.rs")
+)
+
+core_lib = env.Command(
+    f"#/crates/target/{rust_target}/release/{lib_name}",
+    cargo_inputs,
+    f"cargo build --release --target {rust_target} --manifest-path crates/Cargo.toml -p webview-core",
+    chdir=Dir("#/"),
+)
+# 用 LIBS 而非 LINKFLAGS：静态库须排在目标文件之后链接（单遍链接器按序扫描，
+# 放 LINKFLAGS 会先于 $SOURCES 扫描 → wv_* 符号解析不到）。Node 参与链接命令行即建立依赖。
+env.Append(LIBS=[core_lib[0]])

@@ -1,0 +1,13 @@
+[package]
+name = "webview-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# 引擎 webview Rust 核心（4A）：静态库，经 C ABI 与 C++ 壳通信。
+# 边界纪律：只承载浏览器语义，禁止 Godot 对象模型穿越。
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]

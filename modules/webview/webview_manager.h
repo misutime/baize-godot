@@ -30,17 +30,26 @@
 
 #pragma once
 
+#include "webview_ffi.h"
+
 #include "core/string/ustring.h"
 
-// 引擎级 webview 管理单例（Route B）。
-// 职责：从编辑器分发目录（<exe_dir>/webview/）自动加载 gdcef 扩展。
-// 页面/扩展均随编辑器分发，与打开的项目无关。
+// 引擎级 webview 管理单例（4A）。
+// 职责：持有 Rust 核心（WebViewCore）生命周期，每帧 pump（由 WebPanel._process 驱动）。
+// M0：gdext 托管路径（B-Host）仍在，两者并存；M1 渲染切换后移除 gdext。
 class WebViewManager {
 	static WebViewManager *singleton;
+
+	WebViewCore *core = nullptr;
 
 public:
 	static WebViewManager *get_singleton();
 	static void free_singleton();
 
+	void init_core();
+	void shutdown_core();
+	void pump();
+
+	// B-Host 遗留（M1 前保留）：加载 gdcef GDExtension，供当前 WebPanel 渲染。
 	void load_cef_extension();
 };

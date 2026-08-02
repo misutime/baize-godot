@@ -400,3 +400,6 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# Rust workspace build artifacts (4A webview core)
+crates/target/
