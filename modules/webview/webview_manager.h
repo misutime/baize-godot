@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "core/string/string.h"
+#include "core/string/ustring.h"
 
 // 引擎级 webview 管理单例（Route B）。
 // B0 阶段职责：按环境变量 GODOT_CEF_EXTENSION 加载 gdcef 扩展；

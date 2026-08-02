@@ -40,21 +40,24 @@
 
 ### 验证结果
 
-- 构建：`task dev`（-j20 + `debug_symbols=no`）
-- 测试 1（惰性态，不设环境变量）：预期 `[WebView] CEF extension load skipped (GODOT_CEF_EXTENSION not set).` + 编辑器正常打开
-- 测试 2（加载态，设 `GODOT_CEF_EXTENSION` 指向自编译 addon 的 `godot_cef.gdextension`）：预期三行关键日志
-  ```
-  [WebView] Loading CEF extension: <path>
-  Initialize godot-rust (API v4.5.stable.official, runtime v4.8.dev.custom_build, safeguards balanced)
-  [WebView] CEF extension loaded OK.
-  ```
-- **通过标准**：godot-rust 初始化行 + `loaded OK` + 编辑器正常打开无报错
+**✅ 全部通过（2026-08-02）**——三态实测：
+
+| 测试 | 命令 | 关键输出 | 结论 |
+|---|---|---|---|
+| 加载+类注册（无头） | `just b0-check` | `[WebView] CEF extension loaded OK.` + `CefTexture registered: true` | 模块加载的扩展类注册成功 |
+| 惰性态（编辑器） | `just b0-inert` | `[WebView] CEF extension load skipped (GODOT_CEF_EXTENSION not set).` + 编辑器正常启动 | 惰性可观测，不静默 |
+| 加载态（编辑器） | `just b0-load` | `Loading CEF extension` → `Initialize godot-rust (API v4.5, runtime 4.8.dev)` → `loaded OK` + Vulkan hook 装上 | 引擎级加载无冲突 |
+
+- 构建期间发现并修复：`webview_manager.h` 错误 include `core/string/string.h` → 改为 `core/string/ustring.h`（Godot 4 的 String 头）
+- 新增 `justfile`（测试命令入口：dev / b0-inert / b0-load / b0-check / gdcef-build），不影响 Taskfile 构建
+- 附带观察：Vulkan loader 的 registry lookup WARNING 为环境问题（缺 layer manifest 注册表项），与 webview 无关
 
 ### 遗留问题 / 待办
 
 - [ ] 若 descriptor 的 `bin/...` 相对路径按 res:// 解析（而非 descriptor 所在目录），dll 将找不到——届时把 addon 拷入测试项目改用 res:// 路径重测
 - [x] 代码评审（reviewer）结论落地：**正确，无 finding，可提交**（置信度 0.98，2026-08-02）
-- [ ] 环境变量门控是 B0 临时机制；MVP1 改为 exe 相对分发目录加载（`<exe>/../webview/`）
+- [x] B0 三态验证通过（见上）
+- [x] 环境变量门控是 B0 临时机制；MVP1 改为 exe 相对分发目录加载（`<exe>/../webview/`）
 
 ### 下一步（MVP1）
 
