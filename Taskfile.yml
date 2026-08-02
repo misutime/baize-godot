@@ -13,8 +13,11 @@ tasks:
     cmd: task --list
 
   dev:
-    desc: "构建当前平台开发版编辑器"
-    cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "16"}}'
+    desc: "构建当前平台开发版编辑器（迭代模式：无调试符号）"
+    # 原命令（2026-08-02 注释保留，勿删）：dev_build 默认开 debug_symbols，PDB 568MB，迭代编译慢
+    # cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "16"}}'
+    # 新命令：-- debug_symbols=no 跳过符号生成/链接；-j20 匹配 14700K 20 核；需要符号时用 scons debug_symbols=yes 覆盖
+    cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "20"}} -- debug_symbols=no'
 
   pro:
     desc: "构建当前平台 pro 版编辑器"
