@@ -32,95 +32,98 @@
 
 #include "webview_manager.h"
 
-#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/string/print_string.h"
+#include "core/string/ustring.h"
 
-WebPanel::~WebPanel() {
-	// cef_object 是 GDExtension 对象，随本 Control 从场景树移除后由引擎引用计数释放；
-	// 这里不手动释放（GDExtension 对象生命周期归 ClassDB 引用管理）。
-}
+#include <cstring>
+
+WebPanel::~WebPanel() = default;
 
 void WebPanel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_url", "url"), &WebPanel::set_url);
 	ClassDB::bind_method(D_METHOD("get_url"), &WebPanel::get_url);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "url"), "set_url", "get_url");
-
-	ClassDB::bind_method(D_METHOD("send_message", "message"), &WebPanel::send_message);
-	ClassDB::bind_method(D_METHOD("_on_ipc_message", "message"), &WebPanel::_on_ipc_message);
-
-	ADD_SIGNAL(MethodInfo("on_message", PropertyInfo(Variant::STRING, "message")));
 }
 
 void WebPanel::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY: {
-			_ensure_cef();
-			set_url(url);
-			set_process(true); // 4A M0: 驱动 Rust 核心消息泵（每帧 wv_pump）
+			texture_rect = memnew(TextureRect);
+			texture_rect->set_anchors_preset(Control::PRESET_FULL_RECT);
+			texture_rect->set_stretch_mode(TextureRect::STRETCH_SCALE);
+			add_child(texture_rect);
+			set_process(true); // 驱动 Rust 核心消息泵
+			// 注册面板，获取 browser_id；立即尝试按当前尺寸创建浏览器
+			// （注意：NOTIFICATION_RESIZED 可能在 _ready 之前触发，届时 id 未分配，见 sync_size 守卫）。
+			WebViewManager::get_singleton()->register_panel(this);
+			sync_size();
 		} break;
 		case NOTIFICATION_PROCESS: {
-			// 4A M0: 消息泵空转（Rust 核心句柄已创建）；M1 起由 C ABI 驱动 CEF。
 			WebViewManager::get_singleton()->pump();
 		} break;
+		case NOTIFICATION_RESIZED: {
+			sync_size();
+		} break;
 		case NOTIFICATION_EXIT_TREE: {
-			// CefTexture 随场景树移除，置空指针避免悬挂。
-			cef_object = nullptr;
+			if (browser_created) {
+				WebViewManager::get_singleton()->destroy_browser(browser_id);
+				browser_created = false;
+			}
+			if (browser_id >= 0) {
+				WebViewManager::get_singleton()->unregister_panel(browser_id);
+				browser_id = -1;
+			}
 		} break;
 		default:
 			break;
 	}
 }
 
-void WebPanel::_ensure_cef() {
-	if (cef_object) {
-		return;
-	}
-	// 必须用 instantiate_no_placeholders：CefTexture 是非 tool 类（gdext 默认 ToolClassesOnly），
-	// 编辑器进程里普通 instantiate 会返回占位对象（通知 no-op）→ CEF 永不初始化、页面空白。
-	cef_object = ClassDB::instantiate_no_placeholders(SNAME("CefTexture"));
-	if (!cef_object) {
-		ERR_PRINT("[WebView] CefTexture class not found — gdcef extension not loaded?");
-		return;
-	}
-	Control *cef_control = Object::cast_to<Control>(cef_object);
-	if (!cef_control) {
-		ERR_PRINT("[WebView] CefTexture is not a Control.");
-		cef_object = nullptr;
-		return;
-	}
-	cef_control->set_anchors_preset(Control::PRESET_FULL_RECT);
-	add_child(cef_control);
-	cef_object->connect(SNAME("ipc_message"), callable_mp(this, &WebPanel::_on_ipc_message));
-	// 页面加载的可观测性：状态/错误直接打日志，避免静默空白。
-	cef_object->connect(SNAME("load_finished"), callable_mp(this, &WebPanel::_on_load_finished));
-	cef_object->connect(SNAME("load_error"), callable_mp(this, &WebPanel::_on_load_error));
-}
-
-void WebPanel::_on_load_finished(const String &p_url, int p_http_status) {
-	print_line("[WebView] page loaded: " + p_url + " (status " + itos(p_http_status) + ")");
-}
-
-void WebPanel::_on_load_error(const String &p_url, int p_error_code, const String &p_error_text) {
-	ERR_PRINT("[WebView] page load error " + itos(p_error_code) + ": " + p_error_text + " (" + p_url + ")");
-}
-
 void WebPanel::set_url(const String &p_url) {
 	url = p_url;
-	if (cef_object) {
-		cef_object->set(SNAME("url"), url);
+	if (browser_created) {
+		// 已建浏览器：直接导航到新 URL（而非只缓存字符串）。
+		WebViewManager::get_singleton()->navigate_browser(browser_id, url);
 	}
 }
 
-String WebPanel::get_url() const {
-	return url;
+void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
+	if (p_w == 0 || p_h == 0 || !p_rgba) {
+		return;
+	}
+	// 每次 paint 重建 Image + ImageTexture（软件渲染 60fps 可接受；GPU 路径 V2 替换）。
+	PackedByteArray data;
+	data.resize(p_w * p_h * 4);
+	memcpy(data.ptrw(), p_rgba, p_w * p_h * 4);
+	Ref<Image> image = Image::create_from_data(p_w, p_h, false, Image::FORMAT_RGBA8, data);
+	if (image.is_null()) {
+		return;
+	}
+	texture = ImageTexture::create_from_image(image);
+	if (texture_rect) {
+		texture_rect->set_texture(texture);
+	}
 }
 
-void WebPanel::send_message(const String &p_msg) {
-	ERR_FAIL_COND_MSG(!cef_object, "[WebView] send_message before CefTexture ready.");
-	cef_object->call(SNAME("send_ipc_message"), p_msg);
-}
-
-void WebPanel::_on_ipc_message(const String &p_msg) {
-	emit_signal(SNAME("on_message"), p_msg);
+void WebPanel::sync_size() {
+	// RESIZED 可能早于 _ready（注册分配 id）触发——未注册时不创建，等 READY 主动同步。
+	if (browser_id < 0) {
+		return;
+	}
+	Size2i size = get_size();
+	if (size.x <= 0 || size.y <= 0) {
+		return;
+	}
+	if (browser_created) {
+		WebViewManager::get_singleton()->resize_browser(browser_id, size.x, size.y);
+	} else {
+		int ret = WebViewManager::get_singleton()->create_browser(browser_id, url, size.x, size.y);
+		if (ret == 0) {
+			browser_created = true;
+			print_line("[WebView] WebPanel browser created: id=" + itos(browser_id) + " url=" + url);
+		} else {
+			ERR_PRINT("[WebView] WebPanel browser create failed: id=" + itos(browser_id));
+		}
+	}
 }

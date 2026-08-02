@@ -1,0 +1,12 @@
+[package]
+name = "cef-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+# 本 crate 源码 vendor 自 godot-cef（MIT），保持与上游结构一致（独立 crate，0 Godot 耦合）。
+
+[dependencies]
+# 升级到最新稳定（上游锁 148.2.0 → 151.1.0）。
+cef = { version = "151.1.0" }
+ciborium = "0.2.2"

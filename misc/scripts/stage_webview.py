@@ -1,13 +1,14 @@
-#!/usr/bin/env python3
-"""Stage godot-cef build artifacts into the editor distribution directory.
+#!/usr/bin/env python
+"""Stage webview artifacts into the editor distribution directory.
 
-godot-cef 与 baize-godot 独立开发：本脚本只消费 godot-cef 的**编译产物**
-（addons/godot_cef/ 完整 addon），不引入其源码。产物暂存到 <repo>/bin/webview/，
-由引擎模块在编辑器启动时自动加载（与打开的项目无关）。
+4A 路线（M1b+）暂存：
+- webview-helper.exe + CEF 运行时（libcef.dll 等）→ <repo>/bin/（exe 旁，DLL 搜索与子进程路径）
+- ui/ 页面产物 → <repo>/bin/webview/ui/（file:// 加载）
 
-产物来源（路径直接关联，显式可见）：
-  ADDON_SOURCE = ../refers/godot-cef/addons/godot_cef（相对本仓库）
-  UI_SOURCE    = ../refers/cef-smoke-test/ui（MVP 阶段页面产物；后续为 ui/ 工程构建输出）
+来源（路径直接关联，显式可见）：
+- HELPER   = crates/target/<triple>/release/webview-helper.exe（cargo 构建产物）
+- CEF_RUNTIME = <CEF_DIST>/<version>/cef_windows_x86_64/（cef-dist.txt 配置的分发包）
+- UI       = ../refers/cef-smoke-test/ui（MVP 阶段；后续为 ui/ 工程构建输出）
 
 用法：
   python misc/scripts/stage_webview.py
@@ -19,53 +20,130 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ADDON_SOURCE = REPO_ROOT.parent / "refers" / "godot-cef" / "addons" / "godot_cef"
+BIN_DIR = REPO_ROOT / "bin"
 UI_SOURCE = REPO_ROOT.parent / "refers" / "cef-smoke-test" / "ui"
-DEST = REPO_ROOT / "bin" / "webview"
+HELPER_SRC = (
+    REPO_ROOT
+    / "crates"
+    / "target"
+    / "x86_64-pc-windows-msvc"
+    / "release"
+    / "webview-helper.exe"
+)
+UI_DEST = BIN_DIR / "webview" / "ui"
 
 
-def main() -> int:
-    descriptor = ADDON_SOURCE / "godot_cef.gdextension"
-    if not descriptor.is_file():
+def read_cef_dist() -> str:
+    """读 crates/cef-dist.txt（与 SCsub 同一配置文件，保证构建/暂存选同一分发包根）。"""
+    cfg = REPO_ROOT / "crates" / "cef-dist.txt"
+    for line in cfg.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    raise SystemExit(f"[stage-webview] ERROR: {cfg} 无有效路径")
+
+
+CEF_DIST = Path(read_cef_dist())
+
+
+# CEF 运行时文件（与 libcef.dll 同级；需与编辑器 exe 同级以便 Windows DLL 搜索）。
+CEF_RUNTIME_FILES = [
+    "libcef.dll",
+    "chrome_elf.dll",
+    "libEGL.dll",
+    "libGLESv2.dll",
+    "d3dcompiler_47.dll",
+    "dxcompiler.dll",
+    "dxil.dll",
+    "vk_swiftshader.dll",
+    "vk_swiftshader_icd.json",
+    "vulkan-1.dll",
+    "icudtl.dat",
+    "resources.pak",
+    "chrome_100_percent.pak",
+    "chrome_200_percent.pak",
+    "v8_context_snapshot.bin",
+    "locales",
+]
+
+# 必需页面文件（缺失即失败）。
+REQUIRED_UI_FILES = ["bridge.html"]
+
+
+def find_cef_runtime_dir() -> Path:
+    """定位 CEF 分发包运行时目录（<CEF_DIST>/<version>/cef_windows_x86_64/）。"""
+    if not CEF_DIST.is_dir():
+        return Path()
+    for version_dir in sorted(CEF_DIST.iterdir(), reverse=True):
+        candidate = version_dir / "cef_windows_x86_64"
+        if (candidate / "libcef.dll").is_file():
+            return candidate
+    return Path()
+
+
+def stage_4a() -> int:
+    """暂存 helper + CEF 运行时到 bin/（exe 旁）。"""
+    if not HELPER_SRC.is_file():
         print(
-            f"[stage-webview] ERROR: addon not found at {ADDON_SOURCE} "
-            "(missing godot_cef.gdextension) — build godot-cef first "
-            "(`just gdcef-build` in that repo).",
+            f"[stage-webview] ERROR: helper not found at {HELPER_SRC} — "
+            "run `task dev` (or cargo build) first.",
             file=sys.stderr,
         )
         return 2
 
-    # 全量重建分发目录（保证与来源一致，不残留旧文件）。
-    if DEST.exists():
-        shutil.rmtree(DEST)
-    shutil.copytree(ADDON_SOURCE, DEST)
+    cef_runtime = find_cef_runtime_dir()
+    if not cef_runtime.is_dir():
+        print(
+            f"[stage-webview] ERROR: CEF runtime not found under {CEF_DIST} — "
+            "check crates/cef-dist.txt and rebuild.",
+            file=sys.stderr,
+        )
+        return 2
 
-    ui_dest = DEST / "ui"
-    ui_dest.mkdir(parents=True, exist_ok=True)
-    if not UI_SOURCE.is_dir():
-        print(f"[stage-webview] WARNING: UI source {UI_SOURCE} not found — dock page will 404.", file=sys.stderr)
-    else:
-        for f in sorted(UI_SOURCE.glob("*.html")):
-            shutil.copy2(f, ui_dest / f.name)
+    shutil.copy2(HELPER_SRC, BIN_DIR / "webview-helper.exe")
+    missing = []
+    for name in CEF_RUNTIME_FILES:
+        src = cef_runtime / name
+        try:
+            if src.is_dir():
+                shutil.copytree(src, BIN_DIR / name, dirs_exist_ok=True)
+            elif src.is_file():
+                shutil.copy2(src, BIN_DIR / name)
+            else:
+                missing.append(name)
+        except OSError as e:
+            missing.append(f"{name} ({e})")
+    if missing:
+        print(f"[stage-webview] ERROR: CEF 运行时缺失: {missing}", file=sys.stderr)
+        return 2
 
-    # 可追溯清单：记录来源与时间（版本锁定另见实施记录；此处记录实际来源路径）。
-    manifest = DEST / "MANIFEST.txt"
-    file_count = sum(1 for _ in DEST.rglob("*") if _.is_file())
+    UI_DEST.mkdir(parents=True, exist_ok=True)
+    missing_ui = [f for f in REQUIRED_UI_FILES if not (UI_SOURCE / f).is_file()]
+    if missing_ui:
+        print(f"[stage-webview] ERROR: UI 文件缺失: {missing_ui}", file=sys.stderr)
+        return 2
+    for f in REQUIRED_UI_FILES:
+        shutil.copy2(UI_SOURCE / f, UI_DEST / f)
+
+    manifest = BIN_DIR / "webview" / "MANIFEST.txt"
     manifest.write_text(
         "\n".join(
             [
                 f"staged_at: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-                f"addon_source: {ADDON_SOURCE}",
+                f"helper_source: {HELPER_SRC}",
+                f"cef_runtime: {cef_runtime}",
                 f"ui_source: {UI_SOURCE if UI_SOURCE.is_dir() else '(missing)'}",
-                f"file_count: {file_count}",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-
-    print(f"[stage-webview] staged {ADDON_SOURCE} -> {DEST} ({file_count} files)")
+    print(f"[stage-webview] staged 4A artifacts -> {BIN_DIR}")
     return 0
+
+
+def main() -> int:
+    return stage_4a()
 
 
 if __name__ == "__main__":

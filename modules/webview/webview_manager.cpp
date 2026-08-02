@@ -30,6 +30,8 @@
 
 #include "webview_manager.h"
 
+#include "web_panel.h"
+
 #include "core/extension/gdextension_manager.h"
 #include "core/io/file_access.h"
 #include "core/os/os.h"
@@ -54,14 +56,17 @@ void WebViewManager::init_core() {
 	if (core) {
 		return;
 	}
-	// M0：创建 Rust 核心句柄；回调（paint/message/load）在 M1 接入。
 	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
-	core = wv_create(exe_dir.utf8().get_data(), nullptr, nullptr);
+	WvCallbacks cbs;
+	cbs.on_paint = &WebViewManager::_on_paint;
+	cbs.on_message = nullptr; // M2 接入 IPC
+	cbs.on_load_status = &WebViewManager::_on_load_status;
+	core = wv_create(exe_dir.utf8().get_data(), &cbs, nullptr);
 	if (!core) {
 		ERR_PRINT("[WebView] Rust core create failed.");
 		return;
 	}
-	print_line("[WebView] Rust core created (4A M0).");
+	print_line("[WebView] Rust core created (4A M1b).");
 }
 
 void WebViewManager::shutdown_core() {
@@ -77,32 +82,52 @@ void WebViewManager::pump() {
 	}
 }
 
-void WebViewManager::load_cef_extension() {
-	// 分发目录约定：<exe_dir>/webview/（开发态 = bin/webview/，由 `just webview-stage` 暂存）。
-	const String ext_path = OS::get_singleton()->get_executable_path().get_base_dir()
-									.path_join("webview")
-									.path_join("godot_cef.gdextension");
+void WebViewManager::register_panel(WebPanel *p_panel) {
+	int32_t id = next_browser_id++;
+	p_panel->set_browser_id(id);
+	panels[id] = p_panel;
+}
 
-	if (!FileAccess::exists(ext_path)) {
-		// 未暂存 = 模块惰性状态，但不静默：打印可观测提示。
-		print_line("[WebView] CEF extension not staged at " + ext_path + " — run `just webview-stage` first.");
-		return;
-	}
+void WebViewManager::unregister_panel(int32_t p_id) {
+	panels.erase(p_id);
+}
 
-	print_line("[WebView] Loading CEF extension: " + ext_path);
-	const GDExtensionManager::LoadStatus status = GDExtensionManager::get_singleton()->load_extension(ext_path);
-	switch (status) {
-		case GDExtensionManager::LOAD_STATUS_OK:
-			print_line("[WebView] CEF extension loaded OK.");
-			break;
-		case GDExtensionManager::LOAD_STATUS_ALREADY_LOADED:
-			print_line("[WebView] CEF extension already loaded.");
-			break;
-		case GDExtensionManager::LOAD_STATUS_NEEDS_RESTART:
-			print_line("[WebView] CEF extension load requires restart (minimum level mismatch).");
-			break;
-		default:
-			ERR_PRINT("[WebView] CEF extension load FAILED (status " + itos(status) + ").");
-			break;
+int WebViewManager::create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h) {
+	if (!core) {
+		ERR_PRINT("[WebView] create_browser before core ready.");
+		return -1;
 	}
+	CharString url = p_url.utf8();
+	return wv_create_browser(core, p_id, url.get_data(), p_w, p_h);
+}
+
+void WebViewManager::resize_browser(int32_t p_id, int32_t p_w, int32_t p_h) {
+	if (core) {
+		wv_resize_browser(core, p_id, p_w, p_h);
+	}
+}
+
+void WebViewManager::destroy_browser(int32_t p_id) {
+	if (core) {
+		wv_destroy_browser(core, p_id);
+	}
+}
+
+void WebViewManager::navigate_browser(int32_t p_id, const String &p_url) {
+	if (core) {
+		CharString url = p_url.utf8();
+		wv_navigate_browser(core, p_id, url.get_data());
+	}
+}
+
+void WebViewManager::_on_paint(void *p_userdata, int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
+	WebViewManager *mgr = get_singleton();
+	WebPanel **slot = mgr->panels.getptr(p_id);
+	if (slot && *slot) {
+		(*slot)->set_paint(p_rgba, p_w, p_h);
+	}
+}
+
+void WebViewManager::_on_load_status(void *p_userdata, int32_t p_id, int32_t p_status, const char *p_url) {
+	print_line("[WebView] load status: id=" + itos(p_id) + " status=" + itos(p_status));
 }

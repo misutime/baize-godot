@@ -33,14 +33,19 @@
 #include "webview_ffi.h"
 
 #include "core/string/ustring.h"
+#include "core/templates/hash_map.h"
+
+class WebPanel;
 
 // 引擎级 webview 管理单例（4A）。
-// 职责：持有 Rust 核心（WebViewCore）生命周期，每帧 pump（由 WebPanel._process 驱动）。
-// M0：gdext 托管路径（B-Host）仍在，两者并存；M1 渲染切换后移除 gdext。
+// 职责：持有 Rust 核心（WebViewCore）生命周期、每帧 pump（WebPanel._process 驱动）、
+// 面板注册表（browser_id → WebPanel）与 C ABI 回调分发。
 class WebViewManager {
 	static WebViewManager *singleton;
 
 	WebViewCore *core = nullptr;
+	HashMap<int32_t, WebPanel *> panels;
+	int32_t next_browser_id = 0;
 
 public:
 	static WebViewManager *get_singleton();
@@ -50,6 +55,15 @@ public:
 	void shutdown_core();
 	void pump();
 
-	// B-Host 遗留（M1 前保留）：加载 gdcef GDExtension，供当前 WebPanel 渲染。
-	void load_cef_extension();
+	void register_panel(WebPanel *p_panel);
+	void unregister_panel(int32_t p_id);
+
+	int create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h);
+	void resize_browser(int32_t p_id, int32_t p_w, int32_t p_h);
+	void destroy_browser(int32_t p_id);
+	void navigate_browser(int32_t p_id, const String &p_url);
+
+	// C ABI 回调（Rust 核心 → C++ 壳）。
+	static void _on_paint(void *p_userdata, int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
+	static void _on_load_status(void *p_userdata, int32_t p_id, int32_t p_status, const char *p_url);
 };

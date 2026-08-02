@@ -1,0 +1,660 @@
+use ciborium::value::Value as CborValue;
+use std::sync::{Arc, Mutex};
+
+use cef::{
+    self, CefStringUtf16, Frame, ImplFrame, ImplListValue, ImplProcessMessage, ImplV8Handler,
+    ImplV8Value, ProcessId, V8Handler, V8Value, WrapV8Handler, binary_value_create,
+    process_message_create, rc::Rc, v8_value_create_array, v8_value_create_bool,
+    v8_value_create_function, v8_value_create_object, wrap_v8_handler,
+};
+
+use crate::ipc_contract::{
+    MAX_IPC_DATA_BYTES, ROUTE_IME_CARET_POSITION, ROUTE_IPC_BINARY_RENDERER_TO_GODOT,
+    ROUTE_IPC_DATA_RENDERER_TO_GODOT, ROUTE_IPC_RENDERER_TO_GODOT,
+};
+
+fn set_v8_bool_retval(retval: Option<&mut Option<cef::V8Value>>, value: bool) {
+    if let Some(retval) = retval {
+        *retval = v8_value_create_bool(value as _);
+    }
+}
+
+fn v8_fail(retval: Option<&mut Option<cef::V8Value>>) -> i32 {
+    set_v8_bool_retval(retval, false);
+    0
+}
+
+fn v8_ok(retval: Option<&mut Option<cef::V8Value>>) -> i32 {
+    set_v8_bool_retval(retval, true);
+    1
+}
+
+macro_rules! define_frame_handler {
+    ($name:ident) => {
+        #[derive(Clone)]
+        pub(crate) struct $name {
+            frame: Option<Arc<Mutex<Frame>>>,
+        }
+        impl $name {
+            pub fn new(frame: Option<Arc<Mutex<Frame>>>) -> Self {
+                Self { frame }
+            }
+        }
+    };
+}
+
+macro_rules! impl_handler_build {
+    ($builder:ident, $handler:ty => $output:ty) => {
+        impl $builder {
+            pub(crate) fn build(handler: $handler) -> $output {
+                Self::new(handler)
+            }
+        }
+    };
+}
+
+pub(crate) fn v8_prop_default() -> cef::V8Propertyattribute {
+    cef::V8Propertyattribute::from(cef::sys::cef_v8_propertyattribute_t(0))
+}
+
+fn v8_prop_listener_callbacks() -> cef::V8Propertyattribute {
+    cef::V8Propertyattribute::from(
+        cef::sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_READONLY
+            | cef::sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_DONTENUM
+            | cef::sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_DONTDELETE,
+    )
+}
+
+fn send_process_message_to_browser<F>(
+    frame: Option<&Arc<Mutex<Frame>>>,
+    route: &str,
+    fill_args: F,
+) -> bool
+where
+    F: FnOnce(&mut cef::ListValue),
+{
+    let Some(frame) = frame else {
+        return false;
+    };
+    let Ok(frame) = frame.lock() else {
+        return false;
+    };
+    let route = CefStringUtf16::from(route);
+    let Some(mut process_message) = process_message_create(Some(&route)) else {
+        return false;
+    };
+    if let Some(mut argument_list) = process_message.argument_list() {
+        fill_args(&mut argument_list);
+    }
+    frame.send_process_message(ProcessId::BROWSER, Some(&mut process_message));
+    true
+}
+
+define_frame_handler!(OsrIpcHandler);
+impl_handler_build!(OsrIpcHandlerBuilder, OsrIpcHandler => V8Handler);
+
+wrap_v8_handler! {
+    pub(crate) struct OsrIpcHandlerBuilder {
+        handler: OsrIpcHandler,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefStringUtf16>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<cef::V8Value>>,
+            _exception: Option<&mut CefStringUtf16>
+        ) -> i32 {
+            if let Some(arguments) = arguments
+                && let Some(arg) = arguments.first()
+                    && let Some(arg) = arg {
+                        if arg.is_string() != 1 {
+                            return v8_fail(retval);
+                        }
+
+                        let msg_str = CefStringUtf16::from(&arg.string_value());
+                        if send_process_message_to_browser(
+                            self.handler.frame.as_ref(),
+                            ROUTE_IPC_RENDERER_TO_GODOT,
+                            |argument_list| {
+                                argument_list.set_string(0, Some(&msg_str));
+                            },
+                        ) {
+                            return v8_ok(retval);
+                        }
+                    }
+
+            v8_fail(retval)
+        }
+    }
+}
+
+define_frame_handler!(OsrIpcBinaryHandler);
+define_frame_handler!(OsrIpcDataHandler);
+impl_handler_build!(OsrIpcDataHandlerBuilder, OsrIpcDataHandler => V8Handler);
+
+wrap_v8_handler! {
+    pub(crate) struct OsrIpcDataHandlerBuilder {
+        handler: OsrIpcDataHandler,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefStringUtf16>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<cef::V8Value>>,
+            exception: Option<&mut CefStringUtf16>
+        ) -> i32 {
+            if let Some(arguments) = arguments
+                && let Some(Some(arg)) = arguments.first()
+            {
+                match v8_to_cbor_bytes(arg) {
+                    Ok(encoded) => {
+                        if encoded.len() > MAX_IPC_DATA_BYTES {
+                            set_v8_bool_retval(retval, false);
+                            if let Some(exception) = exception {
+                                let msg = format!(
+                                    "IPC data payload exceeds maximum size of {} bytes",
+                                    MAX_IPC_DATA_BYTES
+                                );
+                                *exception = CefStringUtf16::from(msg.as_str());
+                            }
+                            return 0;
+                        }
+
+                        if let Some(mut binary) = binary_value_create(Some(&encoded))
+                            && send_process_message_to_browser(
+                                self.handler.frame.as_ref(),
+                                ROUTE_IPC_DATA_RENDERER_TO_GODOT,
+                                |argument_list| {
+                                    argument_list.set_binary(0, Some(&mut binary));
+                                },
+                            )
+                        {
+                            return v8_ok(retval);
+                        }
+                    }
+                    Err(err) => {
+                        set_v8_bool_retval(retval, false);
+                        if let Some(exception) = exception {
+                            *exception = CefStringUtf16::from(err.as_str());
+                        }
+                        return 0;
+                    }
+                }
+            }
+
+            v8_fail(retval)
+        }
+    }
+}
+
+const LISTENER_CALLBACKS_KEY: &str = "__godotCefListenerCallbacks";
+
+#[derive(Clone, Copy)]
+enum ListenerOperation {
+    Add,
+    Remove,
+    Has,
+}
+
+#[derive(Clone)]
+pub(crate) struct OsrListenerHandler {
+    op: ListenerOperation,
+}
+
+impl OsrListenerHandler {
+    fn new(op: ListenerOperation) -> Self {
+        Self { op }
+    }
+}
+
+impl_handler_build!(OsrListenerHandlerBuilder, OsrListenerHandler => V8Handler);
+
+wrap_v8_handler! {
+    pub(crate) struct OsrListenerHandlerBuilder {
+        handler: OsrListenerHandler,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefStringUtf16>,
+            object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<cef::V8Value>>,
+            _exception: Option<&mut CefStringUtf16>
+        ) -> i32 {
+            let mut result = false;
+            if let Some(object) = object
+                && let Some(arguments) = arguments
+                && let Some(Some(arg)) = arguments.first()
+                && arg.is_function() != 0
+            {
+                result = match self.handler.op {
+                    ListenerOperation::Add => add_ipc_listener(object, arg),
+                    ListenerOperation::Remove => remove_ipc_listener(object, arg),
+                    ListenerOperation::Has => has_ipc_listener(object, arg),
+                };
+            }
+
+            if let Some(retval) = retval {
+                *retval = v8_value_create_bool(result as _);
+            }
+            1
+        }
+    }
+}
+
+pub(crate) fn build_ipc_listener_object() -> Option<V8Value> {
+    let object = v8_value_create_object(None, None)?;
+    let mut callbacks = v8_value_create_array(0)?;
+    let callbacks_key: CefStringUtf16 = LISTENER_CALLBACKS_KEY.into();
+    if object.set_value_bykey(
+        Some(&callbacks_key),
+        Some(&mut callbacks),
+        v8_prop_listener_callbacks(),
+    ) == 0
+    {
+        return None;
+    }
+
+    const LISTENER_OPS: &[(&str, ListenerOperation)] = &[
+        ("addListener", ListenerOperation::Add),
+        ("removeListener", ListenerOperation::Remove),
+        ("hasListener", ListenerOperation::Has),
+    ];
+
+    for &(name, op) in LISTENER_OPS {
+        let mut handler = OsrListenerHandlerBuilder::build(OsrListenerHandler::new(op));
+        let key: CefStringUtf16 = name.into();
+        let mut func = v8_value_create_function(Some(&key), Some(&mut handler))?;
+        if object.set_value_bykey(Some(&key), Some(&mut func), v8_prop_default()) == 0 {
+            return None;
+        }
+    }
+
+    Some(object)
+}
+
+pub(crate) fn emit_ipc_listener(
+    listener_api: &mut V8Value,
+    receiver: &mut V8Value,
+    value: &V8Value,
+) {
+    let Some(callbacks) = listener_callbacks(listener_api) else {
+        return;
+    };
+
+    let callbacks = collect_listener_callbacks(&callbacks);
+    for callback in callbacks {
+        let _ = callback.execute_function(Some(&mut *receiver), Some(&[Some(value.clone())]));
+    }
+}
+
+fn listener_callbacks(object: &V8Value) -> Option<V8Value> {
+    let callbacks_key: CefStringUtf16 = LISTENER_CALLBACKS_KEY.into();
+    let callbacks = object.value_bykey(Some(&callbacks_key))?;
+    (callbacks.is_array() != 0).then_some(callbacks)
+}
+
+fn collect_listener_callbacks(callbacks: &V8Value) -> Vec<V8Value> {
+    let len = callbacks.array_length();
+    let mut snapshot = Vec::with_capacity(len.max(0) as usize);
+    for index in 0..len {
+        if let Some(callback) = callbacks.value_byindex(index)
+            && callback.is_valid() != 0
+            && callback.is_function() != 0
+        {
+            snapshot.push(callback);
+        }
+    }
+    snapshot
+}
+
+fn add_ipc_listener(object: &V8Value, callback: &V8Value) -> bool {
+    let Some(callbacks) = listener_callbacks(object) else {
+        return false;
+    };
+    if !compact_listener_callbacks(&callbacks) {
+        return false;
+    }
+    if has_listener_in_callbacks(&callbacks, callback) {
+        return true;
+    }
+
+    let mut callback = callback.clone();
+    callbacks.set_value_byindex(callbacks.array_length(), Some(&mut callback)) != 0
+}
+
+fn remove_ipc_listener(object: &V8Value, callback: &V8Value) -> bool {
+    let Some(callbacks) = listener_callbacks(object) else {
+        return false;
+    };
+
+    let mut write_index = 0;
+    for index in 0..callbacks.array_length() {
+        let Some(mut existing) = callbacks.value_byindex(index) else {
+            continue;
+        };
+        let mut callback = callback.clone();
+        if existing.is_same(Some(&mut callback)) != 0 {
+            continue;
+        }
+        if existing.is_valid() == 0 || existing.is_function() == 0 {
+            continue;
+        }
+
+        if callbacks.set_value_byindex(write_index, Some(&mut existing)) == 0 {
+            return false;
+        }
+        write_index += 1;
+    }
+
+    set_array_length(&callbacks, write_index)
+}
+
+fn has_ipc_listener(object: &V8Value, callback: &V8Value) -> bool {
+    listener_callbacks(object)
+        .map(|callbacks| has_listener_in_callbacks(&callbacks, callback))
+        .unwrap_or(false)
+}
+
+fn has_listener_in_callbacks(callbacks: &V8Value, callback: &V8Value) -> bool {
+    for index in 0..callbacks.array_length() {
+        if let Some(existing) = callbacks.value_byindex(index) {
+            let mut callback = callback.clone();
+            if existing.is_same(Some(&mut callback)) != 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn compact_listener_callbacks(callbacks: &V8Value) -> bool {
+    let mut write_index = 0;
+    for index in 0..callbacks.array_length() {
+        let Some(mut callback) = callbacks.value_byindex(index) else {
+            continue;
+        };
+        if callback.is_valid() == 0 || callback.is_function() == 0 {
+            continue;
+        }
+        if callbacks.set_value_byindex(write_index, Some(&mut callback)) == 0 {
+            return false;
+        }
+        write_index += 1;
+    }
+
+    set_array_length(callbacks, write_index)
+}
+
+fn set_array_length(array: &V8Value, length: i32) -> bool {
+    let length_key: CefStringUtf16 = "length".into();
+    let Some(mut value) = cef::v8_value_create_int(length) else {
+        return false;
+    };
+
+    array.set_value_bykey(Some(&length_key), Some(&mut value), v8_prop_default()) != 0
+}
+
+impl_handler_build!(OsrIpcBinaryHandlerBuilder, OsrIpcBinaryHandler => V8Handler);
+
+wrap_v8_handler! {
+    pub(crate) struct OsrIpcBinaryHandlerBuilder {
+        handler: OsrIpcBinaryHandler,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefStringUtf16>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<cef::V8Value>>,
+            _exception: Option<&mut CefStringUtf16>
+        ) -> i32 {
+            if let Some(arguments) = arguments
+                && let Some(arg) = arguments.first()
+                && let Some(arg) = arg
+            {
+                if arg.is_array_buffer() != 1 {
+                    return v8_fail(retval);
+                }
+
+                let data_ptr = arg.array_buffer_data();
+                let data_len = arg.array_buffer_byte_length();
+
+                if data_ptr.is_null() || data_len == 0 {
+                    return v8_fail(retval);
+                }
+
+                let data: Vec<u8> = unsafe {
+                    std::slice::from_raw_parts(data_ptr as *const u8, data_len).to_vec()
+                };
+
+                let Some(mut binary_value) = binary_value_create(Some(&data)) else {
+                    return v8_fail(retval);
+                };
+
+                if send_process_message_to_browser(
+                    self.handler.frame.as_ref(),
+                    ROUTE_IPC_BINARY_RENDERER_TO_GODOT,
+                    |argument_list| {
+                        argument_list.set_binary(0, Some(&mut binary_value));
+                    },
+                ) {
+                    return v8_ok(retval);
+                }
+            }
+
+            v8_fail(retval)
+        }
+    }
+}
+
+fn v8_to_cbor_bytes(value: &V8Value) -> Result<Vec<u8>, String> {
+    let cbor = v8_to_cbor_value(value)?;
+    let mut out = Vec::new();
+    ciborium::ser::into_writer(&cbor, &mut out).map_err(|e| format!("CBOR encode failed: {e}"))?;
+    if out.len() > MAX_IPC_DATA_BYTES {
+        return Err(format!(
+            "CBOR payload exceeds maximum size of {} bytes",
+            MAX_IPC_DATA_BYTES
+        ));
+    }
+    Ok(out)
+}
+
+fn v8_to_cbor_value(value: &V8Value) -> Result<CborValue, String> {
+    if value.is_undefined() != 0 || value.is_null() != 0 {
+        return Ok(CborValue::Null);
+    }
+    if value.is_bool() != 0 {
+        return Ok(CborValue::Bool(value.bool_value() != 0));
+    }
+    if value.is_int() != 0 {
+        return Ok(CborValue::Integer((value.int_value() as i64).into()));
+    }
+    if value.is_uint() != 0 {
+        return Ok(CborValue::Integer((value.uint_value() as u64).into()));
+    }
+    if value.is_double() != 0 {
+        return Ok(CborValue::Float(value.double_value()));
+    }
+    if value.is_string() != 0 {
+        return Ok(CborValue::Text(
+            CefStringUtf16::from(&value.string_value()).to_string(),
+        ));
+    }
+    if value.is_array_buffer() != 0 {
+        let ptr = value.array_buffer_data();
+        let len = value.array_buffer_byte_length();
+        if len > MAX_IPC_DATA_BYTES {
+            return Err(format!(
+                "ArrayBuffer exceeds maximum IPC data size of {} bytes",
+                MAX_IPC_DATA_BYTES
+            ));
+        }
+        if ptr.is_null() || len == 0 {
+            return Ok(CborValue::Bytes(Vec::new()));
+        }
+        let data = unsafe { std::slice::from_raw_parts(ptr as *const u8, len).to_vec() };
+        return Ok(CborValue::Bytes(data));
+    }
+    if value.is_array() != 0 {
+        let len = value.array_length();
+        let mut out = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            if let Some(element) = value.value_byindex(i) {
+                out.push(v8_to_cbor_value(&element)?);
+            } else {
+                out.push(CborValue::Null);
+            }
+        }
+        return Ok(CborValue::Array(out));
+    }
+    // Treat plain JS objects as CBOR maps, preserving string keys.
+    if value.is_object() != 0 {
+        // Retrieve the list of own enumerable property names via CEF.
+        let mut keys_list = cef::CefStringList::new();
+        if value.keys(Some(&mut keys_list)) != 0 {
+            let mut entries = Vec::new();
+            for key in keys_list {
+                // Look up the corresponding property value on the object.
+                let key_cef_for_lookup = CefStringUtf16::from(key.as_str());
+                if let Some(prop) = value.value_bykey(Some(&key_cef_for_lookup)) {
+                    let encoded = v8_to_cbor_value(&prop)?;
+                    entries.push((CborValue::Text(key), encoded));
+                }
+            }
+            return Ok(CborValue::Map(entries));
+        }
+    }
+    Err("Unsupported JS value for CBOR IPC".to_string())
+}
+
+pub(crate) fn cbor_bytes_to_v8_value(bytes: &[u8]) -> Result<V8Value, String> {
+    let cbor: CborValue =
+        ciborium::de::from_reader(bytes).map_err(|e| format!("CBOR decode failed: {e}"))?;
+    cbor_value_to_v8(&cbor).ok_or_else(|| "Failed to convert CBOR to V8".to_string())
+}
+
+fn cbor_value_to_v8(value: &CborValue) -> Option<V8Value> {
+    match value {
+        CborValue::Null => cef::v8_value_create_null(),
+        CborValue::Bool(v) => v8_value_create_bool(*v as _),
+        CborValue::Integer(v) => {
+            let int_val = i128::from(*v);
+            if int_val >= i32::MIN as i128 && int_val <= i32::MAX as i128 {
+                cef::v8_value_create_int(int_val as i32)
+            } else {
+                cef::v8_value_create_double(int_val as f64)
+            }
+        }
+        CborValue::Float(v) => cef::v8_value_create_double(*v),
+        CborValue::Text(v) => {
+            let s: CefStringUtf16 = v.as_str().into();
+            cef::v8_value_create_string(Some(&s))
+        }
+        CborValue::Bytes(v) => {
+            let mut copy = v.clone();
+            cef::v8_value_create_array_buffer_with_copy(copy.as_mut_ptr(), copy.len())
+        }
+        CborValue::Array(v) => {
+            let array = cef::v8_value_create_array(v.len() as i32)?;
+            for (idx, item) in v.iter().enumerate() {
+                if let Some(mut value) = cbor_value_to_v8(item) {
+                    array.set_value_byindex(idx as i32, Some(&mut value));
+                }
+            }
+            Some(array)
+        }
+        CborValue::Map(v) => {
+            let object = v8_value_create_object(None, None)?;
+            for (key, map_value) in v {
+                let key = cbor_map_key_to_js_property_name(key);
+                let key_cef = CefStringUtf16::from(key.as_str());
+
+                // Preserve map shape even when a value type is unsupported.
+                let mut js_value =
+                    cbor_value_to_v8(map_value).or_else(cef::v8_value_create_null)?;
+                object.set_value_bykey(Some(&key_cef), Some(&mut js_value), v8_prop_default());
+            }
+            Some(object)
+        }
+        CborValue::Tag(_, inner) => cbor_value_to_v8(inner),
+        _ => None,
+    }
+}
+
+fn cbor_map_key_to_js_property_name(key: &CborValue) -> String {
+    match key {
+        CborValue::Text(v) => v.clone(),
+        CborValue::Integer(v) => i128::from(*v).to_string(),
+        CborValue::Float(v) => v.to_string(),
+        CborValue::Bool(v) => v.to_string(),
+        CborValue::Null => "null".to_string(),
+        CborValue::Bytes(v) => {
+            // Keep binary keys stable and ASCII-safe for JS object properties.
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            let mut out = String::with_capacity(v.len() * 2);
+            for byte in v {
+                out.push(HEX[(byte >> 4) as usize] as char);
+                out.push(HEX[(byte & 0x0f) as usize] as char);
+            }
+            out
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+define_frame_handler!(OsrImeCaretHandler);
+impl_handler_build!(OsrImeCaretHandlerBuilder, OsrImeCaretHandler => V8Handler);
+
+wrap_v8_handler! {
+    pub(crate) struct OsrImeCaretHandlerBuilder {
+        handler: OsrImeCaretHandler,
+    }
+
+    impl V8Handler {
+        fn execute(
+            &self,
+            _name: Option<&CefStringUtf16>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<cef::V8Value>>,
+            _exception: Option<&mut CefStringUtf16>
+        ) -> i32 {
+            if let Some(arguments) = arguments
+                && arguments.len() >= 3
+                && let Some(Some(x_arg)) = arguments.first()
+                && let Some(Some(y_arg)) = arguments.get(1)
+                && let Some(Some(height_arg)) = arguments.get(2)
+            {
+                let x = x_arg.int_value();
+                let y = y_arg.int_value();
+                let height = height_arg.int_value();
+
+                if send_process_message_to_browser(
+                    self.handler.frame.as_ref(),
+                    ROUTE_IME_CARET_POSITION,
+                    |argument_list| {
+                        argument_list.set_int(0, x);
+                        argument_list.set_int(1, y);
+                        argument_list.set_int(2, height);
+                    },
+                ) {
+                    return v8_ok(retval);
+                }
+            }
+
+            v8_fail(retval)
+        }
+    }
+}

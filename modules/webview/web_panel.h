@@ -31,17 +31,22 @@
 #pragma once
 
 #include "scene/gui/control.h"
+#include "scene/gui/texture_rect.h"
 
-// 编辑器网页面板（Route B 统一 API，对应《设计》§3.3 WebPanel）。
-// 内部封装 gdcef 的 CefTexture（GDExtension 类，经 ClassDB/Object API 交互）：
-//   url: String          设置加载地址
-//   send_message(json)   向页面发送消息
-//   on_message(信号)     页面消息到达
+#include "core/io/image.h"
+#include "scene/resources/image_texture.h"
+
+// 编辑器网页面板（4A）：经 C ABI 驱动 Rust 核心的 OSR 浏览器，
+// 软件渲染 paint（RGBA）→ ImageTexture → TextureRect 显示。
 class WebPanel : public Control {
 	GDCLASS(WebPanel, Control);
 
-	Object *cef_object = nullptr; // CefTexture 实例（GDExtension 类，无 C++ 绑定，经 Object API 调用）
+	int32_t browser_id = -1;
 	String url;
+	bool browser_created = false;
+
+	TextureRect *texture_rect = nullptr;
+	Ref<ImageTexture> texture;
 
 protected:
 	static void _bind_methods();
@@ -51,12 +56,14 @@ public:
 	~WebPanel();
 
 	void set_url(const String &p_url);
-	String get_url() const;
+	String get_url() const { return url; }
 
-	void send_message(const String &p_msg);
-	void _on_ipc_message(const String &p_msg);
-	void _on_load_finished(const String &p_url, int p_http_status);
-	void _on_load_error(const String &p_url, int p_error_code, const String &p_error_text);
+	int32_t get_browser_id() const { return browser_id; }
+	void set_browser_id(int32_t p_id) { browser_id = p_id; }
 
-	void _ensure_cef();
+	/// 由 WebViewManager 的 paint 回调调用（主线程，paint 期间缓冲有效）。
+	void set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
+
+	/// 面板尺寸变化或首次布局后调用（创建/调整浏览器）。
+	void sync_size();
 };

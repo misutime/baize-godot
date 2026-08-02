@@ -10,6 +10,9 @@ env_webview.add_source_files(env.modules_sources, "*.cpp")
 # --- 4A: Rust 核心 staticlib（crates/webview-core）---
 # 目标感知：artifact 名与 target triple 由 SCons 平台/架构/工具链推导。
 # M0 支持 Windows x86_64（MSVC/GNU）；其他平台显式报错（不静默），后续里程碑扩展。
+import glob
+import os
+
 platform = env["platform"]
 arch = env["arch"]
 mingw = env.get("mingw", False)
@@ -17,26 +20,72 @@ mingw = env.get("mingw", False)
 if platform == "windows" and arch == "x86_64" and not mingw:
     rust_target = "x86_64-pc-windows-msvc"
     lib_name = "webview_core.lib"
-elif platform == "windows" and arch == "x86_64" and mingw:
-    rust_target = "x86_64-pc-windows-gnu"
-    lib_name = "libwebview_core.a"
 else:
     raise SConsEnvironmentError(
-        f"[webview] 4A M0 仅支持 Windows x86_64，当前 platform={platform} arch={arch} mingw={mingw}"
+        f"[webview] 4A M0 仅支持 Windows x86_64 MSVC，当前 platform={platform} arch={arch} mingw={mingw}"
     )
 
-# cargo 输入全量跟踪：workspace 清单 + 锁文件 + crate 清单 + 全部 Rust 源（避免改文件后静默链接旧产物）。
+# CEF 分发包根目录：固定文件配置（crates/cef-dist.txt），作为 CEF_PATH 传给 cargo
+# （cef-dll-sys build.rs 按 <CEF_PATH>/<cef版本>/<target>/ 下载/定位 CEF 二进制）。
+cef_dist_file = os.path.join(Dir("#/crates").abspath, "cef-dist.txt")
+try:
+    with open(cef_dist_file, encoding="utf-8") as f:
+        # 取首个非空、非注释（#）行作为 CEF 分发包根目录。
+        cef_path = next(
+            (l.strip() for l in f.read().splitlines() if l.strip() and not l.strip().startswith("#")),
+            "",
+        )
+except OSError:
+    raise SConsEnvironmentError(f"[webview] 无法读取 CEF 配置 {cef_dist_file}")
+if not cef_path:
+    raise SConsEnvironmentError(f"[webview] {cef_dist_file} 无有效路径（首行应为 CEF 分发包根目录）")
+
+# cargo 输入全量跟踪：workspace 清单 + 锁文件 + 两个 crate 清单 + 全部 Rust 源（避免改文件后静默链接旧产物）。
 cargo_inputs = (
-    ["#/crates/Cargo.toml", "#/crates/Cargo.lock", "#/crates/webview-core/Cargo.toml"]
+    ["#/crates/Cargo.toml", "#/crates/Cargo.lock", "#/crates/cef-app/Cargo.toml", "#/crates/webview-core/Cargo.toml"]
     + Glob("#/crates/webview-core/src/*.rs")
+    + Glob("#/crates/webview-core/src/**/*.rs")
+    + Glob("#/crates/cef-app/src/*.rs")
+    + Glob("#/crates/cef-app/src/**/*.rs")
 )
 
-core_lib = env.Command(
+# cargo 构建环境：克隆 + 注入 CEF_PATH（Command 的 env= 参数是替换构建环境，不能直接传环境变量）。
+cargo_env = env.Clone()
+cargo_env["ENV"] = env["ENV"].copy()
+cargo_env["ENV"]["CEF_PATH"] = cef_path
+
+core_lib = cargo_env.Command(
     f"#/crates/target/{rust_target}/release/{lib_name}",
     cargo_inputs,
     f"cargo build --release --target {rust_target} --manifest-path crates/Cargo.toml -p webview-core",
     chdir=Dir("#/"),
 )
+
+# --- CEF 链接库（cargo 的链接指令不传给 SCons 最终链接，需显式补上）---
+# 干净构建问题：libcef.lib（CEF 分发包，cargo 构建时下载）与 libcef_dll_wrapper.lib
+# （cargo 构建产物，目录带 hash）在 SCons 配置期尚不存在——glob 会中断配置。
+# 方案：新增一个 Command 依赖 cargo 产物，把两个库拷贝到稳定路径，链接稳定副本。
+import shutil as _shutil
+
+def _copy_cef_link_libs(target, source, env):
+    crates_dir = os.path.join(Dir("#/crates").abspath)
+    wrapper_candidates = glob.glob(
+        os.path.join(crates_dir, "target", rust_target, "release", "build", "cef-dll-sys-*", "out", "**", "libcef_dll_wrapper.lib"),
+        recursive=True,
+    )
+    if not wrapper_candidates:
+        raise SConsEnvironmentError("[webview] 未找到 libcef_dll_wrapper.lib（cargo 构建失败？）")
+    libcef_candidates = glob.glob(os.path.join(cef_path, "*", "cef_windows_x86_64", "libcef.lib"))
+    if not libcef_candidates:
+        raise SConsEnvironmentError(f"[webview] 未找到 libcef.lib（CEF_PATH={cef_path}）")
+    _shutil.copy2(wrapper_candidates[0], str(target[0]))
+    _shutil.copy2(libcef_candidates[0], str(target[1]))
+    return 0
+
+stable_wrapper = f"#/crates/target/{rust_target}/release/cef_dll_wrapper.lib"
+stable_libcef = f"#/crates/target/{rust_target}/release/libcef.lib"
+cef_libs = cargo_env.Command([stable_wrapper, stable_libcef], [core_lib], _copy_cef_link_libs)
+
 # 用 LIBS 而非 LINKFLAGS：静态库须排在目标文件之后链接（单遍链接器按序扫描，
 # 放 LINKFLAGS 会先于 $SOURCES 扫描 → wv_* 符号解析不到）。Node 参与链接命令行即建立依赖。
-env.Append(LIBS=[core_lib[0]])
+env.Append(LIBS=[core_lib[0], cef_libs[0], cef_libs[1]])

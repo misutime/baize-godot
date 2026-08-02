@@ -1,0 +1,4 @@
+# CEF 分发包根目录（固定文件配置，SCsub 读取后作为 CEF_PATH 传给 cargo）。
+# cef-dll-sys build.rs 会在 <此目录>/<cef版本>/<target>/ 下定位或自动下载 CEF 分发包。
+# 该目录在仓库外，二进制不进 git。
+D:\misutime\104_game\cef-dist

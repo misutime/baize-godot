@@ -86,6 +86,14 @@ void WebDockPlugin::register_dock() {
 }
 
 void register_web_dock_deferred() {
+	// 幂等守卫：fork 的编辑器启动会执行两次 initialize_modules(EDITOR)（main.cpp:780 + 3718），
+	// 若无守卫会注册两个 WebDockPlugin。
+	static bool registered = false;
+	if (registered) {
+		return;
+	}
+	registered = true;
+
 	if (EditorNode::get_singleton()) {
 		memnew(WebDockPlugin)->register_dock();
 	} else {

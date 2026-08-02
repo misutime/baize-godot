@@ -34,6 +34,12 @@ WebViewCore *wv_create(const char *exe_dir, const WvCallbacks *callbacks, void *
 void wv_destroy(WebViewCore *core);
 void wv_pump(WebViewCore *core); /* 消息泵：C++ 壳每帧调用 */
 
+/* 浏览器（OSR 软件渲染；paint 经 WvOnPaint 回调返回 RGBA 缓冲，仅回调期间有效，需拷贝） */
+int32_t wv_create_browser(WebViewCore *core, int32_t id, const char *url, uint32_t width, uint32_t height);
+int32_t wv_resize_browser(WebViewCore *core, int32_t id, uint32_t width, uint32_t height);
+int32_t wv_navigate_browser(WebViewCore *core, int32_t id, const char *url);
+void wv_destroy_browser(WebViewCore *core, int32_t id);
+
 #ifdef __cplusplus
 }
 #endif

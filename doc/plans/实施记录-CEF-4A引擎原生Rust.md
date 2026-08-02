@@ -112,6 +112,85 @@ env.Append(LINKFLAGS=[core_lib[0]])
 
 - [x] M0 运行时冒烟确认（创建/pump 无崩溃；销毁路径待正常关闭时复核日志）
 - [ ] 正常关闭编辑器时确认 `wv_destroy` 日志出现
-- [ ] M1：CEF 初始化接入（wv_create 内 cef 初始化）+ `WvOnPaint` 回调 → ImageTexture → WebPanel 渲染（替换 gdext 路径）
+- [x] M1a：vendor CEF 通用层 + 依赖升级（见下）
+- [ ] M1b：CEF 初始化接入（wv_create 内 cef 初始化）+ 浏览器创建 + `WvOnPaint` 回调 → ImageTexture → WebPanel 渲染（替换 gdext 路径）
 - [ ] M1 后移除 gdext：`load_cef_extension` 调用、bin/webview/ 中 gdext 产物
 - [ ] pump 归属决策（面板级 vs 编辑器级）
+
+---
+
+## 阶段 M1a：vendor CEF 通用层 + 依赖升级（2026-08-02）
+
+### 目标
+
+把 godot-cef 的 CEF 通用层（cef_app / software_render）搬进 crates/，依赖升级到最新稳定（cef 151.x），并打通"文件配置 CEF 分发包"的构建链路。
+
+### 文件变更
+
+| 文件 | 变更 |
+|---|---|
+| `crates/cef-app/`（新 crate） | vendor 自 godot-cef 的 `crates/cef_app`（9 rs + ime_helper.js，MIT）；上游 Cargo.toml 依赖 cef 148.2.0 → **cef 151.1.0**、ciborium 0.2.2 |
+| `crates/webview-core/src/software_render/` | vendor（206 LOC，mod.rs）；dead_code 警告暂保留（M1 使用） |
+| `crates/webview-core/src/helper_main.rs` | CEF 子进程入口（基于 gdcef_helper 改写，去 gdext/mac；bin 名 webview-helper） |
+| `crates/webview-core/Cargo.toml` | deps：cef-app(path) + cef 151.1.0 + cef-dll-sys 151.1.0（**不开 accelerated_osr**——M1 软件渲染省 wgpu/windows/objc2-metal）；`[[bin]] webview-helper` |
+| `crates/cef-dist.txt`（新） | **固定文件配置**：CEF 分发包根目录（仓库外，二进制不进 git）；SCsub 读它 → CEF_PATH → cef-dll-sys build.rs 自动下载/定位 |
+| `modules/webview/SCsub` | Command env 注入 CEF_PATH（克隆环境 + ENV 更新，跳过 # 注释行解析）；输入全量跟踪（双 crate 清单 + Cargo.lock + src 全 Glob） |
+
+### 关键决策与坑
+
+- **依赖升级**：用户裁决"最新稳定"——cef/cef-dll-sys 148.2.0 → **151.1.0+151.3.12**（CEF 分发包 151.3.12 自动下载到 `D:\misutime\104_game\cef-dist\151.3.12\`）；vendor 的 cef_app 代码（148 基准）对 151 API 编译兼容；
+- **crate 结构镜像上游**：cef-app 独立 crate（helper 以 `cef_app::` 引用），软件渲染为 webview-core 模块；
+- **坑**：① edition 2024 `#[unsafe(no_mangle)]`；② `ime_helper.js` 缺失（include_str!）；③ semver 版本要求去掉 `+metadata`（cargo 忽略，告警）；④ **SCsub 首行解析 bug**——cef-dist.txt 首行是注释，曾把注释当 CEF_PATH 传入（cmake 报错），改为跳过 `#` 行；⑤ SCons Command 的 `env=` 参数是替换构建环境不是加变量——用克隆 env + `ENV` 更新。
+
+### 验证状态
+
+- ✅ `cargo build`：cef-app + webview-core + webview-helper 全编译（software_render dead_code 3 条警告为预期）
+- ✅ `task dev` 全量：cargo 经 SCons 调用（CEF_PATH 来自文件配置），CEF 151.3.12 下载成功，链接通过（46.4s）
+- ⏳ 运行时：wv_create 仍是 M0 桩（CEF 未初始化），等 M1b
+
+---
+
+## 阶段 M1b：CEF 初始化 + OSR 软件渲染（2026-08-02）
+
+### 目标
+
+Rust 核心真正驱动 CEF：惰性初始化、OSR 浏览器创建、软件渲染 paint → C ABI 回调 → C++ 纹理上传。**gdext 路径移除**（load_cef_extension 删除）。
+
+### 文件变更
+
+| 文件 | 变更 |
+|---|---|
+| `crates/webview-core/src/core.rs`（新） | CEF 生命周期（惰性 init_cef / wv_pump / wv_destroy）+ OSR 浏览器（wv_create_browser/resize/destroy）+ 轻量 RenderHandler（OnPaint→BGRA→RGBA→WvOnPaint）+ LoadHandler（on_load_end/error→WvOnLoadStatus） |
+| `modules/webview/webview_ffi.h` | 新增 wv_create_browser / wv_resize_browser / wv_destroy_browser |
+| `modules/webview/web_panel.h/cpp` | 弃 gdext CefTexture，改 C ABI 渲染：TextureRect 子节点 + paint 回调 → Image+ImageTexture；sync_size 管理浏览器创建/尺寸 |
+| `modules/webview/webview_manager.h/cpp` | 面板注册表（browser_id→WebPanel）+ 静态回调 _on_paint/_on_load_status；init_core 传回调 |
+| `modules/webview/register_types.cpp` | 移除 load_cef_extension（gdext 路径删除） |
+| `misc/scripts/stage_webview.py` | 改 4A 暂存：webview-helper.exe + CEF 运行时（libcef.dll 等 16 项）→ bin/（exe 旁，DLL 搜索+子进程路径） |
+| `modules/webview/SCsub` | 链接 CEF 库：libcef.lib（CEF_PATH 定位）+ libcef_dll_wrapper.lib（cargo build 产物 glob） |
+
+### 三个真 bug（排障记录）
+
+| # | Bug | 症状 | 修复 |
+|---|---|---|---|
+| 1 | `cef::api_hash` 未先调用 | `CefApp_0_CToCpp invalid version -1` 崩溃（debug.log） | init 前调 `api_hash(CEF_API_VERSION_LAST, 0)`（wrap 宏依赖它初始化全局版本） |
+| 2 | `NOTIFICATION_RESIZED` 早于 `_ready`（register 分配 id 前） | browser id=-1 → paint 回调按 id 查不到面板 → 空白 | sync_size 加 `browser_id < 0` 守卫；READY 注册后主动 sync_size |
+| 3 | `external_begin_frame_enabled` 缺帧驱动 | 页面 load 200 但无 paint | wv_pump 在 do_message_loop_work 后逐浏览器 `send_external_begin_frame()`（godot-cef backend.rs:243 同款） |
+
+**教训**：调试早期问题（崩溃/空白）时，先确认没有旧进程占用（exe 锁 + CEF cache/profile 互斥），再谈逻辑 bug——两次"还是空"都叠加了旧实例干扰。
+
+### 验证状态
+
+**✅ M1b 达成（2026-08-02）**：
+
+- CEF 151.3.12 惰性初始化成功、子进程（webview-helper）正常
+- 浏览器创建 + file:// 加载（`load end (status 200)`）
+- 软件渲染 paint → WvOnPaint → ImageTexture → **编辑器 dock 显示 bridge.html**
+- 输入不可点击 = 预期（M2 输入/IME 适配）
+
+### 遗留 / 下一步
+
+- [x] M1b 渲染链路完成
+- [ ] **间歇性启动卡死（已定位嫌疑，待多轮确认）**：review 修复后出现"正在加载停靠面板 20%"卡死。**证据指向 LifeSpanHandler**——两次正常运行的共同点是它已移除（含 on_load_status 已恢复的当前构建），两次卡死构建都有它。**疑似机制**：`WvLifeSpanHandler::on_before_close` 锁 CORE，若在 `wv_create_browser`（持锁建浏览器）或 `wv_pump`（持锁 begin_frame）路径上触发 → 死锁；启动时序差异导致间歇。当前：LifeSpanHandler 保持移除，shutdown 有界泵兜底（干净退出已验证）；**恢复前需分析 CEF 何时在持锁路径触发 on_before_close，M2 前单独做**
+- [ ] M2：输入转发（鼠标/键盘/IME 经 C ABI）+ 双向 IPC——当前页面可显示不可交互
+- [ ] pump 归属决策（面板级 vs 编辑器级）
+- [ ] CEF cache 目录多实例互斥（bin/webview/cef-data）——编辑器单实例约定，记录

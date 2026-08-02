@@ -10,4 +10,14 @@ rust-version.workspace = true
 [lib]
 crate-type = ["staticlib"]
 
+# 附带子进程入口（CEF 多进程架构的 helper 可执行文件）。
+[[bin]]
+name = "webview-helper"
+path = "src/helper_main.rs"
+
 [dependencies]
+cef-app = { path = "../cef-app" }
+# CEF 绑定（最新稳定 151.x；CEF 二进制由 cef-dll-sys build.rs 按 cef-dist.txt 下载/定位）。
+# M1 软件渲染：不开 accelerated_osr（省 wgpu/windows/objc2-metal 等重型依赖）。
+cef = { version = "151.1.0" }
+cef-dll-sys = { version = "151.1.0" }
