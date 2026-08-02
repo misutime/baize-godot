@@ -33,8 +33,8 @@
 #include "core/string/ustring.h"
 
 // 引擎级 webview 管理单例（Route B）。
-// B0 阶段职责：按环境变量 GODOT_CEF_EXTENSION 加载 gdcef 扩展；
-// 后续（MVP1+）演进为：exe 相对分发目录加载 + WebPanel/dock 生命周期管理。
+// 职责：从编辑器分发目录（<exe_dir>/webview/）自动加载 gdcef 扩展。
+// 页面/扩展均随编辑器分发，与打开的项目无关。
 class WebViewManager {
 	static WebViewManager *singleton;
 
@@ -42,5 +42,5 @@ public:
 	static WebViewManager *get_singleton();
 	static void free_singleton();
 
-	void load_cef_extension_if_requested();
+	void load_cef_extension();
 };

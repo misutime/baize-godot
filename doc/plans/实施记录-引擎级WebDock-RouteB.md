@@ -59,6 +59,72 @@
 - [x] B0 三态验证通过（见上）
 - [x] 环境变量门控是 B0 临时机制；MVP1 改为 exe 相对分发目录加载（`<exe>/../webview/`）
 
+---
+
+## 阶段 MVP1：WebPanel + 编辑器 WebDock（代码完成，待验证）
+
+### 阶段目标
+
+编辑器打开任意项目 → 左侧出现可停靠的 WebDock（React/HTML 页面），页面/扩展均随编辑器分发（`bin/webview/`），与打开的项目无关。
+
+### 核心文件与功能
+
+| 文件 | 功能 |
+|---|---|
+| `modules/webview/web_panel.h/cpp` | **WebPanel : Control**（GDCLASS）——`url` 属性 / `send_message` / `on_message` 信号；内部经 `ClassDB::instantiate("CefTexture")` 创建扩展类实例，Object API 交互；NOTIFICATION_READY 时创建并连 `ipc_message` 信号 |
+| `modules/webview/editor_web_dock.h/cpp` | **WebDockPlugin : EditorPlugin**——创建 `EditorDock`（标题 WebDock，LEFT_UL，可关闭），承载 WebPanel；`register_web_dock_deferred` 自由函数供 MessageQueue 第一帧延迟注册 |
+| `modules/webview/register_types.cpp` | SCENE: GDREGISTER WebPanel + 加载扩展；EDITOR: `MessageQueue::push_callable(callable_mp_static(register_web_dock_deferred))` |
+| `misc/scripts/stage_webview.py` | 产物暂存脚本——路径直接写死（`../refers/godot-cef/addons/godot_cef` → `bin/webview/`），缺失报错退出，写 MANIFEST 清单 |
+| `Taskfile.yml` / `justfile` | `stage-webview` 任务（单一暂存入口）；测试配方（dev/webview-stage/b0-load/b0-check） |
+
+### 关键设计（已修正）
+
+- **分发与项目无关**：扩展从 `<exe_dir>/webview/godot_cef.gdextension` 自动加载（不再用环境变量）；页面经 `file:///<exe_dir>/webview/ui/bridge.html` 加载（不用 res:// 项目域）——回应"编辑器 UI 与具体项目无关"的正确架构；
+- **集成模型：产物关联、源码独立**——godot-cef 源码不进入本仓库，只消费编译产物（addons/godot_cef），构建/分发时 `task stage-webview` 自动附带；`bin/` 已 gitignore（.gitignore:267），100MB+ 产物不进 git。
+
+### Fork 特有 API 发现（编译期实测，重要）
+
+1. **Node 生命周期 hook 非虚函数**：本 fork 的 `_enter_tree`/`_exit_tree` 为 GDVIRTUAL-only；`_notification` 非虚，但经 **GDCLASS 宏生成的 `_notification_forwardv` 编译期分发链**派发——子类定义 `void _notification(int)` 即可收到通知，**不能加 `override` 关键字**（C3668 错误）；
+2. **`EditorPlugin::add_control_to_dock` 已 deprecated**：现代 API = `EditorDock`（`set_title`/`set_default_slot`/`set_closable`）+ `EditorPlugin::add_dock(EditorDock*)`（内部走 EditorDockManager）；
+3. `callable_mp` 需显式 include `core/object/callable_mp.h`。
+
+### 验证状态
+
+- ✅ 构建通过（2026-08-02，16.7s：webview 三文件编译 + 全量链接）
+- ⏳ 功能验证待跑：`just b0-load` → 左侧 WebDock 渲染 bridge.html
+- 验收：WebDock 出现可拖拽停靠、页面渲染可交互、控制台 `WebDock registered` 日志
+
+### 空面板根因（shifu 排查，2026-08-02）
+
+**根因**：`CefTexture` 是**非 tool 类**（`#[class(base=TextureRect)]`，无 `tool` 修饰，cef_texture/mod.rs:22-24）；gdext 0.5.3 默认 `EditorRunBehavior::ToolClassesOnly`（godot-core-0.5.3 init/mod.rs:477-480）。编辑器进程里 `ClassDB::instantiate("CefTexture")` 返回**占位对象**（class_db.cpp:609-636），其通知回调为 no-op（class_db.cpp:150-152）→ Rust 的 READY/PROCESS 永不运行 → CEF 惰性初始化（`cef_retain` 在 `on_ready`，cef_init.rs:61-75）从未触发 → 无浏览器、无加载信号、纹理空白。
+
+**修复**：`web_panel.cpp` 改用 `ClassDB::instantiate_no_placeholders(SNAME("CefTexture"))`（class_db.h:346），强制真实类实例化。
+
+**对比证据**：godot-cef 的 `CefTexture2D` 显式带 `tool`（cef_texture2d/mod.rs:49-51）——兄弟类特意开启编辑器执行，CefTexture 没有。上游侧替代方案（给 CefTexture 加 `tool`）不采用：保持 godot-cef 源码独立。
+
+**连带发现**："GDExtension 加载 OK + Vulkan hook" 不等于 CEF 已初始化——CEF 是首个真实浏览器对象创建时才 `cef_retain()` 惰性初始化（lib.rs:28-46 只装 hook/权限）。
+
+**同轮伴生修复（保留）**：`web_panel` 的 `SIZE_EXPAND_FILL` + `custom_minimum_size(320x240)` 不是根因修复，但是布局必需——MarginContainer 内 Control 无展开标志会塌缩为 0×0（即使浏览器真实存在也渲染不出）；load_finished/load_error 日志为永久可观测性。
+
+### MVP1 验证完成（2026-08-02）
+
+**✅ 通过**：编辑器打开任意项目 → WebDock 渲染 bridge.html（`page loaded ... status 200` + `Creating browser in software rendering mode`）；可拖拽停靠、可关闭。
+
+**控制台错误全部定性**：
+
+| 错误 | 性质 | 处置 |
+|---|---|---|
+| `vkGetMemoryWin32HandlePropertiesKHR` 加载失败 → 加速 OSR 回退软件 | **预期**（V1 软件渲染先行；fork Vulkan 驱动未暴露该函数） | 不阻塞；V2 GPU 走 D3D12 分支（fork 支持，E0 已核实） |
+| `Invalid UTF-16 string` | **良性噪音**：cef crate（依赖 148.4.0）`string.rs:508` 在 null CEF 字符串转换时 `eprintln!`；不 fork 依赖无法消除 | 忽略 |
+| chrome extension.crx（QQPCMgr） | 环境噪音：Chromium 读注册表外部扩展条目 | 忽略 |
+| DevTools `ws://127.0.0.1:9229` | 彩蛋：远程调试端口，React 调试可用 | 保留 |
+
+**MVP1 验收清单**：WebDock 出现/拖拽/关闭 ✅；页面渲染可交互 ✅；扩展自动加载与项目无关 ✅。
+
+### 下一步（MVP2）
+
+双向桥：`EditorSelection.selection_changed` 信号 + `_process` 帧轮询 diff → 推 `selection_changed`/`position_changed`；收 `set_prop` → `EditorUndoRedoManager` 入栈 → `set_position`。验收：选 Node3D 显示 X；改数字节点动可撤销；3D 拖动数字跟随。
+
 ### 下一步（MVP1）
 
 `modules/webview/` 扩展：`WebPanel : Control` 封装（url / send_message / on_message）+ `editor_web_dock`（`add_control_to_dock` LEFT_UL）→ 编辑器打开任意项目可见可停靠的 web dock（先加载 smoke 的 `bridge.html`）。

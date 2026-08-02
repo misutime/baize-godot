@@ -31,6 +31,7 @@
 #include "webview_manager.h"
 
 #include "core/extension/gdextension_manager.h"
+#include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
@@ -49,16 +50,20 @@ void WebViewManager::free_singleton() {
 	singleton = nullptr;
 }
 
-void WebViewManager::load_cef_extension_if_requested() {
-	const String path = OS::get_singleton()->get_environment("GODOT_CEF_EXTENSION");
-	if (path.is_empty()) {
-		// 未设置环境变量 = 模块惰性状态，但不静默：打印一行可观测日志。
-		print_line("[WebView] CEF extension load skipped (GODOT_CEF_EXTENSION not set).");
+void WebViewManager::load_cef_extension() {
+	// 分发目录约定：<exe_dir>/webview/（开发态 = bin/webview/，由 `just webview-stage` 暂存）。
+	const String ext_path = OS::get_singleton()->get_executable_path().get_base_dir()
+									.path_join("webview")
+									.path_join("godot_cef.gdextension");
+
+	if (!FileAccess::exists(ext_path)) {
+		// 未暂存 = 模块惰性状态，但不静默：打印可观测提示。
+		print_line("[WebView] CEF extension not staged at " + ext_path + " — run `just webview-stage` first.");
 		return;
 	}
 
-	print_line("[WebView] Loading CEF extension: " + path);
-	const GDExtensionManager::LoadStatus status = GDExtensionManager::get_singleton()->load_extension(path);
+	print_line("[WebView] Loading CEF extension: " + ext_path);
+	const GDExtensionManager::LoadStatus status = GDExtensionManager::get_singleton()->load_extension(ext_path);
 	switch (status) {
 		case GDExtensionManager::LOAD_STATUS_OK:
 			print_line("[WebView] CEF extension loaded OK.");

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  editor_web_dock.h                                                     */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,34 +28,32 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "editor_web_dock.h"
-#include "web_panel.h"
-#include "webview_manager.h"
-
-#include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
-#include "core/object/message_queue.h"
-
-void initialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(WebPanel);
-		// B0 前置验证：模块内加载 gdcef 扩展（GDExtensionManager 是 level 感知的，
-		// 会补初始化到当前水位；SCENE 之后的 EDITOR level 由 main.cpp 的循环接管）。
-		WebViewManager::get_singleton()->load_cef_extension();
-	}
 #ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorNode 在 Main::start() 创建（晚于模块初始化），deferred 到第一帧注册 dock。
-		// 插件作为 EditorNode 子节点，随编辑器退出自动释放（不单独 unregister）。
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(register_web_dock_deferred));
-	}
-#endif
-}
 
-void uninitialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		WebViewManager::free_singleton();
-	}
-}
+#include "editor/docks/editor_dock.h"
+#include "editor/plugins/editor_plugin.h"
+#include "modules/webview/web_panel.h"
+
+// 编辑器 WebDock 插件：创建 EditorDock 承载 WebPanel（DOCK_SLOT_LEFT_UL，可拖拽停靠）。
+// 生命周期经 _notification（本 fork 的 Node 生命周期 hook 为 GDCLASS 分发链，
+// _notification 非虚函数，不能加 override 关键字）。
+class WebDockPlugin : public EditorPlugin {
+	GDCLASS(WebDockPlugin, EditorPlugin);
+
+	WebPanel *web_panel = nullptr;
+	EditorDock *web_dock = nullptr;
+
+protected:
+	void _notification(int p_what);
+
+public:
+	// 延迟注册入口（MessageQueue 第一帧执行；此时 EditorNode 已由 Main::start 创建）。
+	void register_dock();
+};
+
+// 自由函数形式的延迟入口（callable_mp_static 需要）。
+void register_web_dock_deferred();
+
+#endif // TOOLS_ENABLED

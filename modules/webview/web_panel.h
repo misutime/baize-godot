@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  web_panel.h                                                           */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,34 +28,35 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "editor_web_dock.h"
-#include "web_panel.h"
-#include "webview_manager.h"
+#include "scene/gui/control.h"
 
-#include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
-#include "core/object/message_queue.h"
+// 编辑器网页面板（Route B 统一 API，对应《设计》§3.3 WebPanel）。
+// 内部封装 gdcef 的 CefTexture（GDExtension 类，经 ClassDB/Object API 交互）：
+//   url: String          设置加载地址
+//   send_message(json)   向页面发送消息
+//   on_message(信号)     页面消息到达
+class WebPanel : public Control {
+	GDCLASS(WebPanel, Control);
 
-void initialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(WebPanel);
-		// B0 前置验证：模块内加载 gdcef 扩展（GDExtensionManager 是 level 感知的，
-		// 会补初始化到当前水位；SCENE 之后的 EDITOR level 由 main.cpp 的循环接管）。
-		WebViewManager::get_singleton()->load_cef_extension();
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorNode 在 Main::start() 创建（晚于模块初始化），deferred 到第一帧注册 dock。
-		// 插件作为 EditorNode 子节点，随编辑器退出自动释放（不单独 unregister）。
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(register_web_dock_deferred));
-	}
-#endif
-}
+	Object *cef_object = nullptr; // CefTexture 实例（GDExtension 类，无 C++ 绑定，经 Object API 调用）
+	String url;
 
-void uninitialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		WebViewManager::free_singleton();
-	}
-}
+protected:
+	static void _bind_methods();
+	void _notification(int p_what);
+
+public:
+	~WebPanel();
+
+	void set_url(const String &p_url);
+	String get_url() const;
+
+	void send_message(const String &p_msg);
+	void _on_ipc_message(const String &p_msg);
+	void _on_load_finished(const String &p_url, int p_http_status);
+	void _on_load_error(const String &p_url, int p_error_code, const String &p_error_text);
+
+	void _ensure_cef();
+};

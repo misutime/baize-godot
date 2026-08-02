@@ -23,6 +23,10 @@ tasks:
     desc: "构建当前平台 pro 版编辑器"
     cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
 
+  stage-webview:
+    desc: "暂存 godot-cef 产物到编辑器分发目录 bin/webview/（源码独立，只消费编译产物）"
+    cmd: '{{.PYTHON}} misc/scripts/stage_webview.py'
+
 
   dev-install:
     desc: "构建并安装开发版编辑器"
