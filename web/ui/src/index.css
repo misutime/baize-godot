@@ -1,0 +1,14 @@
+/* 深蓝基调与 stub 页（#223）一致，保持 WebDock 视觉连续。 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #223;
+  color: #cfc;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+}

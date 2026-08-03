@@ -1,0 +1,8 @@
+packages:
+  - sdk
+  - ui
+allowBuilds:
+  esbuild: set this to true or false
+# pnpm 10+ 默认阻止依赖构建脚本；esbuild 需要 postinstall 下载平台二进制。
+onlyBuiltDependencies:
+  - esbuild
