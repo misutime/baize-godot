@@ -66,6 +66,54 @@ export default function App() {
     }
   }, [runAction]);
 
+  // WebDock 聚焦时 Ctrl+Z/Y/Shift+Z 接管为编辑器撤销（MVP 验收 3：改 X 后直接撤销）。
+  // 背景：web_panel 键盘转发无条件（面板聚焦即进页面，accept_event 阻断 Godot 快捷键），
+  // 不接管的话 Ctrl+Z 会被浏览器文本撤销吃掉，编辑器 undo 栈收不到。
+  // 输入框内文本撤销被接管（数字输入场景价值低）；空栈按 Ctrl+Z 不报错（nothing_to_undo 是正常态）。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      const doRedo = (): void => {
+        e.preventDefault();
+        void runAction(async () => {
+          try {
+            await editor.redo();
+          } catch (err) {
+            const e2 = err as { code?: string };
+            if (e2.code !== "nothing_to_redo") {
+              throw err;
+            }
+          }
+        });
+      };
+      const doUndo = (): void => {
+        e.preventDefault();
+        void runAction(async () => {
+          try {
+            await editor.undo();
+          } catch (err) {
+            const e2 = err as { code?: string };
+            if (e2.code !== "nothing_to_undo") {
+              throw err;
+            }
+          }
+        });
+      };
+      if (key === "z" && e.shiftKey) {
+        doRedo();
+      } else if (key === "z") {
+        doUndo();
+      } else if (key === "y") {
+        doRedo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [runAction]);
+
   // 选中变化 → 显示路径 + 拉取位置（getNodePosition 用场景相对路径，与事件对齐）。
   useEditorEvent(editor.onSelectionChanged, (payload) => {
     setSelection(payload.node_paths);
