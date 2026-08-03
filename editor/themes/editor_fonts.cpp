@@ -134,8 +134,9 @@ void editor_print_font_load_info() {
 	if (s_font_load_info.path.is_empty()) {
 		print_line("[editor-font] 默认字体回退内置 Inter（外部分发缺失/不可读）");
 	} else {
+		// 中文日志正常：String(const char*) 已按 UTF-8 智能解码（fork 定制，根治乱码）。
 		print_line("[editor-font] 默认字体已加载: " + s_font_load_info.path + " bytes=" + itos(s_font_load_info.bytes));
-		print_line("[editor-font] 实际字号: " + itos(s_font_load_info.default_font_size) + "px (main_font_size=" + itos(s_font_load_info.main_font_size) + " × EDSCALE=" + String::num(s_font_load_info.edscale) + ")");
+		print_line("[editor-font] 实际字号: " + itos(s_font_load_info.default_font_size) + "px (main_font_size=" + itos(s_font_load_info.main_font_size) + " x EDSCALE=" + String::num(s_font_load_info.edscale) + ")");
 	}
 #endif
 }

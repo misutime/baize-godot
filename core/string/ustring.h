@@ -690,7 +690,52 @@ public:
 	Vector<uint8_t> to_multibyte_char_buffer(const String &p_encoding = String()) const;
 
 	// Constructors for NULL terminated C strings.
+	// FORK-CUSTOM（2026-08-03，根治中文乱码）：智能解码——串为合法 UTF-8（含纯 ASCII）
+	// 时按 UTF-8 解码（C++ 中文字面量/UTF-8 数据正确，此前一律 Latin-1 导致所有中文日志
+	// 显示为 é»è®¤ 式乱码）；非法 UTF-8 序列回退 Latin-1（Godot 历史契约，兼容字节透传）。
+	// 代价：纯 ASCII 串多一次 O(n) 合法性扫描（内存带宽级，实测启动无感知）。
 	String(const char *p_cstr) {
+		if (p_cstr != nullptr) {
+			const int len = (int)strlen(p_cstr);
+			bool valid_utf8 = true;
+			int i = 0;
+			while (i < len) {
+				const uint8_t c = (uint8_t)p_cstr[i];
+				if (c < 0x80) {
+					i++;
+					continue;
+				}
+				int seq;
+				if ((c & 0xE0) == 0xC0) {
+					seq = 2;
+				} else if ((c & 0xF0) == 0xE0) {
+					seq = 3;
+				} else if ((c & 0xF8) == 0xF0) {
+					seq = 4;
+				} else {
+					valid_utf8 = false; // 非法首字节（孤立续字节等）
+					break;
+				}
+				if (i + seq > len) {
+					valid_utf8 = false; // 截断的多字节序列
+					break;
+				}
+				for (int k = 1; k < seq; k++) {
+					if (((uint8_t)p_cstr[i + k] & 0xC0) != 0x80) {
+						valid_utf8 = false;
+						break;
+					}
+				}
+				if (!valid_utf8) {
+					break;
+				}
+				i += seq;
+			}
+			if (valid_utf8) {
+				append_utf8(p_cstr, len);
+				return;
+			}
+		}
 		append_latin1(p_cstr);
 	}
 	String(const wchar_t *p_cstr) {
