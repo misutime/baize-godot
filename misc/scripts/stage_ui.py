@@ -14,14 +14,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UI_DIST = REPO_ROOT / "web" / "ui" / "dist"
 UI_DEST = REPO_ROOT / "bin" / "webview" / "ui"
-# 默认字体（Noto Sans CJK SC = 思源黑体，SIL OFL）：编辑器默认字体（editor_fonts.cpp 外部
-# 优先加载）与 WebDock 页面共享同一目录——两边字形一致。
-FONTS_SOURCE = REPO_ROOT / "thirdparty" / "fonts" / "noto-cjk"
-FONTS_DEST = UI_DEST / "fonts"
+# 默认字体（Noto Sans CJK SC = 思源黑体，SIL OFL）：源在 web/ui/public/fonts/
+# （Vite public 机制构建自动进 dist/fonts/），此处随 dist 整体拷贝——编辑器默认字体
+# （editor_fonts.cpp 外部优先加载）与 WebDock 页面共享同一文件，两边字形一致。
 
 
 def stage_ui_dist() -> list:
-    """原子替换 bin/webview/ui（含 fonts/ 默认字体）。返回缺失项列表（空 = 成功）。"""
+    """原子替换 bin/webview/ui（含 dist 自带的 fonts/ 默认字体）。返回缺失项列表（空 = 成功）。"""
     if not UI_DIST.is_dir():
         return ["web/ui/dist 缺失（先运行 task ui-build 构建 React 壳）"]
     tmp = UI_DEST.parent / ".ui-tmp"  # 与 stage_webview 的 .webview-ui-tmp 区分
@@ -32,11 +31,9 @@ def stage_ui_dist() -> list:
     if not (tmp / "index.html").is_file():
         shutil.rmtree(tmp, ignore_errors=True)
         return ["web/ui/dist/index.html 缺失"]
-    if FONTS_SOURCE.is_dir():
-        shutil.copytree(FONTS_SOURCE, tmp / "fonts", dirs_exist_ok=True)
-    else:
+    if not (tmp / "fonts" / "NotoSansCJKsc-Regular.otf").is_file():
         shutil.rmtree(tmp, ignore_errors=True)
-        return ["thirdparty/fonts/noto-cjk 缺失（默认字体，编辑器回退 Inter）"]
+        return ["dist/fonts/NotoSansCJKsc-Regular.otf 缺失（public/fonts 未进构建，编辑器回退 Inter）"]
     if UI_DEST.exists():
         shutil.rmtree(UI_DEST)
     UI_DEST.parent.mkdir(parents=True, exist_ok=True)
