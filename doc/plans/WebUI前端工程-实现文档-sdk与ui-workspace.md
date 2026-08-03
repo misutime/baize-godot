@@ -1,7 +1,7 @@
 # WebUI 前端工程——实现文档（sdk + ui workspace）
 
 > **状态**：2026-08-03 编写（工作项 2 完成）。衔接《WebUI架构-桥协议与前端SDK.md》（协议 §3 + SDK 设计 §4）。
-> **范围**：`web/` workspace 脚手架 + `@baize/ui-sdk` 全量实现 + `@baize/ui` 骨架。
+> **范围**：`web/` workspace 脚手架 + `@baize/ui-sdk` 全量实现 + `@baize/ui` React 壳（属性面板）。
 > **技术栈定案**：React 19 + Vite 8（用户裁决，2026-08-03）；其余按实现推荐落地。
 
 ---
@@ -104,12 +104,34 @@ pnpm exec biome check .      # lint + 格式（--write 自动修复）
 - ui 构建：`dist/index.html` + assets（JS gzip 60.36kB，React 基础体积）
 - 产物路径实测 `./assets/...`（base:'./' 生效）
 
-## 7. 遗留与下一步（工作项 3）
+## 7. 验证记录（2026-08-03，Win 实机）
 
-- **React 壳实质**：属性面板（MVP 验收 2/3：选中显示 X、改 X 移动可撤销）+ 场景信息展示；
-  App.tsx 现为桥状态探测占位
-- **task ui-build 衔接**：Taskfile 新增 `ui-build`（`pnpm --dir web/ui build` → 产物拷入
-  `bin/webview/ui/`，dock 加载零改动——替换现 stage 的 bridge.html stub）
-- **Tailwind CSS v4**：样式方案待确认后引入（工作项 3）
-- **体积优化**（可选）：ui JS 60KB gzip 为 React 基础体积，面板复杂后可考虑分包/lazy
+- sdk 单测 13/13 通过；两包 typecheck 通过；biome check 0 错误
+- sdk 构建：`dist/index.js` 2.51kB（gzip 1.13kB）+ `dist/react.js` 0.70kB + d.ts（已排除测试文件）
+- ui 构建：`dist/index.html` + assets（JS gzip 60.36kB，React 基础体积）
+- 产物路径实测 `./assets/...`（base:'./' 生效）
+
+## 8. React 壳接入（工作项 3，2026-08-03）
+
+- **属性面板**：选中节点路径 + X/Y/Z 输入（失焦/回车提交 `scene.setNodePosition`，undo 入栈）；
+  视口拖动经 `node_position_changed` 实时跟随（输入框聚焦时不覆盖）；撤销/重做按钮
+  （`undo_stack_changed` 状态驱动禁用）；场景节点数（`scene.getNodeCount`）
+- **样式**：Tailwind CSS v4.3（`@tailwindcss/vite` 插件，零配置）
+- **加载**：dock 入口 `bridge.html` → `index.html`（`editor_web_dock.cpp`）；
+  `misc/scripts/stage_ui.py` 为单一 UI 暂存点（`web/ui/dist` → `bin/webview/ui/`，原子替换），
+  stage-webview 复用；旧 stub bridge.html 退役删除
+- **宿主日志**：`[WebView] invoke: ...`（webview_manager，产品级，与 query 同级）；
+  consoleMessage 正式保留（页面 JS 错误 → 宿主 stderr）
+- **file:// CORS 根因与修复**：CEF 151 默认 file:// 跨源被拦截（module script + crossorigin
+  CSS，console 证据：file 不在允许协议列表）→ `AppDelegate::onBeforeCommandLineProcessing`
+  加 `allow-file-access-from-files`（用户裁决：编辑器内嵌场景放宽；影响面仅本 CEF 实例
+  file:// 页面，WebDock 只加载自家产物）
+- **验证（Win 实机）**：dock 加载 index.html 200 → React 壳自动 `scene.getNodeCount`
+  invoke 到达宿主（全链路通）、CORS 拦截 0、无 JS 错误
+
+## 9. 遗留与下一步
+
+- **MVP 验收 2/3/4 交互验证**（手动）：选中 Node3D 显示 X；改 X 节点移动 + Ctrl+Z 撤销；
+  3D 视口拖动数字实时跟随——链路已通（事件源/输入转发/桥均实测），UI 交互待实机点验
+- **体积优化**（可选）：ui JS ~60KB gzip 为 React 基础体积，面板复杂后可考虑分包/lazy
 - 协议扩展：`inspector.set_prop` 等后续方法（架构文档 §5 后续项）

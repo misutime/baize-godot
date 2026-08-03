@@ -24,8 +24,14 @@ tasks:
     cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
 
   stage-webview:
-    desc: "预构建 CEF 产物（libcef_dll_wrapper + CefViewWing + CEF 运行时）并暂存到分发目录（首次/换 CEF 版本才构建，产物存在则跳过）"
+    desc: "预构建 CEF 产物（libcef_dll_wrapper + CefViewWing + CEF 运行时）并暂存到分发目录（首次/换 CEF 版本才构建，产物存在则跳过）；UI 暂存复用 stage_ui（React 壳需先 ui-build）"
     cmd: '{{.PYTHON}} misc/scripts/stage_webview.py'
+
+  ui-build:
+    desc: "构建 WebDock React 壳（web/ui）并暂存到 bin/webview/ui/（dock 加载 webview/ui/index.html）"
+    cmds:
+      - pnpm --dir web/ui build
+      - '{{.PYTHON}} misc/scripts/stage_ui.py'
 
 
   dev-install:

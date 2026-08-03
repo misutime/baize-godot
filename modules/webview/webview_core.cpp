@@ -245,6 +245,13 @@ struct WebViewCore::Impl {
 
 		void onBeforeCommandLineProcessing(const CefString &p_process_type, CefRefPtr<CefCommandLine> p_command_line) override {
 			try {
+				// WebDock 页面为本地产物（file:// 加载 React 壳：ESM module script + crossorigin
+				// CSS link）。CEF 151 默认 file:// 跨源被 CORS 拦截（module script/CSS 均失败，
+				// console 证据：Cross origin requests ... file 不在允许协议列表）——放行同源
+				// file:// 资源访问。安全影响：本 CEF 实例内 file:// 页面可读其他本地文件；
+				// WebDock 只加载自家产物（index.html + assets，无远程/第三方内容），风险低。
+				// （用户裁决 2026-08-03：CEF 开关方案）
+				p_command_line->AppendSwitch("allow-file-access-from-files");
 #if defined(__APPLE__)
 				// NetworkService 在 mac 上启动时会访问钥匙串的 "Chromium Safe Storage"
 				// 项(OSCrypt cookie 加密密钥)。ad-hoc 签名每次构建/暂存都变 → CDHash 变 →
@@ -505,6 +512,9 @@ struct WebViewCore::Impl {
 
 		void consoleMessage(CefRefPtr<CefBrowser> &p_browser, const CefString &p_message, int p_level) override {
 			try {
+				// 页面 console → 宿主 stderr（编辑器内嵌场景：页面 JS 错误/注入状态可观测，
+				// C0.4 排障实证其诊断价值；React 壳上线后为产品级日志）。
+				log_stderr(("[webview_core] console: " + p_message.ToString() + "\n").c_str());
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::consoleMessage", e.what());
 			} catch (...) {

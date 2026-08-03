@@ -1,4 +1,6 @@
-/* 深蓝基调与 stub 页（#223）一致，保持 WebDock 视觉连续。 */
+@import "tailwindcss";
+
+/* 深蓝基调与旧 stub 页（#223）一致，保持 WebDock 视觉连续。 */
 html,
 body,
 #root {

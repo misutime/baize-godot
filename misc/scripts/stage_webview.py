@@ -12,13 +12,13 @@
 - 暂存:先全量拷到 bin/.webview-stage-tmp/ 校验后原子切换(旧文件先移入备份、失败
   回滚),中途失败不破坏 bin/(Windows:编辑器 exe 旁 DLL 搜索;mac:framework 与 helper
   bundle 需与 exe 同级);ui/ 页面 → <repo>/bin/webview/ui/
-  (editor_web_dock 用 file:///<exe_dir>/webview/ui/bridge.html 加载)
+  (editor_web_dock 用 file:///<exe_dir>/webview/ui/index.html 加载 React 壳产物)
 
 来源(路径直接关联,显式可见):
   BUILD_DIR    = bin/obj/webview/cefviewcore(cmake -B 固定路径,与 SCsub 切片一致)
   WING_RUNTIME = <BUILD_DIR>/output/Release/bin/(预构建产物:helper + CEF 运行时)
   WRAPPER_LIB  = <BUILD_DIR>/output/Release/lib/libcef_dll_wrapper.{lib|a}(SCsub 链接引用)
-  UI_SOURCE    = modules/webview/ui/(模块内页面源;MVP 阶段直接收 html,后续可接 ui/ 工程构建输出)
+  UI 源      = web/ui/dist（React 壳，task ui-build 构建；editor_web_dock 加载 index.html）
   CEF 版本     = modules/webview/SCsub 的 CEF_SDK_VERSION 常量(单点,勿在多处硬编码)
   CEF SDK      = misc/scripts/cef_dist.py 缓存定位(默认 <repo>/bin/cef-dist/,CEF_DIST_ROOT 可覆盖,
                  缺失自动下载/手动放包,不再读 cef-dist 文本配置)
@@ -70,7 +70,7 @@ SDK_LIB_REL = "Release/libcef.lib" if IS_WINDOWS else "Release/Chromium Embedded
 
 # 版本标记:记录构建时的 CEF_SDK_VERSION(首行),用于跳过判定;换版本自动重建。
 VERSION_MARKER = BUILD_DIR / "cef-version.txt"
-UI_SOURCE = REPO_ROOT / "modules" / "webview" / "ui"
+# UI 暂存统一走 stage_ui.py（React 壳 web/ui/dist → bin/webview/ui/），此处仅保留目标路径。
 WEBVIEW_DEST = BIN_DIR / "webview"
 UI_DEST = WEBVIEW_DEST / "ui"
 SCSUB = REPO_ROOT / "modules" / "webview" / "SCsub"
@@ -457,27 +457,14 @@ def stage_runtime(bin_dir: Path) -> list:
 
 
 def stage_ui() -> list:
-    """全量重建 bin/webview/(原子:先建 .tmp 再整体替换)并拷页面产物。
+    """暂存 React 壳产物到 bin/webview/ui/（复用 stage_ui.py 单一入口）。
 
-    UI 缺失只警告（页面 404，CEF 核心仍可运行）。页面落到 <exe_dir>/webview/ui/
-    （editor_web_dock 用 file:///<exe_dir>/webview/ui/bridge.html 加载）。
+    UI 缺失只警告（页面 404，CEF 核心仍可运行）；页面为 <exe_dir>/webview/ui/index.html
+    （editor_web_dock 加载，React 壳构建产物）。
     """
-    tmp = BIN_DIR / ".webview-ui-tmp"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    if not UI_SOURCE.is_dir():
-        return ["ui 源目录缺失"]
-    tmp_ui = tmp / "ui"
-    tmp_ui.mkdir(parents=True)
-    for f in sorted(UI_SOURCE.glob("*.html")):
-        shutil.copy2(f, tmp_ui / f.name)
-    if not (tmp_ui / "bridge.html").is_file():
-        shutil.rmtree(tmp, ignore_errors=True)
-        return ["bridge.html"]
-    if WEBVIEW_DEST.exists():
-        shutil.rmtree(WEBVIEW_DEST)
-    os.replace(tmp, WEBVIEW_DEST)
-    return []
+    from stage_ui import stage_ui_dist
+
+    return stage_ui_dist()
 
 
 def main() -> int:
@@ -508,7 +495,7 @@ def main() -> int:
     if ui_missing:
         print(
             f"[stage-webview] WARNING: UI 页面缺失 ({', '.join(ui_missing)}) — "
-            f"dock 页面将 404，CEF 核心可正常运行。来源: {UI_SOURCE}",
+            "dock 页面将 404，CEF 核心可正常运行。构建: task ui-build",
             file=sys.stderr,
         )
 
@@ -522,7 +509,7 @@ def main() -> int:
                 f"staged_at: {time.strftime('%Y-%m-%d %H:%M:%S')}",
                 f"wing_runtime_source: {WING_RUNTIME}",
                 f"cef_version: {cef_version}",
-                f"ui_source: {UI_SOURCE if UI_SOURCE.is_dir() else '(missing)'}",
+                f"ui_source: web/ui/dist (task ui-build)",
                 f"file_count: {file_count}",
                 "",
             ]

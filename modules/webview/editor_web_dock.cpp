@@ -40,9 +40,10 @@
 #include "core/os/os.h"
 
 // 编辑器自带页面：<exe_dir>/webview/ui/，经 file:// 加载——与打开的项目无关。
+// 入口为 React 壳构建产物（task ui-build → web/ui/dist → bin/webview/ui/）。
 static String get_bundled_ui_url() {
 	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
-	const String file_path = exe_dir.path_join("webview").path_join("ui").path_join("bridge.html");
+	const String file_path = exe_dir.path_join("webview").path_join("ui").path_join("index.html");
 	return "file:///" + file_path.replace("\\", "/");
 }
 
