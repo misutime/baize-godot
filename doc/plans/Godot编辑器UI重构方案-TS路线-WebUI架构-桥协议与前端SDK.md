@@ -128,7 +128,7 @@ sequenceDiagram
 | `editor.node_position_changed` | `{ node_id: number, position: {x,y,z} }` | 属性/拖动变化 |
 | `editor.undo_stack_changed` | `{ can_undo: bool, can_redo: bool }` | undo 栈状态（可选，MVP2 后） |
 | `editor.ui_font_size_changed` | `{ size: number }` | 编辑器主字体大小变化（EditorSettings settings_changed 过滤推送） |
-| `editor.ui_font_changed` | `{ path: string }` | 编辑器主字体路径变化（空 = 恢复默认） |
+| `editor.ui_font_changed` | `{ path: string }` | 主字体**实际生效路径**变化（main_font 设置或默认思源外部分发路径；空 = 内置回退/系统字体） |
 
 **方法名**：小写点号命名空间（`scene.`/`editor.`/`inspector.`），与 C++ 注册表一一对应；
 **事件名**：同风格，`*_changed` 后缀表状态推送。

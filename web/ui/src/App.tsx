@@ -128,26 +128,40 @@ export default function App() {
   // 字体族单一来源 = 编辑器：get_ui_font/get_ui_font_bold 返回实际生效路径
   // （main_font 设置优先，默认思源外部分发路径；内置回退时为空 → CSS 回退系统字体）。
   // 页面不再硬编码字体路径——换字体只改编辑器侧（文件或设置）。
-  const boldFontRef = useRef(""); // 粗体路径缓存（事件只携带主字体，bold 重载生效）
-  const applyUiFont = useCallback((regular: string, bold: string): void => {
-    let styleEl = document.getElementById("baize-font-face") as HTMLStyleElement | null;
-    if (!styleEl) {
-      styleEl = document.createElement("style");
-      styleEl.id = "baize-font-face";
-      document.head.appendChild(styleEl);
-    }
-    if (!regular) {
-      styleEl.textContent = ""; // 内置回退（无外部路径）：清除注入，回退系统字体
-      document.documentElement.style.fontFamily = "";
-      return;
-    }
-    const src = (p: string): string => `url("${encodeURI(`file:///${p.replace(/\\/g, "/")}`)}")`;
-    styleEl.textContent =
-      `@font-face { font-family: "baize-editor-font"; src: ${src(regular)}; font-weight: 100 500; font-display: swap; }\n` +
-      `@font-face { font-family: "baize-editor-font"; src: ${src(bold || regular)}; font-weight: 600 900; font-display: swap; }`;
-    document.documentElement.style.fontFamily =
-      '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
+  const boldFontRef = useRef(""); // 粗体路径缓存（事件刷新时重新拉取）
+  // file:// URL 按路径组件编码（encodeURI 保留 #/%xx 会误解析文件名，审查 W1）。
+  const toFileUrl = useCallback((p: string): string => {
+    const parts = p.replace(/\\/g, "/").split("/");
+    const encoded = parts
+      .map((seg, i) => (i === 0 || i === 1 ? seg : encodeURIComponent(seg))) // 前两段：空/盘符 C: 不编码
+      .join("/");
+    return `file:///${encoded}`;
   }, []);
+  const applyUiFont = useCallback(
+    (regular: string, bold: string): void => {
+      let styleEl = document.getElementById("baize-font-face") as HTMLStyleElement | null;
+      if (!styleEl) {
+        styleEl = document.createElement("style");
+        styleEl.id = "baize-font-face";
+        document.head.appendChild(styleEl);
+      }
+      if (!regular) {
+        styleEl.textContent = ""; // 内置回退（无外部路径）：清除注入，回退系统字体
+        document.documentElement.style.fontFamily = "";
+        return;
+      }
+      const src = (p: string): string => `url("${toFileUrl(p)}")`;
+      // 无独立粗体文件（静态 custom 字体）：单 face，浏览器合成粗体（与编辑器 embolden 语义一致，审查 W3）。
+      styleEl.textContent =
+        regular === bold
+          ? `@font-face { font-family: "baize-editor-font"; src: ${src(regular)}; font-display: swap; }`
+          : `@font-face { font-family: "baize-editor-font"; src: ${src(regular)}; font-weight: 100 500; font-display: swap; }\n` +
+            `@font-face { font-family: "baize-editor-font"; src: ${src(bold)}; font-weight: 600 900; font-display: swap; }`;
+      document.documentElement.style.fontFamily =
+        '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
+    },
+    [toFileUrl],
+  );
 
   useEffect(() => {
     void Promise.all([editor.getUiFont(), editor.getUiFontBold()])
@@ -161,8 +175,16 @@ export default function App() {
   }, [applyUiFont]);
 
   useEditorEvent(editor.onUiFontChanged, (payload) => {
-    // 事件只携带主字体（regular）；bold 保持加载时值（main_font_bold 变更低频，重载生效）。
-    applyUiFont(payload.path, boldFontRef.current);
+    // 主字体变化时同步刷新 bold（bridge 的 bold 回退依赖 main_font，审查 W2）。
+    void editor
+      .getUiFontBold()
+      .then((bold) => {
+        boldFontRef.current = bold;
+        applyUiFont(payload.path, bold);
+      })
+      .catch(() => {
+        applyUiFont(payload.path, boldFontRef.current);
+      });
   });
 
   // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。

@@ -32,6 +32,10 @@ public:
 	/// 触发事件下行到指定浏览器（协议层封装；p_payload_json 为事件 payload JSON）。
 	static void emit_event(int32_t p_browser_id, const String &p_event_name, const String &p_payload_json);
 
+	/// 写入默认字体解析路径（运行时存储，非持久化）。editor_fonts.cpp 加载默认字体后调用，
+	/// WebDock 桥（get_ui_font/get_ui_font_bold）读取——字体来源单一 = 编辑器。
+	static void set_resolved_fonts(const String &p_regular, const String &p_bold);
+
 	// ---- 事件源（MVP2 后半；机制见《WebUI架构-桥协议与前端SDK.md》§6）----
 
 	/// 注册事件下行目标浏览器（-1 = 注销）。WebDock 面板浏览器就绪后由 WebDockPlugin
@@ -90,6 +94,13 @@ private:
 	static void _on_selection_changed();
 	/// EditorSettings::settings_changed → main_font_size 变化时下行 ui_font_size_changed。
 	static void _on_editor_settings_changed();
+
+	// ---- 字体解析路径（运行时存储，非持久化）----
+	// editor_fonts.cpp 加载默认字体后写入实际生效路径；WebDock 桥读取。不用
+	// EditorSettings::set_manually——那会持久化机器绝对路径到 editor_settings-*.tres
+	// （审查 E2）。静态成员 = 进程级运行时值，不写盘、无 settings_changed 循环。
+	static String resolved_main_font_;
+	static String resolved_main_font_bold_;
 	/// 刷新选中 Node3D 位置跟踪；p_emit_initial_for_new 时对新选中节点立即发初始位置。
 	static void _refresh_tracked_positions(bool p_emit_initial_for_new);
 	static void _emit_node_position_changed(ObjectID p_node_id, const Vector3 &p_position);

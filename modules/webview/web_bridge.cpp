@@ -284,7 +284,7 @@ void WebBridge::_method_editor_get_ui_font(int32_t p_browser_id, const String &p
 	EditorSettings *es = EditorSettings::get_singleton();
 	String resolved = es->get_setting("interface/editor/fonts/main_font");
 	if (resolved.is_empty()) {
-		resolved = String(es->get_setting("interface/editor/fonts/main_font_resolved")); // 默认思源外部分发路径
+		resolved = resolved_main_font_; // 默认字体实际路径（editor_fonts 写入）
 	}
 	_respond(p_browser_id, req_id, true, resolved);
 }
@@ -303,7 +303,7 @@ void WebBridge::_method_editor_get_ui_font_bold(int32_t p_browser_id, const Stri
 		resolved = es->get_setting("interface/editor/fonts/main_font");
 	}
 	if (resolved.is_empty()) {
-		resolved = String(es->get_setting("interface/editor/fonts/main_font_bold_resolved"));
+		resolved = resolved_main_font_bold_; // 默认粗体实际路径（editor_fonts 写入）
 	}
 	_respond(p_browser_id, req_id, true, resolved);
 }
@@ -371,6 +371,13 @@ bool WebBridge::last_can_undo_ = true; // 哨兵：首帧 diff 必发一次当�
 bool WebBridge::last_can_redo_ = true;
 int WebBridge::last_ui_font_size_ = -1; // 哨兵：首帧比较必发当前值（连接时即设基线，实际不发）
 String WebBridge::last_ui_font_; // main_font 路径基线
+String WebBridge::resolved_main_font_; // 运行时解析字体路径（editor_fonts 写入，不持久化）
+String WebBridge::resolved_main_font_bold_;
+
+void WebBridge::set_resolved_fonts(const String &p_regular, const String &p_bold) {
+	resolved_main_font_ = p_regular;
+	resolved_main_font_bold_ = p_bold;
+}
 
 void WebBridge::set_event_browser_id(int32_t p_browser_id) {
 	event_browser_id_ = p_browser_id;
@@ -474,7 +481,7 @@ void WebBridge::_on_editor_settings_changed() {
 		last_ui_font_ = font;
 		Dictionary body;
 		// 实际生效路径（与 get_ui_font 一致：设置优先，空则 resolved 默认字体）。
-		body["path"] = font.is_empty() ? String(es->get_setting("interface/editor/fonts/main_font_resolved")) : font;
+		body["path"] = font.is_empty() ? resolved_main_font_ : font;
 		emit_event(event_browser_id_, "editor.ui_font_changed", JSON::stringify(body));
 	}
 }
