@@ -261,9 +261,11 @@ void WebViewManager::ime_cancel_composition(int32_t p_id) {
 // 注意:String(const char*) 是 Latin-1 解码——CEF 的 std::string 是 UTF-8,必须显式 utf8 构造,
 // 否则 JS 传入的中文参数/方法名会乱码(ustring.h:692 append_latin1)。
 void WebViewManager::_on_invoke_method(int32_t p_id, const std::string &p_method, const std::vector<std::string> &p_args) {
-	// 页面调用日志（与 query 同级，产品级可观测）：args[0] 为含 req_id 的参数 JSON。
+#ifdef DEV_ENABLED
+	// 页面调用日志（诊断级，pro 构建剔除；与 query 同级）：args[0] 为含 req_id 的参数 JSON。
 	String args_log = p_args.empty() ? String() : String::utf8(p_args[0].c_str());
 	print_line("[WebView] invoke: id=" + itos(p_id) + " method=" + String::utf8(p_method.c_str()) + " args=" + args_log);
+#endif
 	Vector<String> args;
 	args.resize(static_cast<int>(p_args.size()));
 	for (int i = 0; i < args.size(); i++) {
@@ -312,12 +314,16 @@ void WebViewManager::_on_load_status(int32_t p_id, int32_t p_status, const std::
 			(*slot)->_on_load_error(url, p_status, "[WebView] load failed");
 		}
 	} else {
+#ifdef DEV_ENABLED
 		print_line("[WebView] load status: id=" + itos(p_id) + " status=" + itos(p_status) + " url=" + url);
+#endif
 	}
 }
 
 void WebViewManager::_on_query(int32_t p_id, const std::string &p_query, int64_t p_query_id) {
+#ifdef DEV_ENABLED
 	print_line("[WebView] query: id=" + itos(p_id) + " query_id=" + itos(p_query_id) + " body=" + String(p_query.c_str()));
+#endif
 	// 立即经消息路由回传确定性应答（echo 请求体），驱动 JS 侧 onSuccess 回调。
 	WebViewManager *mgr = peek_singleton(); // 可空读取，不创建（防 teardown 后复活单例）
 	if (!mgr) {

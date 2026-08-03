@@ -513,7 +513,14 @@ struct WebViewCore::Impl {
 		void consoleMessage(CefRefPtr<CefBrowser> &p_browser, const CefString &p_message, int p_level) override {
 			try {
 				// 页面 console → 宿主 stderr（编辑器内嵌场景：页面 JS 错误/注入状态可观测，
-				// C0.4 排障实证其诊断价值；React 壳上线后为产品级日志）。
+				// C0.4 排障实证其诊断价值）。级别：dev 全量转发（诊断可见）；pro 构建只转发
+				// error/warning（页面 JS 错误仍可排障，console.log 诊断噪声剔除）。
+				// CEF LOGSEVERITY: 0=error 1=warning 2=info/log 3+=verbose。
+#ifndef DEV_ENABLED
+				if (p_level > 1) {
+					return;
+				}
+#endif
 				log_stderr(("[webview_core] console: " + p_message.ToString() + "\n").c_str());
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::consoleMessage", e.what());
@@ -927,7 +934,9 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
 	if (command_line && command_line->HasSwitch("type")) {
 		int exit_code = CefExecuteProcess(main_args, nullptr, nullptr);
+#ifdef DEV_ENABLED
 		log_stderr("[webview_core] init: launched as CEF subprocess, CefExecuteProcess handled it\n");
+#endif
 #if defined(__APPLE__)
 		if (impl_->framework_loaded) {
 			cef_unload_library(); // 失败出口:与 load 对称,防 framework 驻留到进程退出
@@ -1014,7 +1023,9 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 		// rc == 1:被其他实例占用,试下一槽位。无上限:并发 N 实例占槽位 0..N-1,
 		// 第 N+1 个实例必在槽位 N 成功;目录数 = 历史峰值并发数,不随启动次数累积。
 	}
+#ifdef DEV_ENABLED
 	log_stderr(("[webview_core] init: cache path = " + cache_path + "\n").c_str());
+#endif
 
 	CefSettings settings;
 	CefString(&settings.browser_subprocess_path) = subprocess_path;
