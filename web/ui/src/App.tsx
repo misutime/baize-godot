@@ -1,6 +1,10 @@
 // WebDock React 壳（MVP 验收 2/3/4：选中显示 X、改 X 移动可撤销、视口拖动实时跟随）。
 // 单选语义（协议事件 node_position_changed 以 node_id 标识，面板按当前选中显示；
 // 多选场景位置显示可能串——MVP 验收为单选，多选支持留后续）。
+//
+// 快捷键语义（用户定案 2026-08-03）：
+// - 焦点在输入框（编辑未确认）：Ctrl+Z = 浏览器文本撤销（非受控 input，原生撤销可靠）
+// - 焦点在输入框外（已确认/点击面板其他区域）：Ctrl+Z/Y/Shift+Z = 编辑器 undo/redo（桥方法）
 
 import { editor, getBridgeClient, scene } from "@baize/ui-sdk";
 import { useEditorEvent } from "@baize/ui-sdk/react";
@@ -26,6 +30,10 @@ export default function App() {
   // 输入框聚焦中：不被 node_position_changed 事件覆盖（用户编辑优先），blur 时提交。
   const editingRef = useRef(false);
   const busyRef = useRef(false);
+  // 非受控输入（浏览器原生文本撤销需要 DOM 管 value；受控组件会被 React 渲染覆盖）。
+  const xRef = useRef<HTMLInputElement>(null);
+  const yRef = useRef<HTMLInputElement>(null);
+  const zRef = useRef<HTMLInputElement>(null);
 
   const currentPath = selection[0] ?? null;
 
@@ -66,16 +74,82 @@ export default function App() {
     }
   }, [runAction]);
 
-  // WebDock 聚焦时 Ctrl+Z/Y/Shift+Z 接管为编辑器撤销（MVP 验收 3：改 X 后直接撤销）。
-  // 背景：web_panel 键盘转发无条件（面板聚焦即进页面，accept_event 阻断 Godot 快捷键），
-  // 不接管的话 Ctrl+Z 会被浏览器文本撤销吃掉，编辑器 undo 栈收不到。
-  // 输入框内文本撤销被接管（数字输入场景价值低）；空栈按 Ctrl+Z 不报错（nothing_to_undo 是正常态）。
+  // 选中变化 → 显示路径 + 拉取位置（getNodePosition 用场景相对路径，与事件对齐）。
+  useEditorEvent(editor.onSelectionChanged, (payload) => {
+    setSelection(payload.node_paths);
+    const path = payload.node_paths[0];
+    if (path) {
+      setPosition(null); // 新选中：先清空防显示旧值
+      void runAction(async () => {
+        setPosition(await scene.getNodePosition({ node_path: path }));
+      });
+    } else {
+      setPosition(null);
+    }
+  });
+
+  // 视口拖动 → 位置实时跟随（验收 4）；输入框聚焦时不覆盖（用户编辑优先）。
+  useEditorEvent(editor.onPositionChanged, (payload) => {
+    if (!editingRef.current) {
+      setPosition(payload.position);
+    }
+  });
+
+  // undo 栈状态 → 按钮可用性。
+  useEditorEvent(editor.onUndoStackChanged, (payload) => {
+    setCanUndo(payload.can_undo);
+    setCanRedo(payload.can_redo);
+  });
+
+  // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。
+  useEffect(() => {
+    const value = position ? String(position.x) : "";
+    if (xRef.current) {
+      xRef.current.value = value;
+    }
+    if (yRef.current) {
+      yRef.current.value = position ? String(position.y) : "";
+    }
+    if (zRef.current) {
+      zRef.current.value = position ? String(position.z) : "";
+    }
+  }, [position]);
+
+  // 提交：失焦/回车 → 读非受控值 → setNodePosition（undo 入栈）；非法输入跳过。
+  const commitPosition = useCallback((): void => {
+    if (!currentPath) {
+      return;
+    }
+    const nx = Number.parseFloat(xRef.current?.value ?? "");
+    const ny = Number.parseFloat(yRef.current?.value ?? "");
+    const nz = Number.parseFloat(zRef.current?.value ?? "");
+    if (Number.isNaN(nx) || Number.isNaN(ny) || Number.isNaN(nz)) {
+      return; // 非法输入不提交（防写入 NaN；输入框保留用户编辑）
+    }
+    const newPos: Vec3 = { x: nx, y: ny, z: nz };
+    void runAction(async () => {
+      await scene.setNodePosition({ node_path: currentPath, position: newPos });
+      setPosition(newPos); // 乐观同步显示（撤销/后续事件可再覆盖）
+    });
+  }, [currentPath, runAction]);
+
+  // 快捷键：输入框外 Ctrl+Z/Y/Shift+Z → 编辑器 undo/redo。
+  // 输入框聚焦（未确认编辑）时不接管——浏览器文本撤销（非受控 input 原生可靠）。
+  // 背景：web_panel 键盘转发无条件（面板聚焦即进页面 + accept_event 阻断 Godot 快捷键），
+  // 不接管则 Ctrl+Z 总被浏览器吃掉；空栈按 Ctrl+Z 不报错（nothing_to_undo 为正常态）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey)) {
         return;
       }
       const key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") {
+        return;
+      }
+      const target = e.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        return; // 输入框：浏览器默认文本撤销（用户未确认的编辑）
+      }
       const doRedo = (): void => {
         e.preventDefault();
         void runAction(async () => {
@@ -106,49 +180,13 @@ export default function App() {
         doRedo();
       } else if (key === "z") {
         doUndo();
-      } else if (key === "y") {
-        doRedo();
+      } else {
+        doRedo(); // y
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [runAction]);
-
-  // 选中变化 → 显示路径 + 拉取位置（getNodePosition 用场景相对路径，与事件对齐）。
-  useEditorEvent(editor.onSelectionChanged, (payload) => {
-    setSelection(payload.node_paths);
-    const path = payload.node_paths[0];
-    if (path) {
-      setPosition(null); // 新选中：先清空防显示旧值
-      void runAction(async () => {
-        setPosition(await scene.getNodePosition({ node_path: path }));
-      });
-    } else {
-      setPosition(null);
-    }
-  });
-
-  // 视口拖动 → 位置实时跟随（验收 4）；输入框聚焦时不覆盖（用户编辑优先）。
-  useEditorEvent(editor.onPositionChanged, (payload) => {
-    if (!editingRef.current) {
-      setPosition(payload.position);
-    }
-  });
-
-  // undo 栈状态 → 按钮可用性。
-  useEditorEvent(editor.onUndoStackChanged, (payload) => {
-    setCanUndo(payload.can_undo);
-    setCanRedo(payload.can_redo);
-  });
-
-  const commitPosition = useCallback((): void => {
-    if (!currentPath || !position) {
-      return;
-    }
-    void runAction(async () => {
-      await scene.setNodePosition({ node_path: currentPath, position });
-    });
-  }, [currentPath, position, runAction]);
 
   const createNodeClick = useCallback((): void => {
     void runAction(async () => {
@@ -159,32 +197,41 @@ export default function App() {
 
   const undoClick = useCallback((): void => {
     void runAction(async () => {
-      await editor.undo();
+      try {
+        await editor.undo();
+      } catch (err) {
+        const e2 = err as { code?: string };
+        if (e2.code !== "nothing_to_undo") {
+          throw err;
+        }
+      }
     });
   }, [runAction]);
 
   const redoClick = useCallback((): void => {
     void runAction(async () => {
-      await editor.redo();
+      try {
+        await editor.redo();
+      } catch (err) {
+        const e2 = err as { code?: string };
+        if (e2.code !== "nothing_to_redo") {
+          throw err;
+        }
+      }
     });
   }, [runAction]);
 
-  const updateAxis = useCallback((axis: keyof Vec3, value: string): void => {
-    const n = Number.parseFloat(value);
-    setPosition((prev) => (prev ? { ...prev, [axis]: Number.isNaN(n) ? prev[axis] : n } : prev));
-  }, []);
-
-  const numInput = (axis: keyof Vec3) => (
+  const numInput = (axis: "x" | "y" | "z") => (
     <input
       id={`pos-${axis}`}
+      ref={axis === "x" ? xRef : axis === "y" ? yRef : zRef}
       type="number"
       step="any"
-      value={position?.[axis] ?? ""}
+      defaultValue={position?.[axis] ?? ""}
       disabled={!position}
       onFocus={() => {
         editingRef.current = true;
       }}
-      onChange={(e) => updateAxis(axis, e.target.value)}
       onBlur={() => {
         editingRef.current = false;
         commitPosition();
