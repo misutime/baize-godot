@@ -108,8 +108,13 @@ sequenceDiagram
 |---|---|---|---|
 | `scene.get_node_count` | — | `number` | 当前场景节点数 |
 | `scene.create_node` | `{ name: string }` | `number` (node_id) | **undo 可撤销**（EditorUndoRedoManager） |
+| `scene.get_node_position` | `{ node_path: string }` | `{ x, y, z }` | 返回 Node3D 位置；node_path 为场景相对路径（"."=根，与 `editor.selection_changed` 的 node_paths 一致） |
+| `scene.set_node_position` | `{ node_path: string, position: { x, y, z } }` | `{}` | 设置 Node3D 位置，**undo 可撤销**（EditorUndoRedoManager） |
 | `editor.undo` | — | `{}` | 撤销上一步 |
 | `editor.redo` | — | `{}` | 重做 |
+
+**错误码**（`error.code`，除 `invalid_params`/`method_not_found`/`no_scene` 外）：
+`invalid_node`——node_path 找不到节点或节点不是 Node3D（位置读写方法）。
 
 **事件（C++→JS）**：
 
@@ -199,7 +204,7 @@ const unsub: () => void = editor.onSelectionChanged((e) => setSelection(e.node_p
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | MVP1（骨架+静态页） | modules/webview/（SCsub+register_types+webview_manager+web_panel+editor_web_dock），加载 bridge.html | ✅ 完成（C0.1-C0.3） |
-| MVP2（双向桥+undo） | 协议层 + 事件源已完成（2026-08-03：方法注册表 + method_result 下行 + selection_changed 信号 + 帧轮询 diff→node_position_changed + undo_stack_changed，见实施记录 §10）；**剩余：位置读写方法（`scene.get_node_position`/`set_node_position`，undo 入栈）+ 编辑器实机四条验收** | 进行中 |
+| MVP2（双向桥+undo） | 协议层 + 事件源 + 位置读写已完成（2026-08-03：方法注册表 + method_result 下行 + selection_changed 信号 + 帧轮询 diff→node_position_changed + undo_stack_changed + `get/set_node_position` undo 入栈，见实施记录 §10/§11）；**剩余：编辑器实机四条验收** | 进行中 |
 | MVP3（React 壳） | web/ 工程（sdk + ui，Vite base:'./'）→ 产物进 bin/webview/ui/ | 未开始 |
 
 **MVP 验收（四条）**：

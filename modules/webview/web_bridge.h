@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+class Node3D; // 仅指针引用（实现位于 web_bridge.cpp）
+
 // 桥协议方法注册表（Godot 壳层）。协议规范见
 // 《doc/plans/Godot编辑器UI重构方案-TS路线-WebUI架构-桥协议与前端SDK.md》。
 //
@@ -56,8 +58,14 @@ private:
 	// ---- 方法实现（按命名空间分组；p_args_json 为参数对象 JSON，含 req_id）----
 	static void _method_scene_get_node_count(int32_t p_browser_id, const String &p_args_json);
 	static void _method_scene_create_node(int32_t p_browser_id, const String &p_args_json);
+	static void _method_scene_get_node_position(int32_t p_browser_id, const String &p_args_json);
+	static void _method_scene_set_node_position(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_undo(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_redo(int32_t p_browser_id, const String &p_args_json);
+
+	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
+	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。
+	static Node3D *_resolve_node3d(int32_t p_browser_id, const String &p_req_id, const String &p_node_path);
 
 	/// 应答下行："method_result" 事件携带 { req_id, ok, result } / { req_id, ok:false, error }。
 	static void _respond(int32_t p_browser_id, const String &p_req_id, bool p_ok, const Variant &p_result,

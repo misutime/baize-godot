@@ -43,6 +43,10 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 		_method_scene_get_node_count(p_browser_id, args_json);
 	} else if (p_method == "scene.create_node") {
 		_method_scene_create_node(p_browser_id, args_json);
+	} else if (p_method == "scene.get_node_position") {
+		_method_scene_get_node_position(p_browser_id, args_json);
+	} else if (p_method == "scene.set_node_position") {
+		_method_scene_set_node_position(p_browser_id, args_json);
 	} else if (p_method == "editor.undo") {
 		_method_editor_undo(p_browser_id, args_json);
 	} else if (p_method == "editor.redo") {
@@ -111,6 +115,117 @@ void WebBridge::_method_scene_create_node(int32_t p_browser_id, const String &p_
 	eurm->commit_action();
 	// node 已由 do 方法(commit_action 执行)挂入场景;返回 instance_id 作为 node_id。
 	_respond(p_browser_id, req_id, true, static_cast<uint64_t>(node->get_instance_id()));
+}
+
+void WebBridge::_method_scene_get_node_position(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id, node_path }。返回 Node3D 位置 {x,y,z}。
+	// node_path 为场景相对路径(与 selection_changed 的 node_paths 语义一致,"."=场景根)。
+	String req_id;
+	String node_path;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		const Dictionary args = parsed.operator Dictionary();
+		req_id = args.get("req_id", "").operator String();
+		const Variant path_var = args.get("node_path", Variant());
+		if (path_var.get_type() == Variant::STRING) {
+			node_path = path_var.operator String();
+		}
+	}
+	Node3D *node = _resolve_node3d(p_browser_id, req_id, node_path);
+	if (!node) {
+		return; // 错误应答已由 _resolve_node3d 发出
+	}
+	const Vector3 pos = node->get_position();
+	Dictionary result;
+	result["x"] = pos.x;
+	result["y"] = pos.y;
+	result["z"] = pos.z;
+	_respond(p_browser_id, req_id, true, result);
+}
+
+void WebBridge::_method_scene_set_node_position(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id, node_path, position: {x,y,z} }。设置 Node3D 位置(undo 可撤销)。
+	// position 与协议 §3.3 node_position_changed 载荷同构;
+	// undo 入 EditorUndoRedoManager,与 scene.create_node 同一撤销栈。
+	String req_id;
+	String node_path;
+	Vector3 new_pos;
+	bool has_position = false;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		const Dictionary args = parsed.operator Dictionary();
+		req_id = args.get("req_id", "").operator String();
+		const Variant path_var = args.get("node_path", Variant());
+		if (path_var.get_type() == Variant::STRING) {
+			node_path = path_var.operator String();
+		}
+		const Variant pos_var = args.get("position", Variant());
+		if (pos_var.get_type() == Variant::DICTIONARY) {
+			const Dictionary pos = pos_var.operator Dictionary();
+			// JSON 整数字面量解析为 INT、带小数点为 FLOAT,两者都接受。
+			const Variant x = pos.get("x", Variant());
+			const Variant y = pos.get("y", Variant());
+			const Variant z = pos.get("z", Variant());
+			if ((x.get_type() == Variant::FLOAT || x.get_type() == Variant::INT) &&
+					(y.get_type() == Variant::FLOAT || y.get_type() == Variant::INT) &&
+					(z.get_type() == Variant::FLOAT || z.get_type() == Variant::INT)) {
+				// 有限性校验:JSON 溢出数字(如 1e400)经 String::to_float 得 +inf,
+				// 直接入栈会把非有限变换写进场景节点(审查 P2)。
+				const double fx = x;
+				const double fy = y;
+				const double fz = z;
+				if (Math::is_finite(fx) && Math::is_finite(fy) && Math::is_finite(fz)) {
+					new_pos = Vector3(fx, fy, fz);
+					has_position = true;
+				}
+			}
+		}
+	}
+	if (!has_position) {
+		_respond(p_browser_id, req_id, false, Variant(), "invalid_params", "position 必须为 {x,y,z} 有限数字");
+		return;
+	}
+	Node3D *node = _resolve_node3d(p_browser_id, req_id, node_path);
+	if (!node) {
+		return; // 错误应答已由 _resolve_node3d 发出
+	}
+	const Vector3 old_pos = node->get_position();
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	eurm->create_action("WebUI Set Position");
+	eurm->add_do_method(node, "set_position", new_pos);
+	eurm->add_undo_method(node, "set_position", old_pos);
+	eurm->commit_action();
+	_respond(p_browser_id, req_id, true, Dictionary());
+}
+
+Node3D *WebBridge::_resolve_node3d(int32_t p_browser_id, const String &p_req_id, const String &p_node_path) {
+	// 场景相对路径 → Node3D 的公共解析(错误应答集中处理)。
+	if (p_node_path.is_empty()) {
+		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_params", "node_path 必须为非空字符串");
+		return nullptr;
+	}
+	const NodePath path(p_node_path);
+	// 协议约定 node_path 为编辑场景相对路径:拒绝绝对路径(以 / 开头,
+	// get_node_or_null 会从 SceneTree 根解析,可指向编辑器内部节点)。
+	if (path.is_absolute()) {
+		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_params", "node_path 必须为场景相对路径(不得以 / 开头)");
+		return nullptr;
+	}
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		_respond(p_browser_id, p_req_id, false, Variant(), "no_scene", "当前没有打开的编辑场景");
+		return nullptr;
+	}
+	Node3D *node = Object::cast_to<Node3D>(root->get_node_or_null(path));
+	// 归属校验:解析结果必须是编辑场景根自身或其子孙。get_node_or_null 接受
+	// ".." 父级遍历,可逃逸到编辑场景根之外(编辑器内部节点)——拒绝,
+	// 否则 setter 会把对内部节点的修改记录成场景编辑。
+	if (!node || (node != root && !root->is_ancestor_of(node))) {
+		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_node", "找不到节点或节点不是 Node3D: " + p_node_path);
+		return nullptr;
+	}
+	return node;
 }
 
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
