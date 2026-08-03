@@ -35,6 +35,7 @@
 #include "web_bridge.h"
 
 #include "editor/editor_node.h"
+#include "editor/themes/editor_fonts.h" // editor_print_font_load_info: 补打默认字体信息
 
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
@@ -50,6 +51,9 @@ static String get_bundled_ui_url() {
 void WebDockPlugin::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
+			// 补打默认字体加载信息：editor_register_fonts 的立即输出早于输出面板接管
+			// （GUI 版丢失），此处主窗口已就绪——输出面板可见。
+			editor_print_font_load_info();
 			web_panel = memnew(WebPanel);
 			web_panel->set_name(SNAME("WebDock"));
 			// MarginContainer 内必须展开填充，否则收缩为 0x0 → CEF 纹理无尺寸不渲染。

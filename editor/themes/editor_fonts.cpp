@@ -113,6 +113,33 @@ Ref<FontVariation> make_bold_font(const Ref<Font> &p_font, double p_embolden, Ty
 	return font_var;
 }
 
+// 默认字体加载信息（运行时快照）：editor_register_fonts 填充，
+// editor_print_font_load_info 输出（立即 + 主窗口就绪后补打）。
+struct EditorFontLoadInfo {
+	bool valid = false;
+	String path; // 实际加载路径（空 = 内置回退）
+	int bytes = 0; // 真实读入字节数
+	int default_font_size = 0; // main_font_size × EDSCALE（实际渲染字号）
+	int main_font_size = 0;
+	float edscale = 1.0f;
+};
+static EditorFontLoadInfo s_font_load_info;
+
+// 输出默认字体加载信息（诊断级，DEV_ENABLED）。
+void editor_print_font_load_info() {
+	if (!s_font_load_info.valid) {
+		return;
+	}
+#ifdef DEV_ENABLED
+	if (s_font_load_info.path.is_empty()) {
+		print_line("[editor-font] 默认字体回退内置 Inter（外部分发缺失/不可读）");
+	} else {
+		print_line("[editor-font] 默认字体已加载: " + s_font_load_info.path + " bytes=" + itos(s_font_load_info.bytes));
+		print_line("[editor-font] 实际字号: " + itos(s_font_load_info.default_font_size) + "px (main_font_size=" + itos(s_font_load_info.main_font_size) + " × EDSCALE=" + String::num(s_font_load_info.edscale) + ")");
+	}
+#endif
+}
+
 void editor_register_fonts(const Ref<Theme> &p_theme) {
 	Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
 
@@ -180,18 +207,15 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 		default_font = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 		resolved_main_font = bundled_main_font;
-#ifdef DEV_ENABLED
-		// 原生 dock 默认字体实际加载确认（诊断级）：路径 + 真实读入字节数（非仅选择决策）
-		// + 实际渲染字号（main_font_size × EDSCALE，即主题 default_font_size）。
-		print_line("[editor-font] 默认字体已加载: " + bundled_main_font + " bytes=" + itos(s_bundled_main_data.size()));
-		print_line("[editor-font] 实际字号: " + itos(default_font_size) + "px (main_font_size=" + itos(int(EDITOR_GET("interface/editor/fonts/main_font_size"))) + " × EDSCALE=" + String::num(EDSCALE) + ")");
-#endif
+		s_font_load_info = { true, bundled_main_font, static_cast<int>(s_bundled_main_data.size()), default_font_size, int(EDITOR_GET("interface/editor/fonts/main_font_size")), EDSCALE };
 	} else {
 		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 		// 回退为异常部署（外部分发字体缺失/损坏）：无条件警告（review E4 留口，用户可确认）。
 		WARN_PRINT("[editor-font] 默认字体回退内置 Inter：外部分发字体缺失或不可读 (" + bundled_main_font + ")");
+		s_font_load_info = { true, String(), 0, default_font_size, int(EDITOR_GET("interface/editor/fonts/main_font_size")), EDSCALE };
 	}
+	editor_print_font_load_info(); // 立即输出（console exe 可见）；GUI 版由主窗口就绪后补打
 
 	Dictionary default_features;
 	default_features["calt"] = false; // Disable contextual alternates by default.
