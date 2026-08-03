@@ -1,6 +1,6 @@
 // 桥方法/事件实例：与 C++ 侧 web_bridge 方法注册表一一对应（协议 §3.3）。
 
-import { defineEvent, defineMethod } from "./registry";
+import { defineEvent, defineMethod, type EmptyParams } from "./registry";
 
 export interface Vec3 {
   x: number;
@@ -11,7 +11,7 @@ export interface Vec3 {
 // ---- 方法（JS→C++）----
 
 /** 当前场景节点数。 */
-export const getNodeCount = defineMethod<Record<string, never>, number>("scene.get_node_count");
+export const getNodeCount = defineMethod<EmptyParams, number>("scene.get_node_count");
 
 /** 创建 Node3D（undo 可撤销），返回 node_id（instance_id）。 */
 export const createNode = defineMethod<{ name: string }, number>("scene.create_node");
@@ -25,10 +25,10 @@ export const setNodePosition = defineMethod<{ node_path: string; position: Vec3 
 );
 
 /** 撤销上一步（nothing_to_undo 时 reject）。 */
-export const undo = defineMethod<Record<string, never>, Record<string, never>>("editor.undo");
+export const undo = defineMethod<EmptyParams, Record<string, never>>("editor.undo");
 
 /** 重做上一步（nothing_to_redo 时 reject）。 */
-export const redo = defineMethod<Record<string, never>, Record<string, never>>("editor.redo");
+export const redo = defineMethod<EmptyParams, Record<string, never>>("editor.redo");
 
 // ---- 事件（C++→JS）----
 

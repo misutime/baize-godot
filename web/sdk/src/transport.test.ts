@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  _pendingCountForTest,
   _resetTransportForTest,
   _setBridgeClientForTest,
   type CefViewClientLike,
@@ -63,6 +64,23 @@ describe("invoke", () => {
     await expect(p).resolves.toEqual({ x: 5, y: 6, z: 7 });
   });
 
+  it("并发请求乱序应答仍按 req_id 正确配对（不总是 settle 第一个）", async () => {
+    const { bridge, invoked, emit } = makeFakeBridge();
+    _setBridgeClientForTest(bridge);
+    const p1 = invoke<number>("scene.get_node_count", {});
+    const p2 = invoke<string>("scene.create_node", { name: "WebNode" });
+    const id1 = (JSON.parse(invoked[0].argsJson) as { req_id: string }).req_id;
+    const id2 = (JSON.parse(invoked[1].argsJson) as { req_id: string }).req_id;
+    expect(id1).not.toBe(id2);
+    // 乱序：先应答第二个请求；两个 pending 期间来一个未知 req_id
+    emit("method_result", JSON.stringify({ req_id: id2, ok: true, result: "node-2" }));
+    emit("method_result", JSON.stringify({ req_id: "stranger", ok: true, result: "x" }));
+    emit("method_result", JSON.stringify({ req_id: id1, ok: true, result: 7 }));
+    await expect(p2).resolves.toBe("node-2");
+    await expect(p1).resolves.toBe(7);
+    expect(_pendingCountForTest()).toBe(0);
+  });
+
   it("错误应答 reject BridgeError（code/message 透传）", async () => {
     const { bridge, invoked, emit } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
@@ -75,16 +93,19 @@ describe("invoke", () => {
     await expect(p).rejects.toEqual({ code: "invalid_node", message: "找不到" });
   });
 
-  it("超时 reject { code: 'timeout' } 且迟到的应答被丢弃", async () => {
+  it("超时 reject { code: 'timeout' } 且 pending 清理可观测、迟到应答被丢弃", async () => {
     vi.useFakeTimers();
     const { bridge, invoked, emit } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
     const p = invoke<unknown>("scene.get_node_count", {}, 100);
     const args = JSON.parse(invoked[0].argsJson) as { req_id: string };
+    expect(_pendingCountForTest()).toBe(1); // 超时前挂起
     vi.advanceTimersByTime(150);
     await expect(p).rejects.toEqual({ code: "timeout", message: expect.stringContaining("超时") });
-    // 迟到应答：pending 已清，不得 resolve 已 reject 的 Promise（不抛异常即可）
+    expect(_pendingCountForTest()).toBe(0); // 超时即从 pending 移除（不泄漏）
+    // 迟到应答：pending 已空，不得复活/误配
     emit("method_result", JSON.stringify({ req_id: args.req_id, ok: true, result: 1 }));
+    expect(_pendingCountForTest()).toBe(0);
   });
 
   it("桥注入缺失显式报错（不静默回退）", async () => {
@@ -119,13 +140,16 @@ describe("onEvent", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it("非 JSON 载荷按原字符串透传", () => {
+  it("非 JSON 事件载荷显式上报（console.error）且不调用业务监听器", () => {
     const { bridge, emit } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fn = vi.fn();
-    onEvent<string>("editor.some_event", fn);
-    emit("editor.some_event", "plain");
-    expect(fn).toHaveBeenCalledWith("plain");
+    onEvent<{ a: number }>("editor.some_event", fn);
+    emit("editor.some_event", "not json");
+    expect(fn).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });
 

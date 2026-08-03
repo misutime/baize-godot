@@ -2,6 +2,7 @@
 // 订阅/清理自动管理；组件不直接接触订阅函数签名差异。
 
 import { useEffect, useRef, useState } from "react";
+import type { BridgeError } from "./transport";
 
 export type EventSubscription<T> = (listener: (payload: T) => void) => () => void;
 
@@ -15,6 +16,22 @@ export function useEditorEvent<T>(subscribe: EventSubscription<T>, handler: (pay
   const handlerRef = useRef(handler);
   handlerRef.current = handler; // 每次渲染更新，订阅回调永远走最新闭包
   useEffect(() => subscribe((payload) => handlerRef.current(payload)), [subscribe]);
+}
+
+/** 桥错误 → Error（保留协议 code/message，不丢失诊断信息）。 */
+function toError(e: unknown): Error {
+  if (e instanceof Error) {
+    return e;
+  }
+  if (e !== null && typeof e === "object") {
+    const bridgeErr = e as Partial<BridgeError>;
+    if (typeof bridgeErr.code === "string" && typeof bridgeErr.message === "string") {
+      const err = new Error(bridgeErr.message);
+      (err as Error & { code?: string }).code = bridgeErr.code;
+      return err;
+    }
+  }
+  return new Error(String(e));
 }
 
 /** 桥方法调用的状态封装：loading 期间防重复调用，错误显式暴露（不吞）。 */
@@ -40,7 +57,7 @@ export function useBridgeCall<TArgs extends object, TResult>(
       const result = await call(args);
       return result;
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
+      const err = toError(e); // BridgeError（普通对象）→ Error 且保留 code/message（审查 P1）
       setError(err);
       throw err; // 错误上抛，调用方决定处理（不静默）
     } finally {

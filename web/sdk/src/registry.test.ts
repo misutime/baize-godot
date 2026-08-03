@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { defineEvent, defineMethod } from "./registry";
+import { editor, scene } from "./index";
 import { _resetTransportForTest, _setBridgeClientForTest, type CefViewClientLike } from "./transport";
 
 function makeFakeBridge() {
@@ -35,38 +35,44 @@ beforeEach(() => {
   _setBridgeClientForTest(null);
 });
 
-describe("defineMethod", () => {
-  it("映射到协议方法名并配对应答（create_node 场景）", async () => {
-    const { bridge, invoked, emit } = makeFakeBridge();
+// 表驱动：shipped 的 scene/editor 注册表与协议 §3.3 一一对应（防错绑协议名）。
+describe("shipped 方法注册表", () => {
+  it.each([
+    ["scene.get_node_count", () => scene.getNodeCount()],
+    ["scene.create_node", () => scene.createNode({ name: "WebNode" })],
+    ["scene.get_node_position", () => scene.getNodePosition({ node_path: "WebNode" })],
+    [
+      "scene.set_node_position",
+      () => scene.setNodePosition({ node_path: "WebNode", position: { x: 1, y: 2, z: 3 } }),
+    ],
+    ["editor.undo", () => editor.undo()],
+    ["editor.redo", () => editor.redo()],
+  ] as Array<[string, () => Promise<unknown>]>)("方法 %s 发出正确协议名", (protocolName, call) => {
+    const { bridge, invoked } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
-    const createNode = defineMethod<{ name: string }, number>("scene.create_node");
-    const p = createNode({ name: "WebNode" });
-    expect(invoked[0].method).toBe("scene.create_node");
-    const args = JSON.parse(invoked[0].argsJson) as { req_id: string; name: string };
-    expect(args.name).toBe("WebNode");
-    emit("method_result", JSON.stringify({ req_id: args.req_id, ok: true, result: 42 }));
-    await expect(p).resolves.toBe(42);
-  });
-
-  it("自定义超时透传", async () => {
-    const { bridge, emit } = makeFakeBridge();
-    _setBridgeClientForTest(bridge);
-    const undo = defineMethod<Record<string, never>, Record<string, never>>("editor.undo");
-    const p = undo({}, 1); // 1ms 超时
-    await expect(p).rejects.toEqual({ code: "timeout", message: expect.stringContaining("超时") });
-    emit("method_result", '{"req_id":"x","ok":true}'); // 迟到应答不抛异常
+    call();
+    expect(invoked[0].method).toBe(protocolName);
+    expect(JSON.parse(invoked[0].argsJson)).toHaveProperty("req_id");
   });
 });
 
-describe("defineEvent", () => {
-  it("映射到协议事件名并解析 payload", () => {
-    const { bridge, emit } = makeFakeBridge();
-    _setBridgeClientForTest(bridge);
-    const onSelectionChanged = defineEvent<{ node_paths: string[] }>("editor.selection_changed");
-    const received: Array<{ node_paths: string[] }> = [];
-    const unsub = onSelectionChanged((payload) => received.push(payload));
-    emit("editor.selection_changed", JSON.stringify({ node_paths: ["Node3D", "."] }));
-    expect(received).toEqual([{ node_paths: ["Node3D", "."] }]);
-    unsub();
-  });
+describe("shipped 事件注册表", () => {
+  it.each([
+    ["editor.selection_changed", editor.onSelectionChanged],
+    ["editor.node_position_changed", editor.onPositionChanged],
+    ["editor.undo_stack_changed", editor.onUndoStackChanged],
+  ] as Array<[string, (listener: (payload: unknown) => void) => () => void]>)(
+    "事件 %s 订阅/退订",
+    (protocolName, subscribe) => {
+      const { bridge, emit } = makeFakeBridge();
+      _setBridgeClientForTest(bridge);
+      const received: unknown[] = [];
+      const unsub = subscribe((payload) => received.push(payload));
+      emit(protocolName, JSON.stringify({ ok: true }));
+      expect(received).toHaveLength(1);
+      unsub();
+      emit(protocolName, JSON.stringify({ ok: true }));
+      expect(received).toHaveLength(1); // 退订后不再收到
+    },
+  );
 });

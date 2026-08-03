@@ -40,7 +40,12 @@ const pending = new Map<string, PendingCall>();
 export function getBridgeClient(): CefViewClientLike {
   if (!client) {
     const c = typeof window !== "undefined" ? window.CefViewClient : undefined;
-    if (!c || typeof c.invoke !== "function" || typeof c.addEventListener !== "function") {
+    if (
+      !c ||
+      typeof c.invoke !== "function" ||
+      typeof c.addEventListener !== "function" ||
+      typeof c.removeEventListener !== "function"
+    ) {
       throw new Error("CefViewClient bridge not available: webview 注入缺失或形态不符");
     }
     client = c;
@@ -119,7 +124,8 @@ export function invoke<T>(method: string, params: Record<string, unknown>, timeo
     }, timeoutMs);
     pending.set(reqId, { resolve: resolve as (value: unknown) => void, reject, timer });
     try {
-      bridge.invoke(method, JSON.stringify({ req_id: reqId, ...params }));
+      // params 先展开、req_id 最后赋值：防调用方参数覆盖 SDK 生成的请求 ID（配对破坏/串线，审查 P1）。
+      bridge.invoke(method, JSON.stringify({ ...params, req_id: reqId }));
     } catch (e) {
       pending.delete(reqId);
       clearTimeout(timer);
@@ -128,19 +134,26 @@ export function invoke<T>(method: string, params: Record<string, unknown>, timeo
   });
 }
 
-function parsePayload(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return json; // 非 JSON 载荷按原字符串透传
-  }
+/** 测试辅助：当前 pending 调用数（迟到应答丢弃的可观测断言）。 */
+export function _pendingCountForTest(): number {
+  return pending.size;
 }
+
+/** 事件载荷 JSON 解析；失败显式抛错（§3.3 事件载荷均为 JSON 对象，不静默透传）。 */
 
 /** 订阅事件下行（TriggerEvent → renderer → JS 监听器，参数为字符串载荷）。返回退订函数。 */
 export function onEvent<T>(type: string, listener: (payload: T) => void): () => void {
   const bridge = getBridgeClient();
   const raw = (payloadJson: string): void => {
-    listener(parsePayload(payloadJson) as T);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(payloadJson);
+    } catch (e) {
+      // 载荷非法：显式上报（不静默吞，不把字符串断言成 T 传给业务监听器）。
+      console.error(`[ui-sdk] 事件 ${type} 载荷解析失败:`, e);
+      return;
+    }
+    listener(payload as T);
   };
   bridge.addEventListener(type, raw);
   return () => {
