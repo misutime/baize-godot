@@ -180,9 +180,15 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 		default_font = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 		resolved_main_font = bundled_main_font;
+#ifdef DEV_ENABLED
+		// 原生 dock 默认字体加载决策（诊断级）：与 WebDock 的 [webdock-font] 诊断对照。
+		print_line("[editor-font] 默认字体: 外部分发 " + bundled_main_font);
+#endif
 	} else {
 		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+		// 回退为异常部署（外部分发字体缺失/损坏）：无条件警告（review E4 留口，用户可确认）。
+		WARN_PRINT("[editor-font] 默认字体回退内置 Inter：外部分发字体缺失或不可读 (" + bundled_main_font + ")");
 	}
 
 	Dictionary default_features;
