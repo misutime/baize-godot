@@ -135,3 +135,29 @@ pnpm exec biome check .      # lint + 格式（--write 自动修复）
   3D 视口拖动数字实时跟随——链路已通（事件源/输入转发/桥均实测），UI 交互待实机点验
 - **体积优化**（可选）：ui JS ~60KB gzip 为 React 基础体积，面板复杂后可考虑分包/lazy
 - 协议扩展：`inspector.set_prop` 等后续方法（架构文档 §5 后续项）
+
+## 10. 字体体系（2026-08-03 补记：统一来源 + 思源 + 字号缩放）
+
+**目标**：WebDock 与原生 dock 长期共存，视觉几乎一致——字形/字号/缩放三方面对齐。
+
+| 维度 | 实现 | 来源/跟随 |
+|---|---|---|
+| 字形 | Noto Sans CJK SC（思源黑体，SIL OFL）Regular+Bold | **单一来源 = 编辑器**：editor_fonts.cpp 加载默认字体后经 `WebBridge::set_resolved_fonts` 写入运行时静态存储（非持久化——防机器绝对路径写入 editor_settings-*.tres）；WebDock 经 get_ui_font/get_ui_font_bold 拉取实际生效路径（main_font 设置优先，空则 resolved），@font-face 注入（file:// 组件编码），**页面无硬编码字体路径** |
+| 字号 | html font-size = main_font_size × display_scale（默认 14×1.5=21px@4K）；body 1rem，Tailwind 全 rem 跟随 | main_font_size（get_ui_font_size + ui_font_size_changed 事件，运行时生效）；display_scale（get_ui_scale，重启生效） |
+| 缩放 | display_scale：Auto→DPI/96、1..6→(mode+2)×0.25、越界→custom（对齐原生 editor_node 语义） | EditorSettings |
+
+**分发**：字体源 `web/ui/public/fonts/`（git 跟踪）→ Vite public 机制自动进 dist/fonts →
+stage_ui 拷贝 dist 整体到 `bin/webview/ui/fonts/`（编辑器运行时加载 + WebDock 页面共享同一文件）。
+换字体 = 换文件 + 重启，无需重编引擎。
+
+**内置字体优化**：思源为主字体后 DroidSansFallback 仅在 Inter 回退分支加载（防回退路径
+中文/韩文缺字）；DroidSansJapanese 保留（日文字形）；Inter/JetBrainsMono 数组未引用时
+编译期剔除。
+
+**诊断**（产品级，宿主 stderr 可查）：WebDock 加载后输出 `[webdock-font]` 日志——
+bodyFamily（CSS 层应用确认）+ regular/bold 实际路径 + `fonts.load()` 加载确认
+（loaded=true）；加载失败显式 console.error。原生 dock 实际字体 = get_ui_font 返回值
+（桥，来源单一）。
+
+**审查历程**：字体系列 8 个提交经两轮 reviewer 审查（早期 5 个 + 中期 3 个），共 11 个
+发现全部修复（P1×2：font-family 被 body 覆盖致注入字体未渲染、req_id/输入同步等）。
