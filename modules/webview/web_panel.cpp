@@ -68,6 +68,7 @@ void WebPanel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_ipc_message", "message"), &WebPanel::_on_ipc_message);
 
 	ADD_SIGNAL(MethodInfo("on_message", PropertyInfo(Variant::STRING, "message")));
+	ADD_SIGNAL(MethodInfo("load_finished")); // 页面加载完成（事件源初始快照等订阅时机）
 }
 
 void WebPanel::_notification(int p_what) {
@@ -567,6 +568,7 @@ void WebPanel::_on_ipc_message(const String &p_msg) {
 
 void WebPanel::_on_load_finished(const String &p_url, int p_http_status) {
 	print_line("[WebView] page loaded: " + p_url + " (status " + itos(p_http_status) + ")");
+	emit_signal(SNAME("load_finished")); // 订阅方（WebDockPlugin）在此时机下发初始状态
 }
 
 void WebPanel::_on_load_error(const String &p_url, int p_error_code, const String &p_error_text) {

@@ -5,9 +5,13 @@
 #include "webview_manager.h"
 
 #include "core/io/json.h"
+#include "core/math/math_funcs.h"
+#include "core/object/callable_mp.h"
 #include "core/object/object.h"
 #include "core/string/print_string.h"
+#include "editor/editor_data.h"
 #include "editor/editor_interface.h"
+#include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/node.h"
@@ -160,4 +164,155 @@ void WebBridge::emit_event(int32_t p_browser_id, const String &p_event_name, con
 		return; // teardown 后不复活单例
 	}
 	mgr->emit_event(p_browser_id, p_event_name, p_payload_json);
+}
+
+// ---- 事件源（MVP2 后半；机制见《WebUI架构-桥协议与前端SDK.md》§6）----
+
+// 事件下行目标：单 WebDock 单浏览器（多面板时改注册表）。
+int32_t WebBridge::event_browser_id_ = -1;
+bool WebBridge::event_sources_connected_ = false;
+HashMap<ObjectID, Vector3> WebBridge::tracked_positions_;
+bool WebBridge::last_can_undo_ = true; // 哨兵：首帧 diff 必发一次当前状态
+bool WebBridge::last_can_redo_ = true;
+
+void WebBridge::set_event_browser_id(int32_t p_browser_id) {
+	event_browser_id_ = p_browser_id;
+	tracked_positions_.clear(); // 目标切换：清空基线，防旧节点缓存误发
+	// 重置 undo 哨兵：新消费者首帧 poll 收到当前栈状态（否则旧值 diff 吞掉状态）。
+	last_can_undo_ = true;
+	last_can_redo_ = true;
+}
+
+void WebBridge::init_event_sources() {
+	if (event_sources_connected_) {
+		return;
+	}
+	EditorNode *ed = EditorNode::get_singleton();
+	if (!ed) {
+		return; // 启动时序未就绪（dock 注册发生在 Main::start 后，正常不应出现）
+	}
+	ed->get_editor_selection()->connect("selection_changed", callable_mp_static(&WebBridge::_on_selection_changed));
+	event_sources_connected_ = true;
+	// 初始同步一次当前选中：此时浏览器 id 可能未注册（面板刚创建），
+	// 事件发不出但基线会建立；前端订阅前的首次真实选中仍会触发。
+	_on_selection_changed();
+}
+
+void WebBridge::deinit_event_sources() {
+	if (!event_sources_connected_) {
+		return;
+	}
+	EditorNode *ed = EditorNode::get_singleton();
+	if (ed && ed->get_editor_selection()) {
+		ed->get_editor_selection()->disconnect("selection_changed", callable_mp_static(&WebBridge::_on_selection_changed));
+	}
+	event_sources_connected_ = false;
+}
+
+void WebBridge::poll_editor_state() {
+	if (event_browser_id_ < 0) {
+		return; // 无事件下行目标（浏览器未就绪/已注销）
+	}
+	_refresh_tracked_positions(false); // 纯 diff：位置变化才发
+	_poll_undo_stack();
+}
+
+void WebBridge::emit_initial_state() {
+	// 页面加载完成（订阅就绪）后下发完整初始状态：当前选中 node_paths +
+	// 各选中节点初始位置 + 下帧 undo 栈状态（哨兵重置）。
+	// 场景：选中先于浏览器就绪/页面订阅时，事件会被跳过（browser_id<0 早退），
+	// 消费者将永远收不到初始值——必须在此强制快照。
+	tracked_positions_.clear(); // 强制全部选中节点按"新节点"发初始位置
+	last_can_undo_ = true; // 下帧 poll 发实际栈状态
+	last_can_redo_ = true;
+	_on_selection_changed();
+}
+
+void WebBridge::_on_selection_changed() {
+	EditorNode *ed = EditorNode::get_singleton();
+	if (!ed) {
+		return;
+	}
+	if (event_browser_id_ >= 0) {
+		// 下行 selection_changed：node_paths = 全部选中节点的场景相对路径
+		// （相对编辑场景根；get_path() 会返回编辑器内部全局路径，前端无法定位）。
+		Array node_paths;
+		List<Node *> nodes = ed->get_editor_selection()->get_full_selected_node_list();
+		Node *scene_root = EditorInterface::get_singleton()->get_edited_scene_root();
+		for (const Node *n : nodes) {
+			// 统一场景相对路径语义（NodePath::get_path_to）：根节点自身为 "."，
+			// 前端 SDK 约定 "." = 场景根（与 Godot NodePath 语义一致）。
+			node_paths.append(scene_root ? scene_root->get_path_to(n) : NodePath(n->get_name()));
+		}
+		Dictionary body;
+		body["node_paths"] = node_paths;
+		emit_event(event_browser_id_, "editor.selection_changed", JSON::stringify(body));
+	}
+	// 重建位置跟踪基线：新选中节点立即发初始位置（验收 2：选中即显示 X）。
+	_refresh_tracked_positions(event_browser_id_ >= 0);
+}
+
+void WebBridge::_refresh_tracked_positions(bool p_emit_initial_for_new) {
+	EditorNode *ed = EditorNode::get_singleton();
+	if (!ed) {
+		return;
+	}
+	HashMap<ObjectID, Vector3> next;
+	List<Node *> nodes = ed->get_editor_selection()->get_full_selected_node_list();
+	for (Node *n : nodes) {
+		Node3D *n3 = Object::cast_to<Node3D>(n);
+		if (!n3) {
+			continue; // 仅 Node3D 有 position(Vector3) 语义；Control/Node2D 后续扩展
+		}
+		const ObjectID id = n->get_instance_id();
+		const Vector3 pos = n3->get_position();
+		HashMap<ObjectID, Vector3>::Iterator it = tracked_positions_.find(id);
+		if (!it) {
+			if (p_emit_initial_for_new) {
+				_emit_node_position_changed(id, pos);
+			}
+			next[id] = pos;
+		} else {
+			const Vector3 &last = it->value;
+			// 帧轮询 diff（RouteB 决策 #5：阈值 1e-6，只在变化时推送）。
+			if (Math::abs(pos.x - last.x) > 1e-6 || Math::abs(pos.y - last.y) > 1e-6 || Math::abs(pos.z - last.z) > 1e-6) {
+				_emit_node_position_changed(id, pos);
+			}
+			// 未变化/亚阈值：保留旧基线进 next——否则缓存清空，后续变化被当"新节点"
+			// （p_emit_initial_for_new=false 时不发），累积亚阈值移动会被静默吞掉。
+			next[id] = last;
+		}
+	}
+	tracked_positions_ = next; // 未选中的节点自然从跟踪中移除
+}
+
+void WebBridge::_emit_node_position_changed(ObjectID p_node_id, const Vector3 &p_position) {
+	if (event_browser_id_ < 0) {
+		return;
+	}
+	Dictionary body;
+	body["node_id"] = static_cast<uint64_t>(p_node_id); // instance_id 即 node_id（与 create_node 返回一致）
+	// position 必须构造 {x,y,z} 对象：JSON::stringify 对 Vector3 直接序列化为
+	// 字符串 "(x, y, z)"（Variant toString），与协议 §3.3 的对象定义不符。
+	Dictionary pos;
+	pos["x"] = p_position.x;
+	pos["y"] = p_position.y;
+	pos["z"] = p_position.z;
+	body["position"] = pos;
+	emit_event(event_browser_id_, "editor.node_position_changed", JSON::stringify(body));
+}
+
+void WebBridge::_poll_undo_stack() {
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	const bool can_undo = eurm->has_undo();
+	const bool can_redo = eurm->has_redo();
+	if (can_undo == last_can_undo_ && can_redo == last_can_redo_) {
+		return;
+	}
+	last_can_undo_ = can_undo;
+	last_can_redo_ = can_redo;
+	Dictionary body;
+	body["can_undo"] = can_undo;
+	body["can_redo"] = can_redo;
+	emit_event(event_browser_id_, "editor.undo_stack_changed", JSON::stringify(body));
 }

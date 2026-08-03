@@ -11,16 +11,16 @@
 
 | # | 决策点 | 结论 |
 |---|---|---|
-| 1 | 传输主通道 | **CefViewCore 的 `window.CefViewClient` 桥对象**（`invokeMethod` 方法调用 + `addEventListener` 事件订阅 + C++ 侧 `TriggerEvent` 事件下行）。`cefViewQuery`（CefMessageRouter）**仅因已实现而保留作备用**，后续不应在它身上投入精力，除非出现确实非它不可的场景 |
+| 1 | 传输主通道 | **CefViewCore 的 `window.CefViewClient` 桥对象**（`invoke` 方法调用 + `addEventListener` 事件订阅 + C++ 侧 `TriggerEvent` 事件下行）。`cefViewQuery`（CefMessageRouter）**仅因已实现而保留作备用**，后续不应在它身上投入精力，除非出现确实非它不可的场景 |
 | 2 | 前端工程目录 | 仓库根新建 **`web/`** workspace（monorepo）：`web/sdk`（TS SDK 包）+ `web/ui`（React+Vite 应用包）。类比 `crates/` 放 Rust 模块的顶层分区 |
-| 3 | 协议规范 | **JSON-RPC 风格**：方法/事件用点号命名空间（`scene.create_node`、`editor.selection_changed`），返回统一 `{ ok, result }` / `{ ok:false, error:{code,message} }`；载体 = `invokeMethod(方法名, ...args)` + `TriggerEvent`（非 JSON 字符串） |
+| 3 | 协议规范 | **JSON-RPC 风格**：方法/事件用点号命名空间（`scene.create_node`、`editor.selection_changed`），返回统一 `{ ok, result }` / `{ ok:false, error:{code,message} }`；载体 = `invoke(方法名, ...args)` + `TriggerEvent`（非 JSON 字符串） |
 | 4 | SDK 形态 | **类型化 API 对象**（`bridge.scene.getNodeCount()`），内部映射到字符串协议；前端组件**永不直接碰** `window.CefViewClient` |
 
 ### 1.1 为什么首选 CefViewClient 桥对象（而非 cefViewQuery）
 
 | 能力 | CefViewClient | cefViewQuery | 决策依据 |
 |---|---|---|---|
-| 方法调用 JS→C++ | ✅ `invokeMethod` | ✅ 内置 | 两者都有 |
+| 方法调用 JS→C++ | ✅ `invoke` | ✅ 内置 | 两者都有 |
 | **事件订阅/下行**（C++→JS 推送） | ✅ **原生**（`addEventListener` + `TriggerEvent`） | ❌ 无（仅一问一答） | **React UI 必须**（选中/属性变化推送），cefViewQuery 没有 → 决定性差异 |
 | 调用返回值回 JS | ❌ 无内置（**协议层自建**，见 §3.1） | ✅ 内置配对 | 自建成本约 50 行（req_id 配对），换来单通道统一 |
 | 悬空清理 | 监听器随 V8 context 释放；invoke fire-and-forget 无悬空 | OnQueryCanceled | 两者都有保障 |
@@ -43,7 +43,7 @@ web/                          ← workspace root（pnpm）
 │   └── src/
 │       ├── index.ts          ← 导出类型化 API（bridge.scene / bridge.editor / ...）
 │       ├── registry.ts       ← defineMethod / defineEvent 声明（类型 ↔ 协议字符串绑定）
-│       ├── transport.ts      ← CefViewClient.invokeMethod / addEventListener 封装
+│       ├── transport.ts      ← CefViewClient.invoke / addEventListener 封装
 │       └── hooks.ts          ← React Hook（useBridge / useEditorEvent；独立子入口，避免 sdk 依赖 React）
 └── ui/                       ← @baize/editor-ui：编辑器网页面板（React + Vite，base:'./'）
     ├── package.json
@@ -68,17 +68,19 @@ web/                          ← workspace root（pnpm）
 
 ### 3.1 载体（CefViewCore 机制，已确认注入）
 
-- **JS→C++ 方法调用**：`window.CefViewClient.invokeMethod("命名空间.方法", ...args)`
-  （V8 值 → CefValue，支持基础类型/对象/数组；宿主回调 `invokeMethodNotify` 目前空实现，待接）
+- **JS→C++ 方法调用**：`window.CefViewClient.invoke("命名空间.方法", ...args)`
+  （V8 值 → CefValue，支持基础类型/对象/数组；宿主回调 `invokeMethodNotify` 已实现，
+  webview_core.cpp 基础类型 → 字符串后上行。注意：JS 侧函数名是 `invoke`，
+  `invokeMethod` 仅为 CefViewCore 宿主回调约定名）
 - **JS 订阅事件**：`window.CefViewClient.addEventListener("命名空间.事件", cb)` /
   `removeEventListener`（已注入可用）
 - **C++→JS 事件下行**：`CefViewBrowserClient::TriggerEvent`（进程消息 → renderer → JS 监听器回调）
 - **结果回报**：`window.__cefview_report_js_result__`（JS 侧主动回报，invoke 返回通道的辅助机制）
 - `cefViewQuery`（CefMessageRouter）保留为备用 RPC 通道（C0.4 已打通），**不作为开发目标**（见 §1.1）
 
-### 3.2 invokeMethod 返回通道（自建，协议层职责）
+### 3.2 invoke 返回通道（自建，协议层职责）
 
-`invokeMethod` 是 **fire-and-forget**（无内置返回值配对）——调用返回值由协议层自建：
+`invoke` 是 **fire-and-forget**（无内置返回值配对）——调用返回值由协议层自建：
 
 ```mermaid
 sequenceDiagram
@@ -131,7 +133,7 @@ React 组件
   ↓ bridge.scene.getNodeCount()        类型化 API（camelCase，编译期校验）
 SDK 内部
   ↓ "scene.get_node_count"             字符串协议（snake_case 命名空间）
-CefViewClient.invokeMethod / TriggerEvent
+CefViewClient.invoke / TriggerEvent
   ↓
 web_bridge.cpp 方法注册表 / 事件源
 ```

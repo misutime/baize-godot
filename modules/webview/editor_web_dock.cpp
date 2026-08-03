@@ -32,8 +32,11 @@
 
 #ifdef TOOLS_ENABLED
 
+#include "web_bridge.h"
+
 #include "editor/editor_node.h"
 
+#include "core/object/callable_mp.h"
 #include "core/os/os.h"
 
 // 编辑器自带页面：<exe_dir>/webview/ui/，经 file:// 加载——与打开的项目无关。
@@ -61,6 +64,11 @@ void WebDockPlugin::_notification(int p_what) {
 
 			web_panel->set_url(get_bundled_ui_url());
 			add_dock(web_dock);
+			// 事件源：连接 EditorSelection::selection_changed + 开启帧轮询节拍。
+			WebBridge::init_event_sources();
+			// 页面加载完成（订阅就绪）→ 下发初始状态快照（选中/位置/undo）。
+			web_panel->connect("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished));
+			set_process(true);
 			print_line("[WebView] WebDock registered (LEFT_UL), url=" + get_bundled_ui_url());
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
@@ -73,10 +81,32 @@ void WebDockPlugin::_notification(int p_what) {
 				web_dock = nullptr;
 				web_panel = nullptr;
 			}
+			// 注销事件源：停止下行（面板/browser 即将销毁）+ 断开信号连接。
+			if (event_target_registered_) {
+				WebBridge::set_event_browser_id(-1);
+				event_target_registered_ = false;
+			}
+			WebBridge::deinit_event_sources();
+			if (web_panel && web_panel->is_connected("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished))) {
+				web_panel->disconnect("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished));
+			}
+		} break;
+		case NOTIFICATION_PROCESS: {
+			// 事件源帧节拍 + browser_id 就绪注册（面板 NOTIFICATION_READY 后才分配 id）。
+			if (web_panel && !event_target_registered_ && web_panel->get_browser_id() >= 0) {
+				WebBridge::set_event_browser_id(web_panel->get_browser_id());
+				event_target_registered_ = true;
+			}
+			WebBridge::poll_editor_state();
 		} break;
 		default:
 			break;
 	}
+}
+
+void WebDockPlugin::_on_panel_load_finished() {
+	// 页面 JS 已完成订阅；下发完整初始状态（选中/位置/undo）。
+	WebBridge::emit_initial_state();
 }
 
 void WebDockPlugin::register_dock() {
