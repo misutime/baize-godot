@@ -41,6 +41,11 @@
 // 头在 SDK include/wrapper/(CEF_CXX 分支编译时 CPPPATH 已含 sdk_dir/include)。
 #include <wrapper/cef_library_loader.h>
 #include <crt_externs.h> // _NSGetArgc/_NSGetArgv:CefMainArgs 需要真实 argc/argv
+#include <cerrno>       // errno/EEXIST/EWOULDBLOCK: 槽位锁失败分支
+#include <fcntl.h>      // open(O_CREAT|O_RDWR): 槽位锁文件
+#include <sys/file.h>   // flock: 槽位锁(POSIX 单实例标准原语)
+#include <sys/stat.h>   // mkdir: 槽位 base 目录
+#include <unistd.h>     // close: 槽位锁 fd 释放
 #else
 #error "webview 模块当前仅支持 Windows 与 macOS"
 #endif
@@ -60,6 +65,7 @@
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -94,6 +100,87 @@ void log_callback_exception(const char *p_callback, const char *p_what) {
 uint64_t now_ms() {
 	return static_cast<uint64_t>(
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+// 用户数据根目录名（per-user 缓存基名）：改名只改此处——
+// Windows %LOCALAPPDATA%/<此名>/、mac ~/Library/Caches/<此名>/。
+// 注：改名后旧目录残留不影响功能（新实例自动用新基名，槽位锁隔离互不干扰）。
+static const char *const kCacheBaseDirName = "baize-godot";
+
+// ---- 实例槽位锁（多实例缓存目录隔离）----
+// Chromium 浏览器进程单例以 user data 目录为键,同一目录只能一个浏览器进程
+// (CefInitialize 第二实例直接失败)。多实例并行需每个实例独占一个缓存目录——
+// 槽位池: base/cef(槽位 0)、base/cef-2、base/cef-3 ... 递增探测第一个空闲槽位。
+// 槽位锁用文件锁原语(Chromium ProcessSingleton POSIX 同款):进程退出/崩溃时
+// OS 自动释放,槽位自动回收复用,无退出清理代码、无累积。锁文件名与目录名
+// 一致(base/cef.lock 对应 base/cef)。句柄为进程级 static:webview_core 析构
+// (编辑器退出早期)不释放,防槽位被误判空闲后新实例抢占同一目录。
+// 本编译单元不 include Godot 头(见 log_stderr 注释),全部用平台 API。
+static int slot_lock_fd = -1; // POSIX
+#if defined(_WIN32)
+static HANDLE slot_lock_handle = INVALID_HANDLE_VALUE;
+
+// UTF-8 → UTF-16(Windows 路径 API 需要;用户名等路径段可能非 ASCII)。
+std::wstring utf8_to_wide(const std::string &p_utf8) {
+	if (p_utf8.empty()) {
+		return std::wstring();
+	}
+	const int len = MultiByteToWideChar(CP_UTF8, 0, p_utf8.c_str(), -1, nullptr, 0);
+	if (len <= 1) {
+		return std::wstring();
+	}
+	std::wstring out(static_cast<size_t>(len - 1), L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, p_utf8.c_str(), -1, out.data(), len);
+	return out;
+}
+#endif
+
+// 尝试独占 p_lock_path。返回 0 = 成功(锁持有到进程退出);
+// 1 = 被其他实例占用(试下一槽位); -1 = 创建失败(环境问题,显式报错)。
+int try_acquire_slot_lock(const std::string &p_lock_path) {
+#if defined(_WIN32)
+	// 共享模式 0 = 独占:任何其他进程已打开(含只读)都 ERROR_SHARING_VIOLATION。
+	const std::wstring wpath = utf8_to_wide(p_lock_path);
+	HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (h == INVALID_HANDLE_VALUE) {
+		const DWORD err = GetLastError();
+		if (err == ERROR_SHARING_VIOLATION) {
+			return 1;
+		}
+		return -1;
+	}
+	slot_lock_handle = h;
+	return 0;
+#else
+	const int fd = ::open(p_lock_path.c_str(), O_CREAT | O_RDWR, 0644);
+	if (fd < 0) {
+		return -1;
+	}
+	if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+		const int err = errno;
+		close(fd);
+		// 仅 EWOULDBLOCK 视为竞争(试下一槽位);其他失败(如文件系统不支持锁)
+		// 按环境错误显式报错,防 init 把它当"被占"无限探测(审查 P2)。
+		return err == EWOULDBLOCK ? 1 : -1;
+	}
+	slot_lock_fd = fd;
+	return 0;
+#endif
+}
+
+// 确保 base 目录存在(槽位目录与锁文件都放其下);已存在不算错。
+bool ensure_dir_exists(const std::string &p_dir) {
+#if defined(_WIN32)
+	if (!CreateDirectoryW(utf8_to_wide(p_dir).c_str(), nullptr)) {
+		return GetLastError() == ERROR_ALREADY_EXISTS;
+	}
+	return true;
+#else
+	if (mkdir(p_dir.c_str(), 0755) != 0) {
+		return errno == EEXIST;
+	}
+	return true;
+#endif
 }
 
 } // namespace
@@ -851,11 +938,14 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	const std::string subprocess_path = p_exe_dir + "/CefViewWing.app/Contents/MacOS/CefViewWing";
 #endif
 
-	// CEF ≥120 同 root 单例:缓存放用户数据目录(不写 exe 目录)。
-	// Windows:%LOCALAPPDATA%/baize-godot/cef(GetEnvironmentVariableW 取 UTF-16 再转
-	// UTF-8,CefString 的 std::string 赋值按 UTF-8 处理);mac:~/Library/Caches/baize-godot/cef。
-	// 取不到时回退 exe_dir/webview/cef-data 并警告。
-	std::string cache_path;
+	// 缓存目录 = 实例槽位池(多实例并行):固定 base 下 cef / cef-2 / cef-3 ...,
+	// 递增探测第一个空闲槽位(文件锁,进程退出自动释放可复用)。Chromium 浏览器
+	// 进程单例以 user data 目录为键,同一目录只能一个浏览器进程——多开编辑器
+	// (不同项目)必须各自独占槽位目录。单实例行为与旧固定目录完全一致(槽位 0)。
+	// base 名 = kCacheBaseDirName(Windows:%LOCALAPPDATA%/下,GetEnvironmentVariableW
+	// 取 UTF-16 再转 UTF-8,CefString 的 std::string 赋值按 UTF-8 处理;
+	// mac:~/Library/Caches/ 下)。取不到时回退 exe_dir/webview 并警告。
+	std::string cache_base;
 #if defined(_WIN32)
 	const DWORD env_len = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
 	if (env_len > 1) { // >1:值非空且含结尾 '\0'(0 或 1 = 未设置/空值,走回退)
@@ -863,24 +953,58 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 		if (GetEnvironmentVariableW(L"LOCALAPPDATA", env_buf.data(), env_len) > 0) {
 			const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, env_buf.data(), -1, nullptr, 0, nullptr, nullptr);
 			if (utf8_len > 1) {
-				cache_path.resize(static_cast<size_t>(utf8_len - 1));
-				WideCharToMultiByte(CP_UTF8, 0, env_buf.data(), -1, cache_path.data(), utf8_len, nullptr, nullptr);
-				cache_path += "/baize-godot/cef";
+				cache_base.resize(static_cast<size_t>(utf8_len - 1));
+				WideCharToMultiByte(CP_UTF8, 0, env_buf.data(), -1, cache_base.data(), utf8_len, nullptr, nullptr);
+				cache_base += "/";
+				cache_base += kCacheBaseDirName;
 			}
 		}
 	}
 #elif defined(__APPLE__)
 	const char *home = getenv("HOME");
 	if (home != nullptr && *home != '\0') {
-		cache_path = std::string(home) + "/Library/Caches/baize-godot/cef";
+		cache_base = std::string(home) + "/Library/Caches/" + kCacheBaseDirName;
 	} else {
-		log_stderr("[webview_core] init: warning: HOME unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
+		log_stderr("[webview_core] init: warning: HOME unavailable, cache base falls back to exe_dir/webview\n");
 	}
 #endif
-	if (cache_path.empty()) {
-		cache_path = p_exe_dir + "/webview/cef-data"; // 回退:与原行为一致
-		log_stderr("[webview_core] init: warning: cache path env unavailable, root_cache_path falls back to exe_dir/webview/cef-data\n");
+	if (cache_base.empty()) {
+		cache_base = p_exe_dir + "/webview"; // 回退:与原行为一致
+		log_stderr("[webview_core] init: warning: cache path env unavailable, cache base falls back to exe_dir/webview\n");
 	}
+	if (!ensure_dir_exists(cache_base)) {
+		log_stderr(("[webview_core] init: cannot create cache base " + cache_base + "\n").c_str());
+#if defined(__APPLE__)
+		if (impl_->framework_loaded) { // 与 CefInitialize 失败出口对称:已 load 的 framework 必须显式卸载
+			cef_unload_library();
+			impl_->framework_loaded = false;
+		}
+#endif
+		return false;
+	}
+	std::string cache_path;
+	for (int slot = 0;; slot++) {
+		const std::string dir = slot == 0 ? (cache_base + "/cef") : (cache_base + "/cef-" + std::to_string(slot + 1));
+		const std::string lock_path = dir + ".lock"; // cef.lock / cef-2.lock,与目录同名
+		const int rc = try_acquire_slot_lock(lock_path);
+		if (rc == 0) {
+			cache_path = dir;
+			break;
+		}
+		if (rc == -1) {
+			log_stderr(("[webview_core] init: cannot create slot lock " + lock_path + "\n").c_str());
+#if defined(__APPLE__)
+			if (impl_->framework_loaded) { // 同上:失败出口卸载 framework,防泄漏到进程结束
+				cef_unload_library();
+				impl_->framework_loaded = false;
+			}
+#endif
+			return false;
+		}
+		// rc == 1:被其他实例占用,试下一槽位。无上限:并发 N 实例占槽位 0..N-1,
+		// 第 N+1 个实例必在槽位 N 成功;目录数 = 历史峰值并发数,不随启动次数累积。
+	}
+	log_stderr(("[webview_core] init: cache path = " + cache_path + "\n").c_str());
 
 	CefSettings settings;
 	CefString(&settings.browser_subprocess_path) = subprocess_path;
