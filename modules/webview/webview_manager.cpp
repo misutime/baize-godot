@@ -185,6 +185,42 @@ bool WebViewManager::respond_query(int32_t p_id, int64_t p_query_id, bool p_succ
 	return core_.respond_query(p_id, p_query_id, p_success, response.get_data(), p_error);
 }
 
+// 输入事件转发:面板 GUI 输入 → 核心层 → CEF(纯透传,参数语义见 webview_core.h)。
+void WebViewManager::send_mouse_move(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, bool p_leave) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.send_mouse_move(p_id, p_x, p_y, p_modifiers, p_leave);
+}
+
+void WebViewManager::send_mouse_click(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_button, bool p_up, int32_t p_click_count) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.send_mouse_click(p_id, p_x, p_y, p_modifiers, p_button, p_up, p_click_count);
+}
+
+void WebViewManager::send_mouse_wheel(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_delta_x, int32_t p_delta_y) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.send_mouse_wheel(p_id, p_x, p_y, p_modifiers, p_delta_x, p_delta_y);
+}
+
+void WebViewManager::send_key_event(int32_t p_id, int32_t p_type, uint32_t p_modifiers, int32_t p_windows_key_code, int32_t p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.send_key_event(p_id, p_type, p_modifiers, p_windows_key_code, p_native_key_code, p_character, p_unmodified_character, p_focus_on_editable);
+}
+
+void WebViewManager::set_focus(int32_t p_id, bool p_focus) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.set_focus(p_id, p_focus);
+}
+
 void WebViewManager::_on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 	// 静态回调（C++ 核心层经 std::function 调用）：peek 不创建——单例为 null
 	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。

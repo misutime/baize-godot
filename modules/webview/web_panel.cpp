@@ -30,11 +30,26 @@
 
 #include "web_panel.h"
 
+#include "webview_core.h"
 #include "webview_manager.h"
 
+#include "core/input/input_event.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
+
+// Windows 平台头经 Godot 头链间接引入 winnt.h:DELETE/PRINT 等是宏,
+// 会展开破坏 Key::DELETE / Key::PRINT 枚举引用。局部取消宏定义(本 TU 不用 Windows API)。
+#ifdef DELETE
+#undef DELETE
+#endif
+#ifdef PRINT
+#undef PRINT
+#endif
+#ifdef ERROR
+#undef ERROR
+#endif
 
 #include <climits>
 #include <cstring>
@@ -60,6 +75,10 @@ void WebPanel::_notification(int p_what) {
 			texture_rect->set_anchors_preset(Control::PRESET_FULL_RECT);
 			texture_rect->set_stretch_mode(TextureRect::STRETCH_SCALE);
 			add_child(texture_rect);
+			// 可点击聚焦:页面点击/键盘输入需要控件持有 Godot 焦点(键盘事件才进 gui_input)。
+			set_focus_mode(Control::FOCUS_CLICK);
+			// GUI 输入经信号连接(C++ 控件标准模式;_gui_input 非 Control 虚函数)。
+			connect(SceneStringName(gui_input), callable_mp(this, &WebPanel::_gui_input));
 			// 注册面板分配 browser_id；立即按当前尺寸创建浏览器。
 			// 注意：NOTIFICATION_RESIZED 可能早于 READY 触发，届时 id 未分配，见 sync_size 守卫。
 			// 消息泵不再由面板驱动：WebViewManager 在 init_core 成功后挂 SceneTree::process_frame
@@ -69,6 +88,23 @@ void WebPanel::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_RESIZED: {
 			sync_size();
+		} break;
+		case NOTIFICATION_FOCUS_ENTER: {
+			// 面板获得 Godot 焦点 → 通知 CEF(键盘事件只在有焦点时被 renderer 处理)。
+			if (browser_created) {
+				WebViewManager::get_singleton()->set_focus(browser_id, true);
+			}
+		} break;
+		case NOTIFICATION_FOCUS_EXIT: {
+			if (browser_created) {
+				WebViewManager::get_singleton()->set_focus(browser_id, false);
+			}
+		} break;
+		case NOTIFICATION_MOUSE_EXIT: {
+			// 鼠标离开面板 → CEF 显式 leave(否则页面收不到 mouseout)。
+			if (browser_created) {
+				WebViewManager::get_singleton()->send_mouse_move(browser_id, 0, 0, 0, true);
+			}
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
 			if (browser_created) {
@@ -83,6 +119,254 @@ void WebPanel::_notification(int p_what) {
 		default:
 			break;
 	}
+}
+
+void WebPanel::_gui_input(const Ref<InputEvent> &p_event) {
+	if (!browser_created) {
+		return;
+	}
+	const uint32_t modifiers = _get_modifiers(p_event);
+	const Ref<InputEventMouseMotion> motion = p_event;
+	if (motion.is_valid()) {
+		const Vector2 pos = motion->get_position();
+		WebViewManager::get_singleton()->send_mouse_move(browser_id, static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), modifiers, false);
+		accept_event(); // 已转发:不再传播给 Godot 其他输入路径
+		return;
+	}
+	const Ref<InputEventMouseButton> mouse = p_event;
+	if (mouse.is_valid()) {
+		const Vector2 pos = mouse->get_position();
+		const int32_t x = static_cast<int32_t>(pos.x);
+		const int32_t y = static_cast<int32_t>(pos.y);
+		// 高精度滚轮:Windows 后端把原始 delta/WHEEL_DELTA 写入 factor(如 30→0.25,240→2),
+		// 直接乘 WHEEL_DELTA 保留真实滚动量;factor 无效时回退 1。
+		const float factor = mouse->get_factor() > 0.0f ? mouse->get_factor() : 1.0f;
+		const int32_t wheel_delta = static_cast<int32_t>(120 * factor);
+		switch (mouse->get_button_index()) {
+			case MouseButton::WHEEL_UP:
+				WebViewManager::get_singleton()->send_mouse_wheel(browser_id, x, y, modifiers, 0, wheel_delta);
+				accept_event();
+				return;
+			case MouseButton::WHEEL_DOWN:
+				WebViewManager::get_singleton()->send_mouse_wheel(browser_id, x, y, modifiers, 0, -wheel_delta);
+				accept_event();
+				return;
+			case MouseButton::WHEEL_LEFT:
+				WebViewManager::get_singleton()->send_mouse_wheel(browser_id, x, y, modifiers, wheel_delta, 0);
+				accept_event();
+				return;
+			case MouseButton::WHEEL_RIGHT:
+				WebViewManager::get_singleton()->send_mouse_wheel(browser_id, x, y, modifiers, -wheel_delta, 0);
+				accept_event();
+				return;
+			default:
+				break;
+		}
+		// 普通鼠标键:映射 CEF 按钮并转发按下/弹起;按下时抢焦点(点击聚焦)。
+		int32_t button = WebViewCore::MOUSE_LEFT;
+		switch (mouse->get_button_index()) {
+			case MouseButton::LEFT:
+				button = WebViewCore::MOUSE_LEFT;
+				break;
+			case MouseButton::MIDDLE:
+				button = WebViewCore::MOUSE_MIDDLE;
+				break;
+			case MouseButton::RIGHT:
+				button = WebViewCore::MOUSE_RIGHT;
+				break;
+			default:
+				return; // 其他按钮(侧键等)不转发,保持向外传播
+		}
+		if (mouse->is_pressed()) {
+			grab_focus(); // 点击面板 → Godot 焦点(键盘事件进 gui_input)
+		}
+		WebViewManager::get_singleton()->send_mouse_click(browser_id, x, y, modifiers, button, !mouse->is_pressed(), mouse->is_double_click() ? 2 : 1);
+		accept_event();
+		return;
+	}
+	const Ref<InputEventKey> key = p_event;
+	if (key.is_valid()) {
+		// 物理键码做 VK 映射(Shift+1 的物理键是 KEY_1;逻辑 keycode 对 Shift 标点如 EXCLAM
+		// 无对应 VK,且 Godot 标点码≠Windows VK——见 _key_to_windows_vk 的 OEM 映射)。
+		const int vk = _key_to_windows_vk(key->get_physical_keycode());
+		if (vk == 0) {
+			return; // 未映射键(修饰键本身/未知):不转发,保持向外传播
+		}
+		uint32_t modifiers = _get_modifiers(p_event);
+		if (key->is_echo()) {
+			modifiers |= WebViewCore::MOD_IS_REPEAT; // CEF 重复按键标志
+		}
+		const Key phys = key->get_physical_keycode();
+		if (phys >= Key::KP_0 && phys <= Key::KP_9) {
+			modifiers |= WebViewCore::MOD_IS_KEY_PAD; // 小键盘事件标志
+		}
+		const uint32_t unicode = key->get_unicode();
+		// 无修饰字符(CEF 快捷键判定):Alt/Ctrl 组合会改变字符(AltGr 布局),无修饰值取物理键
+		// 的基础 ASCII;否则(Shift 保留)直接用 unicode。
+		uint32_t unmodified = unicode;
+		if ((key->is_alt_pressed() || key->is_ctrl_pressed()) && vk >= 0x20 && vk <= 0x7E) {
+			unmodified = static_cast<uint32_t>(vk);
+		}
+		if (key->is_pressed()) {
+			WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_RAWKEYDOWN, modifiers, vk, 0, 0, 0, false);
+			if (unicode != 0) {
+				// 按下与重复(echo)都发 CHAR:Windows 每次 WM_KEYDOWN+WM_CHAR 合并进 echo 事件,
+				// 只发一次会导致按住可打印键只插入第一个字符。
+				WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_CHAR, modifiers, vk, 0, unicode, unmodified, false);
+			}
+		} else {
+			WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_KEYUP, modifiers, vk, 0, 0, 0, false);
+		}
+		accept_event();
+	}
+}
+
+uint32_t WebPanel::_get_modifiers(const Ref<InputEvent> &p_event) {
+	uint32_t mods = 0;
+	const Ref<InputEventWithModifiers> with_mods = p_event;
+	if (with_mods.is_valid()) {
+		if (with_mods->is_shift_pressed()) {
+			mods |= WebViewCore::MOD_SHIFT;
+		}
+		if (with_mods->is_ctrl_pressed()) {
+			mods |= WebViewCore::MOD_CONTROL;
+		}
+		if (with_mods->is_alt_pressed()) {
+			mods |= WebViewCore::MOD_ALT;
+		}
+		if (with_mods->is_meta_pressed()) {
+			mods |= WebViewCore::MOD_COMMAND;
+		}
+	}
+	// 鼠标按钮按下状态:仅鼠标事件携带(InputEventMouse::get_button_mask);
+	// 移动时其他按钮可能仍按住,CEF modifiers 的 mouse 位表示"当前按下"。
+	const Ref<InputEventMouse> mouse_ev = p_event;
+	if (mouse_ev.is_valid()) {
+		const BitField<MouseButtonMask> mask = mouse_ev->get_button_mask();
+		if (mask.has_flag(MouseButtonMask::LEFT)) {
+			mods |= WebViewCore::MOD_LEFT_MOUSE;
+		}
+		if (mask.has_flag(MouseButtonMask::MIDDLE)) {
+			mods |= WebViewCore::MOD_MIDDLE_MOUSE;
+		}
+		if (mask.has_flag(MouseButtonMask::RIGHT)) {
+			mods |= WebViewCore::MOD_RIGHT_MOUSE;
+		}
+	}
+	return mods;
+}
+
+int WebPanel::_key_to_windows_vk(Key p_key) {
+	// 直通区:空格(0x20)、数字 0-9(0x30-0x39)、A-Z(0x41-0x5A)——Godot Key 码 == Windows VK。
+	// 注意:此处输入的是 physical_keycode(Shift+1 的物理键是 KEY_1,逻辑 keycode 对 Shift
+	// 标点如 EXCLAM 无对应 VK);其余 ASCII 标点 Godot 码≠VK(如 APOSTROPHE 0x27 是 VK_RIGHT),
+	// 必须走下方 OEM 映射(reviewer P1: 标点直通会发错键码)。
+	if (p_key == Key::SPACE || (p_key >= Key::KEY_0 && p_key <= Key::KEY_9) || (p_key >= Key::A && p_key <= Key::Z)) {
+		return static_cast<int>(p_key);
+	}
+	switch (p_key) {
+		// ---- ASCII 标点 → VK_OEM_* (Windows 布局相关虚拟键) ----
+		case Key::SEMICOLON:
+			return 0xBA; // VK_OEM_1 (;:)
+		case Key::EQUAL:
+			return 0xBB; // VK_OEM_PLUS (=+)
+		case Key::COMMA:
+			return 0xBC; // VK_OEM_COMMA (,<)
+		case Key::MINUS:
+			return 0xBD; // VK_OEM_MINUS (-_)
+		case Key::PERIOD:
+			return 0xBE; // VK_OEM_PERIOD (.>)
+		case Key::SLASH:
+			return 0xBF; // VK_OEM_2 (/?)
+		case Key::QUOTELEFT:
+			return 0xC0; // VK_OEM_3 (`~)
+		case Key::BRACKETLEFT:
+			return 0xDB; // VK_OEM_4 ([{)
+		case Key::BACKSLASH:
+			return 0xDC; // VK_OEM_5 (\|)
+		case Key::BRACKETRIGHT:
+			return 0xDD; // VK_OEM_6 (]})
+		case Key::APOSTROPHE:
+			return 0xDE; // VK_OEM_7 ('")
+		// ---- 特殊键 ----
+		case Key::ESCAPE:
+			return 0x1B; // VK_ESCAPE
+		case Key::TAB:
+			return 0x09; // VK_TAB
+		case Key::BACKSPACE:
+			return 0x08; // VK_BACK
+		case Key::ENTER:
+		case Key::KP_ENTER:
+			return 0x0D; // VK_RETURN
+		case Key::INSERT:
+			return 0x2D; // VK_INSERT
+		case Key::KEY_DELETE:
+			return 0x2E; // VK_DELETE
+		case Key::HOME:
+			return 0x24; // VK_HOME
+		case Key::END:
+			return 0x23; // VK_END
+		case Key::LEFT:
+			return 0x25; // VK_LEFT
+		case Key::UP:
+			return 0x26; // VK_UP
+		case Key::RIGHT:
+			return 0x27; // VK_RIGHT
+		case Key::DOWN:
+			return 0x28; // VK_DOWN
+		case Key::PAGEUP:
+			return 0x21; // VK_PRIOR
+		case Key::PAGEDOWN:
+			return 0x22; // VK_NEXT
+		case Key::PAUSE:
+			return 0x13; // VK_PAUSE
+		case Key::PRINT:
+			return 0x2C; // VK_SNAPSHOT
+		case Key::CAPSLOCK:
+			return 0x14; // VK_CAPITAL
+		case Key::NUMLOCK:
+			return 0x90; // VK_NUMLOCK
+		case Key::SCROLLLOCK:
+			return 0x91; // VK_SCROLL
+		// ---- 数字小键盘(VK_NUMPAD0-9 = 0x60-0x69;调用方附加 MOD_IS_KEY_PAD) ----
+		case Key::KP_0:
+			return 0x60;
+		case Key::KP_1:
+			return 0x61;
+		case Key::KP_2:
+			return 0x62;
+		case Key::KP_3:
+			return 0x63;
+		case Key::KP_4:
+			return 0x64;
+		case Key::KP_5:
+			return 0x65;
+		case Key::KP_6:
+			return 0x66;
+		case Key::KP_7:
+			return 0x67;
+		case Key::KP_8:
+			return 0x68;
+		case Key::KP_9:
+			return 0x69;
+		case Key::KP_MULTIPLY:
+			return 0x6A; // VK_MULTIPLY (*)
+		case Key::KP_ADD:
+			return 0x6B; // VK_ADD (+)
+		case Key::KP_SUBTRACT:
+			return 0x6D; // VK_SUBTRACT (-)
+		case Key::KP_PERIOD:
+			return 0x6E; // VK_DECIMAL (.)
+		case Key::KP_DIVIDE:
+			return 0x6F; // VK_DIVIDE (/)
+		default:
+			break;
+	}
+	// 功能键 F1-F24(VK_F1=0x70 起)。
+	if (p_key >= Key::F1 && p_key <= Key::F24) {
+		return 0x70 + (static_cast<int>(p_key) - static_cast<int>(Key::F1));
+	}
+	return 0; // 未映射(修饰键本身/未知):调用方跳过
 }
 
 void WebPanel::set_url(const String &p_url) {

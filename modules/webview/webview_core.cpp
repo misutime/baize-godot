@@ -137,6 +137,9 @@ struct WebViewCore::Impl {
 		uint32_t width = 0;
 		uint32_t height = 0;
 		bool closing = false;
+		// 页面可编辑元素焦点状态(本浏览器专属;focusedEditableNodeChanged 回调更新,
+		// send_key_event 读取——随条目销毁自动清除,不跨浏览器串状态)。
+		bool focus_on_editable = false;
 	};
 	std::unordered_map<int32_t, BrowserEntry> browsers;
 	int pending_close = 0; // 待异步关闭的浏览器数(OnBeforeClose 递减)
@@ -235,6 +238,12 @@ struct WebViewCore::Impl {
 
 		void focusedEditableNodeChanged(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, bool p_focus_on_editable_node) override {
 			try {
+				// 按浏览器记录可编辑元素焦点状态(键盘事件 focus_on_editable_field 权威来源);
+				// 只更新本浏览器条目,不串其他浏览器状态。
+				auto entry = self_->browsers.find(id_);
+				if (entry != self_->browsers.end()) {
+					entry->second.focus_on_editable = p_focus_on_editable_node;
+				}
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::focusedEditableNodeChanged", e.what());
 			} catch (...) {
@@ -1074,6 +1083,112 @@ bool WebViewCore::respond_query(int32_t p_id, int64_t p_query_id, bool p_success
 	}
 	// CefViewQueryHandler::Response:从待应答表移除 query_id 并回调 JS 侧 callback。
 	return it->second.client->ResponseQuery(p_query_id, p_success, p_response, p_error);
+}
+
+// ---------------------------------------------------------------------------
+// 输入事件转发:OSR 无原生窗口,宿主把鼠标/键盘/焦点事件转发给 CEF。
+// 全部调用必须在主线程(与 pump 同线程);失败路径静默返回(与其它转发 API 一致)。
+// ---------------------------------------------------------------------------
+
+void WebViewCore::send_mouse_move(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, bool p_leave) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	CefMouseEvent ev;
+	ev.x = p_x;
+	ev.y = p_y;
+	ev.modifiers = p_modifiers;
+	it->second.browser->GetHost()->SendMouseMoveEvent(ev, p_leave);
+}
+
+void WebViewCore::send_mouse_click(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_button, bool p_up, int p_click_count) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	if (p_button < MOUSE_LEFT || p_button > MOUSE_RIGHT) {
+		return;
+	}
+	CefMouseEvent ev;
+	ev.x = p_x;
+	ev.y = p_y;
+	ev.modifiers = p_modifiers;
+	it->second.browser->GetHost()->SendMouseClickEvent(ev, static_cast<cef_mouse_button_type_t>(p_button), p_up, p_click_count);
+}
+
+void WebViewCore::send_mouse_wheel(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_delta_x, int p_delta_y) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	CefMouseEvent ev;
+	ev.x = p_x;
+	ev.y = p_y;
+	ev.modifiers = p_modifiers;
+	it->second.browser->GetHost()->SendMouseWheelEvent(ev, p_delta_x, p_delta_y);
+}
+
+void WebViewCore::send_key_event(int32_t p_id, int p_type, uint32_t p_modifiers, int p_windows_key_code, int p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	if (p_type < KEY_RAWKEYDOWN || p_type > KEY_CHAR) {
+		return;
+	}
+	CefKeyEvent ev;
+	ev.type = static_cast<cef_key_event_type_t>(p_type);
+	ev.modifiers = p_modifiers;
+	ev.windows_key_code = p_windows_key_code;
+	ev.native_key_code = p_native_key_code;
+	ev.is_system_key = 0;
+	ev.character = static_cast<char16_t>(p_character);
+	ev.unmodified_character = static_cast<char16_t>(p_unmodified_character);
+	// 可编辑焦点状态由 CEF 回调(focusedEditableNodeChanged)按浏览器权威提供,面板传入参数仅作后备。
+	ev.focus_on_editable_field = (it->second.focus_on_editable || p_focus_on_editable) ? 1 : 0;
+	CefRefPtr<CefBrowser> browser = it->second.browser;
+
+	// 补充平面字符(U+10000..U+10FFFF):CEF 字符字段是 UTF-16 code unit,必须拆代理对
+	// 发两次 CHAR 事件,否则 char16_t 截断产生错误字符(如 emoji U+1F600 → U+F600)。
+	if (p_type == KEY_CHAR && p_character >= 0x10000 && p_character <= 0x10FFFF) {
+		const uint32_t v = p_character - 0x10000;
+		const char16_t hi = static_cast<char16_t>(0xD800 + (v >> 10));
+		const char16_t lo = static_cast<char16_t>(0xDC00 + (v & 0x3FF));
+		CefKeyEvent ev_hi = ev;
+		ev_hi.character = hi;
+		ev_hi.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xD800 + ((p_unmodified_character - 0x10000) >> 10)) : p_unmodified_character);
+		browser->GetHost()->SendKeyEvent(ev_hi);
+		CefKeyEvent ev_lo = ev;
+		ev_lo.character = lo;
+		ev_lo.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xDC00 + ((p_unmodified_character - 0x10000) & 0x3FF)) : p_unmodified_character);
+		browser->GetHost()->SendKeyEvent(ev_lo);
+		return;
+	}
+	browser->GetHost()->SendKeyEvent(ev);
+}
+
+void WebViewCore::set_focus(int32_t p_id, bool p_focus) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	it->second.browser->GetHost()->SetFocus(p_focus);
 }
 
 void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {

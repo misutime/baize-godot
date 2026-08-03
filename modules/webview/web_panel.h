@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/input/input_event.h"
 #include "scene/gui/control.h"
 #include "scene/gui/texture_rect.h"
 
@@ -65,6 +66,14 @@ class WebPanel : public Control {
 protected:
 	static void _bind_methods();
 	void _notification(int p_what);
+	/// GUI 输入处理(经 gui_input 信号连接,NOTIFICATION_READY 中建立)。
+	void _gui_input(const Ref<InputEvent> &p_event);
+
+private:
+	/// 输入事件 → CEF 修饰键位标志(webview_core.h MOD_*)；含鼠标按钮按下状态。
+	static uint32_t _get_modifiers(const Ref<InputEvent> &p_event);
+	/// Godot Key → Windows 虚拟键码(VK)；未映射返回 0(调用方跳过转发)。ASCII 区直接透传。
+	static int _key_to_windows_vk(Key p_key);
 
 public:
 	~WebPanel();

@@ -111,6 +111,57 @@ public:
 	// 浏览器不存在)。
 	bool respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const std::string &p_response, int p_error);
 
+	// ---- 输入事件转发(OSR 宿主职责)----
+	// CEF OSR 无原生窗口,鼠标/键盘/焦点必须由宿主转发(选型文档 §6.3)。
+	// 参数用标量透传(API 面不暴露 CEF 类型):坐标 x/y 为 OSR 视口像素(面板本地坐标),
+	// modifiers 为 CEF cef_event_flags_t 位标志(见下方 MOD_* 常量)。
+
+	// 鼠标移动。p_leave=true 表示鼠标离开视口(CEF 需显式 leave 才能收 mouseout)。
+	void send_mouse_move(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, bool p_leave);
+
+	// 鼠标按键。p_button:0=左,1=中,2=右;p_up:true=弹起,false=按下;
+	// p_click_count:连续点击次数(CEF 双击/三击语义)。
+	void send_mouse_click(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_button, bool p_up, int p_click_count);
+
+	// 鼠标滚轮。p_delta_x/y:滚动量(正=向上/向左)。
+	void send_mouse_wheel(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_delta_x, int p_delta_y);
+
+	// 键盘事件。p_type:0=RAWKEYDOWN,1=KEYDOWN,2=KEYUP,3=CHAR(与 CEF cef_key_event_type_t
+	// 一致);p_windows_key_code:Windows 虚拟键码;p_native_key_code:原生键码(Windows 扫描码,
+	// 可传 0);p_character:按键产生的 Unicode 字符(KEYEVENT_CHAR 用,char32_t 标量经 uint32 透传,
+	// 补充平面 U+10000+ 由核心层拆 UTF-16 代理对发两次 CHAR);p_unmodified_character:去除同时
+	// 按下修饰键(Shift 除外)后的字符(CEF 快捷键判定用,无则传 0);p_focus_on_editable:是否在
+	// 页面可编辑元素(CEF 输入法/编辑语义;现由 CEF 回调权威提供,该参数仅作后备)。
+	void send_key_event(int32_t p_id, int p_type, uint32_t p_modifiers, int p_windows_key_code, int p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable);
+
+	// 焦点。OSR 视图获得/失去焦点时调用(键盘事件只在有焦点时被 renderer 处理)。
+	void set_focus(int32_t p_id, bool p_focus);
+
+	// 修饰键位标志(与 CEF cef_event_flags_t 对齐,宿主(Godot 壳层)映射用)。
+	static constexpr uint32_t MOD_SHIFT = 2;
+	static constexpr uint32_t MOD_CONTROL = 4;
+	static constexpr uint32_t MOD_ALT = 8;
+	static constexpr uint32_t MOD_LEFT_MOUSE = 16;
+	static constexpr uint32_t MOD_MIDDLE_MOUSE = 32;
+	static constexpr uint32_t MOD_RIGHT_MOUSE = 64;
+	static constexpr uint32_t MOD_COMMAND = 128; // mac Cmd
+	static constexpr uint32_t MOD_NUM_LOCK = 256;
+	static constexpr uint32_t MOD_IS_KEY_PAD = 512;
+	static constexpr uint32_t MOD_IS_REPEAT = 8192;
+	static constexpr uint32_t MOD_PRECISION_SCROLLING = 16384;
+
+	// 键盘事件类型(与 CEF cef_key_event_type_t 对齐)。
+	static constexpr int KEY_RAWKEYDOWN = 0;
+	static constexpr int KEY_KEYDOWN = 1;
+	static constexpr int KEY_KEYUP = 2;
+	static constexpr int KEY_CHAR = 3;
+
+	// 鼠标按键(与 CEF cef_mouse_button_type_t 对齐)。
+	static constexpr int MOUSE_LEFT = 0;
+	static constexpr int MOUSE_MIDDLE = 1;
+	static constexpr int MOUSE_RIGHT = 2;
+
+
 	// 注入回调(可在 init 前后任意时刻调用;shutdown 后自动清空)。
 	void set_callbacks(const Callbacks &p_callbacks);
 

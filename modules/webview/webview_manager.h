@@ -78,6 +78,14 @@ public:
 	// JS 查询应答（on_query 回调给出的 p_query_id）。M2 接入 IPC 后由 WebPanel::send_message 使用。
 	bool respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const String &p_response, int p_error);
 
+	// 输入事件转发（OSR：面板 GUI 输入 → WebViewCore → CEF）。
+	// 参数语义与 WebViewCore 对应 API 一致（见 webview_core.h）。
+	void send_mouse_move(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, bool p_leave);
+	void send_mouse_click(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_button, bool p_up, int32_t p_click_count);
+	void send_mouse_wheel(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_delta_x, int32_t p_delta_y);
+	void send_key_event(int32_t p_id, int32_t p_type, uint32_t p_modifiers, int32_t p_windows_key_code, int32_t p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable);
+	void set_focus(int32_t p_id, bool p_focus);
+
 	// WebViewCore 回调（主线程，pump 内同步触发）→ 静态分发到面板注册表。
 	static void _on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
 	static void _on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url);
