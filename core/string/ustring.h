@@ -724,8 +724,10 @@ public:
 				} else if ((c & 0xF8) == 0xF0) {
 					if (c == 0xF0) {
 						min_second = 0x90; // 防 4 字节 overlong
-					} else if (c > 0xF4) {
-						valid_utf8 = false; // > U+10FFFF
+					} else if (c == 0xF4) {
+						max_second = 0x8F; // 防 > U+10FFFF（U+10FFFF = F4 8F BF BF）
+					} else {
+						valid_utf8 = false; // 0xF5-0xF7 > U+10FFFF
 						break;
 					}
 					seq = 4;
