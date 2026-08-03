@@ -1,7 +1,7 @@
 # Godot 编辑器 UI 重构（TS 路线）——Web UI 架构：桥协议与前端 SDK
 
-> **状态**：架构决策已定（2026-08-03）。衔接《C++生态复核与从零选型.md》C0 验证清单、
-> 《实施计划-第二日-双向桥与输入交互.md》C 项（协议层落地）。
+> **状态**：架构决策已定（2026-08-03）。衔接《C++生态复核与从零选型.md》C0 验证清单；
+> 协议层落地（C 项）执行计划已完成并归档（《实施记录-第二日》§6）。
 > **背景**：WebDock 显示链路（C0.1-C0.3）与双向桥（C0.4）已打通；本文件定下"React+Vite
 > 前端如何与 Godot C++ 功能交互"的长期架构（MVP3 起）。
 
@@ -199,7 +199,7 @@ const unsub: () => void = editor.onSelectionChanged((e) => setSelection(e.node_p
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | MVP1（骨架+静态页） | modules/webview/（SCsub+register_types+webview_manager+web_panel+editor_web_dock），加载 bridge.html | ✅ 完成（C0.1-C0.3） |
-| MVP2（双向桥+undo） | 协议层已完成（方法注册表 + method_result 下行）；**剩余：事件源**——selection_changed 信号 + _process 帧轮询 diff→node_position_changed + undo_stack_changed | 进行中 |
+| MVP2（双向桥+undo） | 协议层 + 事件源已完成（2026-08-03：方法注册表 + method_result 下行 + selection_changed 信号 + 帧轮询 diff→node_position_changed + undo_stack_changed，见实施记录 §10）；**剩余：位置读写方法（`scene.get_node_position`/`set_node_position`，undo 入栈）+ 编辑器实机四条验收** | 进行中 |
 | MVP3（React 壳） | web/ 工程（sdk + ui，Vite base:'./'）→ 产物进 bin/webview/ui/ | 未开始 |
 
 **MVP 验收（四条）**：
@@ -263,5 +263,5 @@ WebUI 适配层**——方法实现薄（直接调 `EditorInterface`/`EditorUndo
 ---
 
 ## 8. 相关文档
-- 《实施计划-第二日-双向桥与输入交互.md》——C 项（协议层落地）执行计划
+- 《实施计划-第二日-双向桥与输入交互.md》（**已归档** `已完成-历史文档/`）——C 项（协议层落地）执行计划，已执行完毕
 - 《引擎级WebDock-RouteB-方案.md》（**已归档** `已完成-历史文档/`）——MVP2 验收场景来源；验收基准已固化见 §6
