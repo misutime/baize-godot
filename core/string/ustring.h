@@ -690,11 +690,11 @@ public:
 	Vector<uint8_t> to_multibyte_char_buffer(const String &p_encoding = String()) const;
 
 	// Constructors for NULL terminated C strings.
-	// FORK-CUSTOM（2026-08-03，根治中文乱码）：智能解码——串为合法 UTF-8（含纯 ASCII）
-	// 时按 UTF-8 解码（C++ 中文字面量/UTF-8 数据正确，此前一律 Latin-1 导致所有中文日志
-	// 显示为 é»è®¤ 式乱码）；非法 UTF-8 序列回退 Latin-1（Godot 历史契约，兼容字节透传）。
-	// 代价：纯 ASCII 串多一次 O(n) 合法性扫描（内存带宽级，实测启动无感知）。
-	String(const char *p_cstr) {
+	// FORK-CUSTOM（2026-08-03，根治中文乱码）：从 const char* 智能解码——合法 UTF-8
+	// （含纯 ASCII）按 UTF-8 解码（C++ 中文字面量/UTF-8 数据正确）；非法 UTF-8 序列回退
+	// Latin-1（Godot 历史契约，兼容字节透传）。严格验证（拒绝 overlong/surrogate/
+	// 超 U+10FFFF）；纯 ASCII 串多一次 O(n) 合法性扫描（内存带宽级，实测无感知）。
+	void _from_cstr(const char *p_cstr) {
 		if (p_cstr != nullptr) {
 			const int len = (int)strlen(p_cstr);
 			bool valid_utf8 = true;
@@ -706,18 +706,40 @@ public:
 					continue;
 				}
 				int seq;
+				uint8_t min_second = 0x80;
+				uint8_t max_second = 0xBF;
 				if ((c & 0xE0) == 0xC0) {
+					if (c < 0xC2) {
+						valid_utf8 = false; // 0xC0/0xC1: overlong 编码
+						break;
+					}
 					seq = 2;
 				} else if ((c & 0xF0) == 0xE0) {
+					if (c == 0xE0) {
+						min_second = 0xA0; // 防 3 字节 overlong
+					} else if (c == 0xED) {
+						max_second = 0x9F; // 防 UTF-16 surrogate
+					}
 					seq = 3;
 				} else if ((c & 0xF8) == 0xF0) {
+					if (c == 0xF0) {
+						min_second = 0x90; // 防 4 字节 overlong
+					} else if (c > 0xF4) {
+						valid_utf8 = false; // > U+10FFFF
+						break;
+					}
 					seq = 4;
 				} else {
-					valid_utf8 = false; // 非法首字节（孤立续字节等）
+					valid_utf8 = false; // 非法首字节（孤立续字节/0xF8+）
 					break;
 				}
 				if (i + seq > len) {
 					valid_utf8 = false; // 截断的多字节序列
+					break;
+				}
+				const uint8_t second = (uint8_t)p_cstr[i + 1];
+				if (second < min_second || second > max_second) {
+					valid_utf8 = false;
 					break;
 				}
 				for (int k = 1; k < seq; k++) {
@@ -738,6 +760,9 @@ public:
 		}
 		append_latin1(p_cstr);
 	}
+	String(const char *p_cstr) {
+		_from_cstr(p_cstr);
+	}
 	String(const wchar_t *p_cstr) {
 		append_wstring(p_cstr);
 	}
@@ -746,9 +771,10 @@ public:
 	}
 
 	// Copy assignment for NULL terminated C strings.
+	// FORK-CUSTOM: 与构造同智能解码（此前 append_latin1 导致 s = "中文" 仍乱码）。
 	void operator=(const char *p_cstr) {
 		clear();
-		append_latin1(p_cstr);
+		_from_cstr(p_cstr);
 	}
 	void operator=(const wchar_t *p_cstr) {
 		clear();
