@@ -164,6 +164,20 @@ export default function App() {
       // 只设 html 时注入字体根本不渲染。
       document.body.style.fontFamily =
         '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
+      // 字体诊断（产品级：宿主 consoleMessage → 编辑器 stderr，验证实际渲染字体）。
+      console.log(
+        `[webdock-font] bodyFamily="${getComputedStyle(document.body).fontFamily}" ` +
+          `regular="${regular}" bold="${bold}"`,
+      );
+      // @font-face 异步加载：fonts.load 完成后再确认（立即 check 会因未加载而 false）。
+      void document.fonts
+        .load('1rem "baize-editor-font"')
+        .then(() => {
+          console.log(`[webdock-font] loaded=${document.fonts.check('1rem "baize-editor-font"')}`);
+        })
+        .catch((e: unknown) => {
+          console.error(`[webdock-font] 字体加载失败: ${String(e)}`); // 显式暴露，不静默
+        });
     },
     [toFileUrl],
   );
