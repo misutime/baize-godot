@@ -26,18 +26,19 @@ modules/webview/
 - Godot 对象不进入 CefViewCore delegate；CEF 对象不穿透到 WebPanel 产品 API
 - 回调在主线程（pump 内）同步触发；paint 缓冲仅回调期间有效，宿主必须拷贝
 
-## 2. 构建流程（首次顺序强制）
+## 2. 构建流程
 
-```bash
-# ① 预构建 CEF 产物（首次/换 CEF 版本才真正构建；产物存在则跳过，秒级）
-task stage-webview        # 或 just webview-stage
-# ② 编引擎
-task dev                  # 或 just dev
-```
-
-- 跳过 ① 直接 ②：SCons 配置阶段报错并提示先跑 stage（不静默）——正常行为
-- 换 CEF 版本：改 `modules/webview/SCsub` 的 `CEF_SDK_VERSION` 常量 → 跑 stage（自动下载新版本 + 重建）→ dev
-- 首次克隆：`git clone` 后无 `bin/`（gitignore），需先 `task stage-webview`（自动下载 CEF SDK）
+- **task 是核心构建入口**（Taskfile.yml 定义全部构建任务：dev/pro/stage-webview/ui-build/dev-install）；
+  **just 是便捷别名，指向 task**（justfile 的 dev / webview-stage 委托 `task dev` / `task stage-webview`，
+  另提供 dev-run 直接启动裸可执行文件）。构建逻辑都在 build.py 与 stage 脚本，两者等效。
+- 构建已自动化（2026-08-03 起）：`task dev`（或 `just dev`）→ `misc/scripts/build.py` 内置
+  stage-webview 前后钩子——构建前 `--prebuild-only` 确保 `libcef_dll_wrapper.a`（首次自动下载
+  CEF SDK + cmake 预构建），构建后完整暂存（bin/ 级 + mac .app bundle 内
+  `Contents/Frameworks` + `Contents/Resources/webview/ui`）。无需手动先跑 stage。
+- 首次克隆 / 换 CEF 版本：直接 `task dev` 即可（预构建缺失时自动下载）；换版本改
+  `modules/webview/SCsub` 的 `CEF_SDK_VERSION` 常量
+- UI 变更：`task ui-build`（React 壳 → bin/webview/ui，下次构建自动入 bundle）
+- 手动重暂存（可选）：`task stage-webview`（或 `just webview-stage`），幂等秒级
 
 ## 3. CEF SDK 缓存机制（依赖缓存 + 自动下载 + 手动覆盖）
 

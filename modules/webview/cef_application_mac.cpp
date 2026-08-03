@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  cef_application_mac.cpp                                               */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -17,7 +17,7 @@
 /* the following conditions:                                              */
 /*                                                                        */
 /* The above copyright notice and this permission notice shall be         */
-/* included in all copies or substantial portions of the Software.        */
+/* included in all substantial copies or portions of the Software.        */
 /*                                                                        */
 /* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
 /* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
@@ -28,44 +28,38 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
-
-#include "editor_web_dock.h"
-#include "web_panel.h"
-#include "webview_manager.h"
+#include "cef_application_mac.h"
 
 #if defined(__APPLE__)
-#include "cef_application_mac.h" // 注入 CEF mac 事件集成所需方法（须在 CEF 调用前）
-#endif
 
-#include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
-#include "core/object/message_queue.h"
+#include <objc/runtime.h>
 
-void initialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(WebPanel);
-#if defined(__APPLE__)
-		// mac：CEF 消息泵依赖 NSApplication 的 isHandlingSendEvent/setHandlingSendEvent
-		// （CrAppProtocol），GodotApplication 未实现——这里在首次 CEF 调用前注入。
-		webview_install_cef_application_protocol();
-#endif
-		// C++ 路线：不再加载 gdcef 扩展；单例持有 WebViewCore，CEF 在首次
-		// create_browser（WebPanel::sync_size）时经 init_core 惰性初始化。
-		WebViewManager::get_singleton();
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorNode 在 Main::start() 创建（晚于模块初始化），deferred 到第一帧注册 dock。
-		// 插件作为 EditorNode 子节点，随编辑器退出自动释放（不单独 unregister）。
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(register_web_dock_deferred));
-	}
-#endif
+// CEF mac 事件集成（include/cef_application_mac.h 的 CefScopedSendingEvent）要求
+// NSApplication 实现 CrAppProtocol：isHandlingSendEvent / setHandlingSendEvent
+// （cefclient/cefsimple 模板的 CefApplication / SimpleApplication 均提供）。Godot 的
+// GodotApplication（platform/macos/godot_application.mm）没有这两个方法——CEF 消息泵
+// （CefDoMessageLoopWork）里 CefScopedSendingEvent 构造时发送 unrecognized selector，
+// 整个编辑器崩溃（实测）。本文件在模块初始化时用 ObjC runtime 注入这两个方法：
+//   - 不改引擎核心平台文件（platform/macos/），CEF 依赖保持在 webview 模块内；
+//   - 不引入 CEF 头/SDK include 路径（纯 runtime API，可随本模块 C++17 编译）。
+// 进程唯一 NSApplication 实例，静态标志与 CEF 参考实现的实例 ivar 语义等价。
+static BOOL g_handling_send_event = NO;
+
+static BOOL is_handling_send_event(id p_self, SEL p_cmd) {
+	return g_handling_send_event;
 }
 
-void uninitialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		// free_singleton 内部先 shutdown_core（关闭全部浏览器 + CefShutdown），再释放单例。
-		WebViewManager::free_singleton();
-	}
+static void set_handling_send_event(id p_self, SEL p_cmd, BOOL p_handling) {
+	g_handling_send_event = p_handling;
 }
+
+void webview_install_cef_application_protocol() {
+	Class app_cls = objc_getClass("GodotApplication");
+	if (app_cls == nullptr) {
+		return; // GodotApplication 未注册（非编辑器/异常路径）：不注入
+	}
+	class_addMethod(app_cls, sel_registerName("isHandlingSendEvent"), (IMP)is_handling_send_event, "c@:");
+	class_addMethod(app_cls, sel_registerName("setHandlingSendEvent:"), (IMP)set_handling_send_event, "v@:c");
+}
+
+#endif // __APPLE__

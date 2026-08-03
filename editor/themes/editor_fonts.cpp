@@ -38,6 +38,7 @@
 #include "editor/themes/builtin_fonts.gen.h"
 #include "editor/themes/editor_scale.h"
 #include "modules/webview/web_bridge.h" // 默认字体解析路径运行时存储（WebBridge::set_resolved_fonts）
+#include "modules/webview/webview_runtime_path.h" // 运行时根目录（.app bundle 启动时 exe_dir 在 bundle 内）
 #include "scene/resources/font.h"
 #include "scene/scene_string_names.h"
 
@@ -184,14 +185,14 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	const int default_font_size = int(EDITOR_GET("interface/editor/fonts/main_font_size")) * EDSCALE;
 	const float embolden_strength = 0.6;
 
-	// 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
-	// 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失/不可读回退内置 Inter。
-	// 实际生效路径经 WebBridge::set_resolved_fonts 写入运行时存储（非持久化——防机器
-	// 绝对路径写入 editor_settings-*.tres），WebDock 桥读取，字体来源单一（此处决策）。
-	const String bundled_main_font = OS::get_singleton()->get_executable_path().get_base_dir()
-											  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
-	const String bundled_bold_font = OS::get_singleton()->get_executable_path().get_base_dir()
-											 .path_join("webview/ui/fonts/NotoSansCJKsc-Bold.otf");
+// 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
+// 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失/不可读回退内置 Inter。
+// 实际生效路径经 WebBridge::set_resolved_fonts 写入运行时存储（非持久化——防机器
+// 绝对路径写入 editor_settings-*.tres），WebDock 桥读取，字体来源单一（此处决策）。
+	const String bundled_main_font = webview_ui_root_dir()
+										  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
+	const String bundled_bold_font = webview_ui_root_dir()
+										 .path_join("webview/ui/fonts/NotoSansCJKsc-Bold.otf");
 	// 进程级 static 字节缓冲：normal+MSDF 共享同一份（避免 16MB 文件 4 次全读 + 64MB 缓冲，审查 E5）。
 	static Vector<uint8_t> s_bundled_main_data;
 	static Vector<uint8_t> s_bundled_bold_data;

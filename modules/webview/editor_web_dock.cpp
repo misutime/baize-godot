@@ -33,6 +33,7 @@
 #ifdef TOOLS_ENABLED
 
 #include "web_bridge.h"
+#include "webview_runtime_path.h"
 
 #include "editor/editor_node.h"
 #include "editor/themes/editor_fonts.h" // editor_print_font_load_info: 补打默认字体信息
@@ -40,11 +41,11 @@
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
 
-// 编辑器自带页面：<exe_dir>/webview/ui/，经 file:// 加载——与打开的项目无关。
+// 编辑器自带页面：<ui_root>/webview/ui/，经 file:// 加载——与打开的项目无关。
 // 入口为 React 壳构建产物（task ui-build → web/ui/dist → bin/webview/ui/）。
+// UI 根解析（.app bundle 启动时在 bundle 内 Contents/Resources）见 webview_runtime_path.h。
 static String get_bundled_ui_url() {
-	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
-	const String file_path = exe_dir.path_join("webview").path_join("ui").path_join("index.html");
+	const String file_path = webview_ui_root_dir().path_join("webview").path_join("ui").path_join("index.html");
 	return "file:///" + file_path.replace("\\", "/");
 }
 

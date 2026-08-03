@@ -467,7 +467,149 @@ def stage_ui() -> list:
     return stage_ui_dist()
 
 
+def stage_bundles(bin_dir: Path, sign_identity: str = "") -> list:
+    """mac 专用：把 CEF 运行时 + UI 暂存进 .app bundle（.app 自包含，启动台/双击可用）。
+
+    CEF mac 标准布局：framework + 5 helper bundle 在 <App>.app/Contents/Frameworks/，
+    UI/字体在 <App>.app/Contents/Resources/webview/ui/。浏览器进程的 seatbelt 沙箱只放行
+    main bundle 内文件读——运行时在 bundle 外（bin/）时 helper 子进程 dlopen framework
+    会被拒（实测）。scons generate_bundle 每次构建 rmtree 重建 bundle，故本函数必须在
+    引擎构建**之后**运行（build.py 已内置该顺序）。
+    sign_identity：发布签名构建（scons bundle_sign_identity=...）时传身份，外层 bundle
+    重签名沿用该身份 + hardened runtime + 对应编辑器 entitlements（与 generate_bundle
+    一致，dev/pro 按 bundle 名区分）；为空时 ad-hoc 签名（当前开发构建行为）。
+    返回缺失/失败清单（空 = 成功）。
+    """
+    if IS_WINDOWS:
+        return []
+    bundles = sorted(bin_dir.glob("godot_macos_editor*.app"))
+    if not bundles:
+        print(
+            "[stage-webview] WARNING: 未找到 mac 编辑器 bundle "
+            "(bin/godot_macos_editor*.app)，跳过 bundle 内暂存（裸可执行文件流程不受影响）",
+            file=sys.stderr,
+        )
+        return []
+
+    missing = []
+    for bundle in bundles:
+        frameworks_dir = bundle / "Contents" / "Frameworks"
+        resources_ui_dir = bundle / "Contents" / "Resources" / "webview" / "ui"
+        # 1) framework + helpers → Contents/Frameworks（tmp 内补 plist 重签名后换入；
+        #    旧树先原子改名备份，换入失败回滚，不破坏先前可用的运行时）。
+        tmp = bundle / "Contents" / ".frameworks-stage-tmp"
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        tmp.mkdir(parents=True)
+        bundle_missing = []
+        for name in WING_FILES + CEF_RUNTIME_FILES:
+            src = WING_RUNTIME / name
+            try:
+                if src.is_dir():
+                    shutil.copytree(src, tmp / name)
+                elif src.is_file():
+                    shutil.copy2(src, tmp / name)
+                else:
+                    bundle_missing.append(f"{bundle.name}: {name}")
+            except OSError as e:
+                bundle_missing.append(f"{bundle.name}: {name} ({e})")
+        if bundle_missing:
+            shutil.rmtree(tmp, ignore_errors=True)
+            missing.extend(bundle_missing)
+            continue
+        patch_helper_plists(tmp)
+        old_fw = bundle / "Contents" / ".frameworks-old"
+        if old_fw.exists():
+            shutil.rmtree(old_fw)
+        if frameworks_dir.exists():
+            os.replace(frameworks_dir, old_fw)  # 旧树原子改名备份
+        try:
+            os.replace(tmp, frameworks_dir)  # 新树原子换入
+        except OSError as e:
+            if frameworks_dir.exists():
+                shutil.rmtree(frameworks_dir, ignore_errors=True)
+            if old_fw.exists():
+                os.replace(old_fw, frameworks_dir)  # 回滚备份
+            missing.append(f"{bundle.name}: Frameworks 换入失败 ({e})")
+            continue
+        if old_fw.exists():
+            shutil.rmtree(old_fw, ignore_errors=True)
+
+        # 2) UI → Contents/Resources/webview/ui（与 bin/webview/ui 同源；失败回滚且仅警告，
+        #    与 stage_ui 的“UI 缺失只警告”契约一致——核心运行时不受影响）。
+        if UI_DEST.is_dir():
+            old_ui = bundle / "Contents" / "Resources" / "webview" / ".ui-old"
+            if old_ui.exists():
+                shutil.rmtree(old_ui)
+            if resources_ui_dir.exists():
+                os.replace(resources_ui_dir, old_ui)
+            try:
+                resources_ui_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(UI_DEST, resources_ui_dir)
+            except OSError as e:
+                if resources_ui_dir.exists():
+                    shutil.rmtree(resources_ui_dir, ignore_errors=True)
+                if old_ui.exists():
+                    os.replace(old_ui, resources_ui_dir)
+                print(
+                    f"[stage-webview] WARNING: bundle {bundle.name} UI 换入失败（保留旧 UI）: {e}",
+                    file=sys.stderr,
+                )
+            else:
+                if old_ui.exists():
+                    shutil.rmtree(old_ui, ignore_errors=True)
+        else:
+            print(
+                f"[stage-webview] WARNING: UI 页面缺失 ({UI_DEST})，bundle {bundle.name} 内不装 UI（页面将 404）",
+                file=sys.stderr,
+            )
+
+        # 3) 外层 bundle 重签名（暂存改变了密封内容）：
+        #    - sign_identity 为空：ad-hoc（当前开发构建，与 scons 不签名一致）；
+        #    - sign_identity 非空：沿用该身份 + hardened runtime + 对应编辑器
+        #      entitlements（镜像 generate_bundle 的参数，dev/pro 按 bundle 名区分）；
+        #    均不用 --deep——嵌套 helper 已由 patch_helper_plists 带 allow-jit 等
+        #    entitlements 签名，--deep 会覆盖掉它们。
+        try:
+            if sign_identity:
+                ent_name = "editor_debug.entitlements" if bundle.name.endswith("_dev.app") else "editor.entitlements"
+                sign_cmd = [
+                    "codesign", "--force", "--sign", sign_identity,
+                    "--options=runtime",
+                    "--entitlements", str(REPO_ROOT / "misc" / "dist" / "macos" / ent_name),
+                    str(bundle),
+                ]
+            else:
+                sign_cmd = ["codesign", "--force", "--sign", "-", str(bundle)]
+            subprocess.run(sign_cmd, check=True, capture_output=True)
+        except (subprocess.SubprocessError, OSError) as e:
+            err = e.stderr.decode("utf-8", "replace").strip() if isinstance(e, subprocess.CalledProcessError) else str(e)
+            missing.append(f"{bundle.name}: codesign ({err})")
+
+        print(
+            f"[stage-webview] staged CEF runtime + UI -> {bundle.name}/"
+            "Contents/Frameworks + Contents/Resources/webview/ui"
+        )
+    return missing
+
+
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Stage C++ webview build artifacts.")
+    parser.add_argument(
+        "--prebuild-only",
+        action="store_true",
+        help="仅执行 CEF 预构建（wrapper/helper），不暂存——build.py 引擎构建前调用以保链接产物",
+    )
+    parser.add_argument(
+        "--sign-identity",
+        default="",
+        help="mac bundle 外层重签名身份（发布签名构建，build.py 从 scons bundle_sign_identity 透传）；"
+        "为空时 ad-hoc 签名（开发构建）",
+    )
+    args = parser.parse_args()
+
     cef_version = read_cef_version()
     try:
         prebuild(cef_version)
@@ -477,6 +619,8 @@ def main() -> int:
     except (subprocess.SubprocessError, OSError, RuntimeError) as e:
         print(f"[stage-webview] ERROR: CEF 预构建失败: {e}", file=sys.stderr)
         return 2
+    if args.prebuild_only:
+        return 0
 
     if not WING_RUNTIME.is_dir():
         print(
@@ -498,6 +642,11 @@ def main() -> int:
             "dock 页面将 404，CEF 核心可正常运行。构建: task ui-build",
             file=sys.stderr,
         )
+
+    bundle_missing = stage_bundles(BIN_DIR, sign_identity=args.sign_identity)
+    if bundle_missing:
+        print(f"[stage-webview] ERROR: mac bundle 暂存失败: {bundle_missing}", file=sys.stderr)
+        return 2
 
     manifest = WEBVIEW_DEST / "MANIFEST.txt"
     # UI 缺失时 stage_ui 不建 WEBVIEW_DEST(仅警告),MANIFEST 仍需落盘——父目录先确保。
