@@ -65,6 +65,7 @@ private:
 	static void _method_editor_get_ui_font_size(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_get_ui_scale(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json);
+	static void _method_editor_get_ui_font_bold(int32_t p_browser_id, const String &p_args_json);
 
 	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
 	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。

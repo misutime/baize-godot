@@ -58,6 +58,8 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 		_method_editor_get_ui_scale(p_browser_id, args_json);
 	} else if (p_method == "editor.get_ui_font") {
 		_method_editor_get_ui_font(p_browser_id, args_json);
+	} else if (p_method == "editor.get_ui_font_bold") {
+		_method_editor_get_ui_font_bold(p_browser_id, args_json);
 	} else {
 		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 	}
@@ -271,15 +273,39 @@ void WebBridge::_method_editor_get_ui_scale(int32_t p_browser_id, const String &
 }
 
 void WebBridge::_method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回编辑器主字体文件路径(EditorSettings main_font,默认空 = 内置默认字体)。
-	// 非空时页面经 @font-face 加载该 TTF/OTF 与原生 dock 字形一致;空时页面保持系统字体。
+	// 参数: { req_id }。返回编辑器**实际生效**的主字体文件路径（字体来源单一 = 编辑器）：
+	// 用户设置 main_font 优先；未设置（默认思源）时返回 editor_fonts 写入的
+	// main_font_resolved（外部分发路径）；内置回退时为空（WebDock 回退系统字体）。
 	String req_id;
 	const Variant parsed = JSON::parse_string(p_args_json);
 	if (parsed.get_type() == Variant::DICTIONARY) {
 		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
 	}
-	const String path = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font");
-	_respond(p_browser_id, req_id, true, path);
+	EditorSettings *es = EditorSettings::get_singleton();
+	String resolved = es->get_setting("interface/editor/fonts/main_font");
+	if (resolved.is_empty()) {
+		resolved = String(es->get_setting("interface/editor/fonts/main_font_resolved")); // 默认思源外部分发路径
+	}
+	_respond(p_browser_id, req_id, true, resolved);
+}
+
+void WebBridge::_method_editor_get_ui_font_bold(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id }。返回编辑器实际生效的粗体字体路径（与 editor_fonts.cpp 决策一致）：
+	// main_font_bold → main_font（无独立粗体时用主字体，CSS/embolden 合成）→ bold_resolved。
+	String req_id;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
+	}
+	EditorSettings *es = EditorSettings::get_singleton();
+	String resolved = es->get_setting("interface/editor/fonts/main_font_bold");
+	if (resolved.is_empty()) {
+		resolved = es->get_setting("interface/editor/fonts/main_font");
+	}
+	if (resolved.is_empty()) {
+		resolved = String(es->get_setting("interface/editor/fonts/main_font_bold_resolved"));
+	}
+	_respond(p_browser_id, req_id, true, resolved);
 }
 
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
@@ -447,7 +473,8 @@ void WebBridge::_on_editor_settings_changed() {
 	if (font != last_ui_font_) {
 		last_ui_font_ = font;
 		Dictionary body;
-		body["path"] = font;
+		// 实际生效路径（与 get_ui_font 一致：设置优先，空则 resolved 默认字体）。
+		body["path"] = font.is_empty() ? String(es->get_setting("interface/editor/fonts/main_font_resolved")) : font;
 		emit_event(event_browser_id_, "editor.ui_font_changed", JSON::stringify(body));
 	}
 }

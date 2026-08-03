@@ -158,6 +158,8 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	// 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
 	// 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失回退内置 Inter（防御，
 	// 不静默——外部分发是正常部署形态）。换默认字体 = 换文件 + 重启，无需重编引擎。
+	// 实际生效路径写入 EditorSettings main_font_resolved（运行时值，不持久化）——
+	// WebDock 桥（web_bridge get_ui_font）读取它，字体来源单一（此处决策）。
 	const String bundled_main_font = OS::get_singleton()->get_executable_path().get_base_dir()
 											  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
 	const bool use_bundled_main_font = FileAccess::exists(bundled_main_font);
@@ -166,9 +168,11 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	if (use_bundled_main_font) {
 		default_font = load_external_font(bundled_main_font, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_external_font(bundled_main_font, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+		EditorSettings::get_singleton()->set_manually("interface/editor/fonts/main_font_resolved", bundled_main_font);
 	} else {
 		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 		default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+		EditorSettings::get_singleton()->set_manually("interface/editor/fonts/main_font_resolved", ""); // 内置回退：无外部路径，WebDock 回退系统字体
 	}
 
 	Dictionary default_features;
@@ -242,10 +246,12 @@ Ref<FontFile> japanese_font = load_internal_font(_font_DroidSansJapanese, _font_
 		if (FileAccess::exists(bundled_bold)) {
 			default_font_bold = load_external_font(bundled_bold, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
 			default_font_bold_msdf = load_external_font(bundled_bold, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+			EditorSettings::get_singleton()->set_manually("interface/editor/fonts/main_font_bold_resolved", bundled_bold);
 		} else {
-			// Bold 文件缺失：Regular + embolden 合成（与 fallback 粗体同机制）。
+			// Bold 文件缺失：Regular + embolden 合成（与 fallback 粗体同机制），无独立路径。
 			default_font_bold = make_bold_font(default_font, embolden_strength);
 			default_font_bold_msdf = make_bold_font(default_font_msdf, embolden_strength);
+			EditorSettings::get_singleton()->set_manually("interface/editor/fonts/main_font_bold_resolved", "");
 		}
 	} else {
 		default_font_bold = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);

@@ -36,8 +36,11 @@ export const getUiFontSize = defineMethod<EmptyParams, number>("editor.get_ui_fo
 /** 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0；与原生 dock 视觉对齐）。 */
 export const getUiScale = defineMethod<EmptyParams, number>("editor.get_ui_scale");
 
-/** 编辑器主字体文件路径（main_font，空 = 内置默认；页面经 @font-face 加载与原生字形一致）。 */
+/** 编辑器主字体文件路径（实际生效：main_font 设置优先，默认思源为外部分发路径）。 */
 export const getUiFont = defineMethod<EmptyParams, string>("editor.get_ui_font");
+
+/** 编辑器粗体字体路径（main_font_bold → main_font → 默认 Bold）。 */
+export const getUiFontBold = defineMethod<EmptyParams, string>("editor.get_ui_font_bold");
 
 // ---- 事件（C++→JS）----
 

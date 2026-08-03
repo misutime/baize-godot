@@ -114,7 +114,8 @@ sequenceDiagram
 | `editor.redo` | — | `{}` | 重做 |
 | `editor.get_ui_font_size` | — | `number` | 编辑器主字体大小（EditorSettings `interface/editor/fonts/main_font_size`，默认 14） |
 | `editor.get_ui_scale` | — | `number` | 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0）。WebDock 按 `font_size × scale` 设 html font-size 与原生 dock 视觉对齐（CEF 独立渲染不应用 Godot 界面缩放） |
-| `editor.get_ui_font` | — | `string` | 编辑器主字体文件路径（main_font，空 = 内置默认；页面经 @font-face 加载与原生字形一致） |
+| `editor.get_ui_font` | — | `string` | 编辑器**实际生效**主字体路径（main_font 设置优先；默认思源为外部分发路径 `webview/ui/fonts/`；内置回退时为空）。页面 @font-face 加载，字体来源单一 = 编辑器 |
+| `editor.get_ui_font_bold` | — | `string` | 实际生效粗体路径（main_font_bold → main_font → 默认 Bold） |
 
 **错误码**（`error.code`，除 `invalid_params`/`method_not_found`/`no_scene` 外）：
 `invalid_node`——node_path 找不到节点或节点不是 Node3D（位置读写方法）。

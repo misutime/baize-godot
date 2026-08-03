@@ -125,39 +125,44 @@ export default function App() {
     applyUiMetrics(payload.size, scaleRef.current);
   });
 
-  // 字体族跟随编辑器设置（main_font 路径）：
-  // - 自定义（非空）：@font-face 加载用户字体文件，与原生 dock 一致；
-  // - 默认（空）：本地分发思源（./fonts/，与编辑器默认字体同一文件——原生 dock 也用它）。
-  // 两者都注入 @font-face 后应用 font-family；字体缺失时 CSS 回退系统字体。
-  const applyUiFont = useCallback((path: string): void => {
+  // 字体族单一来源 = 编辑器：get_ui_font/get_ui_font_bold 返回实际生效路径
+  // （main_font 设置优先，默认思源外部分发路径；内置回退时为空 → CSS 回退系统字体）。
+  // 页面不再硬编码字体路径——换字体只改编辑器侧（文件或设置）。
+  const boldFontRef = useRef(""); // 粗体路径缓存（事件只携带主字体，bold 重载生效）
+  const applyUiFont = useCallback((regular: string, bold: string): void => {
     let styleEl = document.getElementById("baize-font-face") as HTMLStyleElement | null;
     if (!styleEl) {
       styleEl = document.createElement("style");
       styleEl.id = "baize-font-face";
       document.head.appendChild(styleEl);
     }
-    const src = path
-      ? `url("${encodeURI(`file:///${path.replace(/\\/g, "/")}`)}")`
-      : `url("./fonts/NotoSansCJKsc-Regular.otf")`;
-    const srcBold = path ? src : `url("./fonts/NotoSansCJKsc-Bold.otf")`;
+    if (!regular) {
+      styleEl.textContent = ""; // 内置回退（无外部路径）：清除注入，回退系统字体
+      document.documentElement.style.fontFamily = "";
+      return;
+    }
+    const src = (p: string): string => `url("${encodeURI(`file:///${p.replace(/\\/g, "/")}`)}")`;
     styleEl.textContent =
-      `@font-face { font-family: "baize-editor-font"; src: ${src}; font-weight: 100 500; font-display: swap; }\n` +
-      `@font-face { font-family: "baize-editor-font"; src: ${srcBold}; font-weight: 600 900; font-display: swap; }`;
+      `@font-face { font-family: "baize-editor-font"; src: ${src(regular)}; font-weight: 100 500; font-display: swap; }\n` +
+      `@font-face { font-family: "baize-editor-font"; src: ${src(bold || regular)}; font-weight: 600 900; font-display: swap; }`;
     document.documentElement.style.fontFamily =
       '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
   }, []);
 
   useEffect(() => {
-    void editor
-      .getUiFont()
-      .then(applyUiFont)
+    void Promise.all([editor.getUiFont(), editor.getUiFontBold()])
+      .then(([regular, bold]) => {
+        boldFontRef.current = bold;
+        applyUiFont(regular, bold);
+      })
       .catch(() => {
         // 拉取失败：保持系统字体，不阻塞面板
       });
   }, [applyUiFont]);
 
   useEditorEvent(editor.onUiFontChanged, (payload) => {
-    applyUiFont(payload.path);
+    // 事件只携带主字体（regular）；bold 保持加载时值（main_font_bold 变更低频，重载生效）。
+    applyUiFont(payload.path, boldFontRef.current);
   });
 
   // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。
