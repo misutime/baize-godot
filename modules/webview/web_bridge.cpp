@@ -56,6 +56,8 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 		_method_editor_get_ui_font_size(p_browser_id, args_json);
 	} else if (p_method == "editor.get_ui_scale") {
 		_method_editor_get_ui_scale(p_browser_id, args_json);
+	} else if (p_method == "editor.get_ui_font") {
+		_method_editor_get_ui_font(p_browser_id, args_json);
 	} else {
 		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 	}
@@ -268,6 +270,18 @@ void WebBridge::_method_editor_get_ui_scale(int32_t p_browser_id, const String &
 	_respond(p_browser_id, req_id, true, scale);
 }
 
+void WebBridge::_method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id }。返回编辑器主字体文件路径(EditorSettings main_font,默认空 = 内置默认字体)。
+	// 非空时页面经 @font-face 加载该 TTF/OTF 与原生 dock 字形一致;空时页面保持系统字体。
+	String req_id;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
+	}
+	const String path = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font");
+	_respond(p_browser_id, req_id, true, path);
+}
+
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
 	String req_id;
 	const Variant parsed = JSON::parse_string(p_args_json);
@@ -330,6 +344,7 @@ HashMap<ObjectID, Vector3> WebBridge::tracked_positions_;
 bool WebBridge::last_can_undo_ = true; // 哨兵：首帧 diff 必发一次当前状态
 bool WebBridge::last_can_redo_ = true;
 int WebBridge::last_ui_font_size_ = -1; // 哨兵：首帧比较必发当前值（连接时即设基线，实际不发）
+String WebBridge::last_ui_font_; // main_font 路径基线
 
 void WebBridge::set_event_browser_id(int32_t p_browser_id) {
 	event_browser_id_ = p_browser_id;
@@ -351,8 +366,9 @@ void WebBridge::init_event_sources() {
 	// 编辑器设置变化（任何设置变化都触发，回调内过滤 main_font_size）。
 	EditorSettings::get_singleton()->connect("settings_changed", callable_mp_static(&WebBridge::_on_editor_settings_changed));
 	event_sources_connected_ = true;
-	// 基线：当前字体大小（不在此发初始事件——页面经 get_ui_font_size 拉取）。
+	// 基线：当前字体大小/路径（不在此发初始事件——页面经 get_ui_font_size/get_ui_font 拉取）。
 	last_ui_font_size_ = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
+	last_ui_font_ = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font");
 	// 初始同步一次当前选中：此时浏览器 id 可能未注册（面板刚创建），
 	// 事件发不出但基线会建立；前端订阅前的首次真实选中仍会触发。
 	_on_selection_changed();
@@ -419,14 +435,21 @@ void WebBridge::_on_editor_settings_changed() {
 	if (event_browser_id_ < 0) {
 		return;
 	}
-	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
-	if (size == last_ui_font_size_) {
-		return; // 非字体设置变化/无变化：不发
+	EditorSettings *es = EditorSettings::get_singleton();
+	const int size = es->get_setting("interface/editor/fonts/main_font_size");
+	if (size != last_ui_font_size_) {
+		last_ui_font_size_ = size;
+		Dictionary body;
+		body["size"] = size;
+		emit_event(event_browser_id_, "editor.ui_font_size_changed", JSON::stringify(body));
 	}
-	last_ui_font_size_ = size;
-	Dictionary body;
-	body["size"] = size;
-	emit_event(event_browser_id_, "editor.ui_font_size_changed", JSON::stringify(body));
+	const String font = es->get_setting("interface/editor/fonts/main_font");
+	if (font != last_ui_font_) {
+		last_ui_font_ = font;
+		Dictionary body;
+		body["path"] = font;
+		emit_event(event_browser_id_, "editor.ui_font_changed", JSON::stringify(body));
+	}
 }
 
 void WebBridge::_refresh_tracked_positions(bool p_emit_initial_for_new) {

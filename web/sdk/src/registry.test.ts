@@ -36,6 +36,11 @@ beforeEach(() => {
 });
 
 // 表驱动：shipped 的 scene/editor 注册表与协议 §3.3 一一对应（防错绑协议名）。
+// 注：事件注册表类型用别名而非内联嵌套箭头类型——esbuild(vitest transform) 对
+// `as Array<[string, (l: (p: unknown) => void) => () => void]>(` 的解析会误报。
+type MethodTableEntry = [string, () => Promise<unknown>];
+type EventTableEntry = [string, (listener: (payload: unknown) => void) => () => void];
+
 describe("shipped 方法注册表", () => {
   it.each([
     ["scene.get_node_count", () => scene.getNodeCount()],
@@ -49,7 +54,8 @@ describe("shipped 方法注册表", () => {
     ["editor.redo", () => editor.redo()],
     ["editor.get_ui_font_size", () => editor.getUiFontSize()],
     ["editor.get_ui_scale", () => editor.getUiScale()],
-  ] as Array<[string, () => Promise<unknown>]>)("方法 %s 发出正确协议名", (protocolName, call) => {
+    ["editor.get_ui_font", () => editor.getUiFont()],
+  ] as MethodTableEntry[])("方法 %s 发出正确协议名", (protocolName, call) => {
     const { bridge, invoked } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
     call();
@@ -64,18 +70,16 @@ describe("shipped 事件注册表", () => {
     ["editor.node_position_changed", editor.onPositionChanged],
     ["editor.undo_stack_changed", editor.onUndoStackChanged],
     ["editor.ui_font_size_changed", editor.onUiFontSizeChanged],
-  ] as Array<[string, (listener: (payload: unknown) => void) => () => void]>)(
-    "事件 %s 订阅/退订",
-    (protocolName, subscribe) => {
-      const { bridge, emit } = makeFakeBridge();
-      _setBridgeClientForTest(bridge);
-      const received: unknown[] = [];
-      const unsub = subscribe((payload) => received.push(payload));
-      emit(protocolName, JSON.stringify({ ok: true }));
-      expect(received).toHaveLength(1);
-      unsub();
-      emit(protocolName, JSON.stringify({ ok: true }));
-      expect(received).toHaveLength(1); // 退订后不再收到
-    },
-  );
+    ["editor.ui_font_changed", editor.onUiFontChanged],
+  ] as EventTableEntry[])("事件 %s 订阅/退订", (protocolName, subscribe) => {
+    const { bridge, emit } = makeFakeBridge();
+    _setBridgeClientForTest(bridge);
+    const received: unknown[] = [];
+    const unsub = subscribe((payload) => received.push(payload));
+    emit(protocolName, JSON.stringify({ ok: true }));
+    expect(received).toHaveLength(1);
+    unsub();
+    emit(protocolName, JSON.stringify({ ok: true }));
+    expect(received).toHaveLength(1); // 退订后不再收到
+  });
 });

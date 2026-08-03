@@ -36,6 +36,9 @@ export const getUiFontSize = defineMethod<EmptyParams, number>("editor.get_ui_fo
 /** 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0；与原生 dock 视觉对齐）。 */
 export const getUiScale = defineMethod<EmptyParams, number>("editor.get_ui_scale");
 
+/** 编辑器主字体文件路径（main_font，空 = 内置默认；页面经 @font-face 加载与原生字形一致）。 */
+export const getUiFont = defineMethod<EmptyParams, string>("editor.get_ui_font");
+
 // ---- 事件（C++→JS）----
 
 export interface SelectionChangedPayload {
@@ -63,3 +66,6 @@ export const onUndoStackChanged = defineEvent<UndoStackChangedPayload>("editor.u
 
 /** 编辑器主字体大小变化（跟随 EditorSettings）。 */
 export const onUiFontSizeChanged = defineEvent<{ size: number }>("editor.ui_font_size_changed");
+
+/** 编辑器主字体路径变化（跟随 EditorSettings）。 */
+export const onUiFontChanged = defineEvent<{ path: string }>("editor.ui_font_changed");

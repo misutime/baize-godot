@@ -64,6 +64,7 @@ private:
 	static void _method_editor_redo(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_get_ui_font_size(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_get_ui_scale(int32_t p_browser_id, const String &p_args_json);
+	static void _method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json);
 
 	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
 	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。
@@ -81,6 +82,7 @@ private:
 	static bool last_can_undo_; // undo 栈上次状态（哨兵 true：首帧 diff 必发一次）
 	static bool last_can_redo_;
 	static int last_ui_font_size_; // main_font_size 基线（变化才发事件）
+	static String last_ui_font_; // main_font 路径基线（变化才发事件）
 
 	/// EditorSelection::selection_changed → 下行 selection_changed(node_paths) +
 	/// 重建位置跟踪基线（新选中节点立即发初始位置，验收 2：选中即显示 X）。

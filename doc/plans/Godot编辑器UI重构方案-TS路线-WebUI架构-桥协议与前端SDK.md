@@ -114,6 +114,7 @@ sequenceDiagram
 | `editor.redo` | — | `{}` | 重做 |
 | `editor.get_ui_font_size` | — | `number` | 编辑器主字体大小（EditorSettings `interface/editor/fonts/main_font_size`，默认 14） |
 | `editor.get_ui_scale` | — | `number` | 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0）。WebDock 按 `font_size × scale` 设 html font-size 与原生 dock 视觉对齐（CEF 独立渲染不应用 Godot 界面缩放） |
+| `editor.get_ui_font` | — | `string` | 编辑器主字体文件路径（main_font，空 = 内置默认；页面经 @font-face 加载与原生字形一致） |
 
 **错误码**（`error.code`，除 `invalid_params`/`method_not_found`/`no_scene` 外）：
 `invalid_node`——node_path 找不到节点或节点不是 Node3D（位置读写方法）。
@@ -126,6 +127,7 @@ sequenceDiagram
 | `editor.node_position_changed` | `{ node_id: number, position: {x,y,z} }` | 属性/拖动变化 |
 | `editor.undo_stack_changed` | `{ can_undo: bool, can_redo: bool }` | undo 栈状态（可选，MVP2 后） |
 | `editor.ui_font_size_changed` | `{ size: number }` | 编辑器主字体大小变化（EditorSettings settings_changed 过滤推送） |
+| `editor.ui_font_changed` | `{ path: string }` | 编辑器主字体路径变化（空 = 恢复默认） |
 
 **方法名**：小写点号命名空间（`scene.`/`editor.`/`inspector.`），与 C++ 注册表一一对应；
 **事件名**：同风格，`*_changed` 后缀表状态推送。
