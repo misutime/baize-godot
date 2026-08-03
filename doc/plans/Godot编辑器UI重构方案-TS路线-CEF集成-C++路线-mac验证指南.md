@@ -2,6 +2,9 @@
 
 > **状态**：核心链路已跑通（2026-08-02 实机验证，Apple Silicon arm64）。Windows C0 已全部通过；
 > mac 的 CEF 初始化→OSR 浏览器→页面 200→WebDock 显示→干净退出 全链路验证通过（日志证据见 §3）。
+> 2026-08-03 补充：**两种启动形态均可用**（终端裸可执行文件 `bin/godot.macos.editor.dev.arm64`
+> 与启动台/双击的 `.app` bundle）——CEF 运行时 + UI 已打入 bundle 内（`Contents/Frameworks` +
+> `Contents/Resources/webview/ui`），构建后自动暂存（build.py 内置），不再依赖“运行时与 exe 同级”的碰巧。
 > 未验证项：IME 中文输入（B4）、JS 双向桥往返（B3 部分）、多实例双开（B5 部分）。
 >
 > **定位**：本文给同事在 mac 机器上调试 C++ 路线（CEF 151.3.12 + vendored CefViewCore）的验证点、注意事项与步骤。复用现有核心层代码，主要工作在平台适配与实机验证。
@@ -32,7 +35,11 @@ CEF 初始化 → OSR 浏览器创建 → 页面加载(200) → OnPaint→ImageT
 | 6 | Godot 构建 | `task dev`（MSVC） | Xcode + clang;`scons platform=macos` | **验证通过**：`task dev`(build.py --preset dev)完整构建+链接成功;产物 `bin/godot.macos.editor.dev.arm64` |
 | 7 | IME | Windows 拼音已通 | **mac 中文输入法实机验证** | **未验证**(本机无中文输入法测试场景) |
 | 8 | 渲染 | 软件 OSR 已通 | 软件 OSR 理论平台无关;GPU 路径(Metal)本阶段不验证 | **验证通过**：软件 OSR 出图(WebDock 可见);**GPU 加速已启用并验证**(2026-08-02:移除 --disable-gpu,GPU 进程正常、0 崩溃、页面 200;GPU 进程跑在 base helper 的 --type=gpu-process,非 (GPU).app) |
-| 9 | DLL/搜索 | libcef.dll + exe 旁 | framework + helper bundle;`browser_subprocess_path` 路径语义不同 | **已改**：framework 与 helper bundle 随 exe 同级(bin/);`browser_subprocess_path` = `exe_dir/CefViewWing.app/Contents/MacOS/CefViewWing`;主机 `cef_load_library` 显式加载 framework |
+| 9 | DLL/搜索 | libcef.dll + exe 旁 | framework + helper bundle;`browser_subprocess_path` 路径语义不同 | **已改+验证**：两种形态分别处理——裸可执行文件用 `exe_dir` 同级(bin/);`.app` bundle 启动用 bundle 内 `Contents/Frameworks`(CEF mac 标准布局,stage_bundles 暂存)。注意:seatbelt 沙箱只放行 main bundle 内文件读,运行时必须在 bundle 内,且传给 CEF 的路径必须 realpath 规范化(带 `..` 的规则匹配不上,helper dlopen 被拒)。路径解析单一契约:`webview_core.cpp resolve_runtime_root`(CEF 运行时)与 `webview_runtime_path.h webview_ui_root_dir`(UI/字体) |
+
+**2026-08-03 新增 mac 平台差异**(启动台/双击 `.app` 形态):
+- **沙箱路径覆盖**：helper 子进程的 seatbelt 沙箱只放行浏览器进程 main bundle 内文件读——CEF 运行时必须在 `.app/Contents/Frameworks/` 内(stage_bundles 暂存),放 bundle 外(bin/)时 helper dlopen framework 被拒。
+- **`isHandlingSendEvent` 缺失崩溃**：CEF 消息泵依赖 NSApplication 实现 CrAppProtocol(`isHandlingSendEvent`/`setHandlingSendEvent`,cefclient 模板的 CefApplication 有),Godot 的 `GodotApplication` 没有 → 长时间运行(事件分发路径)unrecognized selector 崩溃。已由 `modules/webview/cef_application_mac.cpp` 在模块初始化时注入(不改引擎核心)。
 
 **mac 实机新增的平台差异**(本文写作时未预见的坑,见 §4 注意事项 9-12):
 - 非 bundle 裸可执行文件下,CEF 的 framework bundle / bundle id 定位失效 → 需 `framework_dir_path` + `main_bundle_path` 两个设置
@@ -126,21 +133,18 @@ xcode-select --install          # Xcode 命令行工具
 brew install cmake              # 或系统 cmake ≥3.19
 # Godot mac 构建依赖见 Godot 官方文档(需要 scons、可选 clang)
 
-# ② 平台适配(改这 3 处,见 §2)
-#    - modules/webview/SCsub:门控 + C++20 flags + 链接(平台分支)
-#    - misc/scripts/cef_dist.py:SDK_DIR_SUFFIX + 下载 URL 平台模板 + 缓存路径
-#    - modules/webview/webview_core.cpp:缓存路径(LOCALAPPDATA → ~/Library/Caches)
+# ② 构建与暂存(2026-08-03 起自动化):build.py 内置 stage-webview 前后钩子——
+#    构建前 --prebuild-only 确保 libcef_dll_wrapper.a(首次自动下载 SDK + cmake 预构建),
+#    构建后完整暂存(bin/ + .app bundle 内 Frameworks/Resources/webview/ui)。
+#    直接 task dev / just dev 即可,无需手动先跑 stage-webview。
+#    UI 变更后补一次 task ui-build(React 壳 → bin/webview/ui,下次构建自动入 bundle)。
 
-# ③ 预构建 CEF 产物(首次/换版本)
-task stage-webview               # 自动下载 macosarm64 包 → 解压 → 构建 wrapper+helper
-# 或手动:CEF_DIST_ROOT=~/cef-dist-mac task stage-webview
-
-# ④ 编引擎
-task dev                         # 若 SCsub 报错,按提示修复平台分支
-
-# ⑤ 运行验证(按 §3 清单逐项)
-# 编辑器加载测试项目,观察日志:
+# ⑤ 运行验证(两种启动形态均可用,按 §3 清单逐项核对):
+#    a) 终端裸可执行文件(推荐,日志直出):
 bin/godot.macos.editor.dev.arm64 --path <cef-b0-test 项目> --editor
+#    b) 启动台/双击 .app(与 a 同一份暂存,运行时在 bundle 内;LaunchServices 下 CWD 为 /,
+#       传项目路径须用绝对路径):
+open bin/godot_macos_editor_dev.app --args --path <绝对路径> --editor
 
 # ⑥ 逐项核对 §3 清单,记录每个 Gate B0-B5 的通过/失败与证据
 ```

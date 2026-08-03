@@ -42,8 +42,10 @@
 #include <wrapper/cef_library_loader.h>
 #include <crt_externs.h> // _NSGetArgc/_NSGetArgv:CefMainArgs 需要真实 argc/argv
 #include <cerrno>       // errno/EEXIST/EWOULDBLOCK: 槽位锁失败分支
+#include <cstdlib>      // realpath: 运行时根路径规范化(含 ".." 段)
 #include <fcntl.h>      // open(O_CREAT|O_RDWR): 槽位锁文件
 #include <sys/file.h>   // flock: 槽位锁(POSIX 单实例标准原语)
+#include <sys/param.h>  // PATH_MAX: realpath 缓冲
 #include <sys/stat.h>   // mkdir: 槽位 base 目录
 #include <unistd.h>     // close: 槽位锁 fd 释放
 #else
@@ -95,6 +97,37 @@ void log_callback_exception(const char *p_callback, const char *p_what) {
 	snprintf(buf, sizeof(buf), "[webview_core] CEF callback %s threw: %s\n", p_callback, p_what);
 	log_stderr(buf);
 }
+
+#if defined(__APPLE__)
+// 运行时根目录 = 与编辑器 exe 同级、暂存了 CEF 运行时(framework + helper bundle)的
+// 目录。分发契约(stage_webview.py):
+//   - 非 bundle 裸可执行文件(bin/godot.macos.editor.dev.arm64):运行时与 exe 同级
+//     (bin/,stage_runtime 暂存),运行时根 = exe_dir;
+//   - .app bundle 内 exe(bin/godot_macos_editor_dev.app/Contents/MacOS/Godot):运行时
+//     打进 bundle 内 Contents/Frameworks(stage_bundles 暂存,CEF mac 标准布局)——
+//     seatbelt 沙箱只放行 main bundle 内文件读,运行时在 bundle 外时 helper 子进程
+//     dlopen framework 被拒(实测),故必须指向 bundle 内。
+// Godot 侧(webview_runtime_path.h)对 UI/字体同规则解析到 Contents/Resources,改契约
+// 需两处同步。返回的路径必须规范化(无 ".." 段):CEF 把 framework_dir_path/
+// main_bundle_path/browser_subprocess_path 原样传入 helper 的 seatbelt 沙箱 profile
+// 路径规则,seatbelt 按规范化路径匹配——带 ".." 的规则匹配不上真实路径(sandbox_mac.mm
+// 实测)。realpath 失败时保底返回原路径。
+std::string resolve_runtime_root(const std::string &p_exe_dir) {
+	const std::string kContentsMacOS = "/Contents/MacOS";
+	if (p_exe_dir.size() > kContentsMacOS.size() &&
+			p_exe_dir.compare(p_exe_dir.size() - kContentsMacOS.size(), kContentsMacOS.size(), kContentsMacOS) == 0) {
+		// bundle 根 = exe_dir 去掉 /Contents/MacOS 后缀(不用 ".." 拼,避免折叠算术出错)
+		const std::string bundle_root = p_exe_dir.substr(0, p_exe_dir.size() - kContentsMacOS.size());
+		const std::string raw = bundle_root + "/Contents/Frameworks";
+		char resolved[PATH_MAX];
+		if (realpath(raw.c_str(), resolved) != nullptr) {
+			return std::string(resolved);
+		}
+		return raw;
+	}
+	return p_exe_dir;
+}
+#endif
 
 // 单调墙钟毫秒(steady_clock,不随系统时间调整)。
 uint64_t now_ms() {
@@ -903,8 +936,9 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	// mac 主机进程必须显式加载 framework 才能调用任何 CEF API(Windows 由导入库在进程
 	// 启动时自动加载 DLL)——wrapper 的 C API 经全局函数表分发,未加载即为 NULL 指针,
 	// 下方第一个 CEF 调用(CefCommandLine::GetGlobalCommandLine)即崩溃。
-	// 路径与 stage 暂存布局一致:<exe_dir>/Chromium Embedded Framework.framework/Chromium Embedded Framework。
-	const std::string framework_dir = p_exe_dir + "/Chromium Embedded Framework.framework";
+	// 路径与 stage 暂存布局一致:<runtime_root>/Chromium Embedded Framework.framework/Chromium Embedded Framework。
+	const std::string runtime_root = resolve_runtime_root(p_exe_dir);
+	const std::string framework_dir = runtime_root + "/Chromium Embedded Framework.framework";
 	const std::string framework_path = framework_dir + "/Chromium Embedded Framework";
 	if (cef_load_library(framework_path.c_str()) != 1) {
 		log_stderr("[webview_core] init: cef_load_library failed (framework not found or invalid)\n");
@@ -944,8 +978,8 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 #elif defined(__APPLE__)
 	// mac helper 是 bundle:指向 bundle 内可执行文件。CEF 按 CEF_HELPER_APP_SUFFIXES
 	// 从该路径推导 " (Alerts)/(GPU)/(Plugin)/(Renderer)" 后缀的其余 helper bundle,
-	// 全部随 framework 同级分发(stage 暂存到 exe_dir)。
-	const std::string subprocess_path = p_exe_dir + "/CefViewWing.app/Contents/MacOS/CefViewWing";
+	// 全部随 framework 同级分发(stage 暂存到 runtime_root)。
+	const std::string subprocess_path = runtime_root + "/CefViewWing.app/Contents/MacOS/CefViewWing";
 #endif
 
 	// 缓存目录 = 实例槽位池(多实例并行):固定 base 下 cef / cef-2 / cef-3 ...,
@@ -1031,7 +1065,7 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	// bootstrap_look_up 失败。main_bundle_path 指向基础 helper bundle(其 Info.plist
 	// 的 bundle id 与全部 helper 统一为 com.cefview.CefViewWing,见 stage_webview.py
 	// patch_helper_plists),浏览器进程即取得同一 id。
-	CefString(&settings.main_bundle_path) = p_exe_dir + "/CefViewWing.app";
+	CefString(&settings.main_bundle_path) = runtime_root + "/CefViewWing.app";
 #endif
 	settings.windowless_rendering_enabled = 1; // OSR 软件渲染(OnPaint)
 	settings.external_message_pump = 1; // 由宿主主循环 CefDoMessageLoopWork 驱动

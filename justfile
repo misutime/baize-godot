@@ -1,13 +1,14 @@
 # 引擎级 WebDock（C++ 路线）开发/测试命令
 # 用法：just [recipe]，just 不带参数 = 列出配方
 # 分发模型：CefViewCore 源码编入引擎；CEF 运行时 + helper（CefViewWing）+ 页面产物
-# 随编辑器分发（bin/ + bin/webview/），与打开的项目无关。双平台：Windows x64 / macOS arm64。
+# 随编辑器分发。双平台：Windows x64 / macOS arm64。mac 上两种启动形态均可用：
+#   1. 终端裸可执行文件（bin/godot.macos.editor.dev.arm64，运行时在 bin/ 同级）
+#   2. .app bundle（启动台/双击；运行时 + UI 在 bundle 内 Contents/Frameworks +
+#      Contents/Resources/webview/ui，CEF mac 标准布局）
 #
-# 首次构建顺序：
-#   1. just webview-stage  —— 预构建 libcef_dll_wrapper + CefViewWing + CEF 运行时
-#                             （首次/换 CEF 版本才构建；产物存在则跳过，秒级）
-#   2. just dev             —— 编引擎（含 CefViewCore 源码 + 链接 stage 产物）
-# 跳过第 1 步直接 dev 会报错并提示先跑 stage-webview（不静默）。
+# 构建（2026-08-03 起自动化）：task dev / just dev 内部已由 build.py 内置 stage-webview
+# 前后钩子——构建前确保预构建产物（首次自动下载 SDK），构建后暂存 bin/ 与 mac bundle。
+# 无需手动先跑 stage-webview。UI 变更后补 task ui-build（下次构建自动入 bundle）。
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 
