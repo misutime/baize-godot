@@ -8,8 +8,11 @@
 <h2>baize-godot webview stub</h2>
 <p id="status">verifying cefViewQuery...</p>
 <script>
-// 验证桩:直接实测注入的 cefViewQuery(CEF 151 对象式调用)。不装任何静默回退——
-// 注入缺失或调用失败都要在页面上明确显示,便于 Gate B3 验证与排障。
+// 验证桩:实测注入的 cefViewQuery(CEF 151,CefViewCore 包装 CefMessageRouter)。
+// 2026-08-03 修正:签名必须是 CEF 官方单对象格式 {request, persistent, onSuccess, onFailure}
+// ——旧代码 window.cefViewQuery(req, callback) 多参数调用会在 renderer 侧参数校验失败
+// (Uncaught Error: Invalid arguments; expecting a single object),query 从未发出 IPC,
+// 宿主永远收不到(C0.4 Win 排障根因)。不装任何静默回退——注入缺失或调用失败必须显式显示。
 (function () {
   var status = document.getElementById("status");
   if (typeof window.cefViewQuery !== "function") {
@@ -17,10 +20,17 @@
     status.style.color = "#f88";
     return;
   }
-  var req = { request: "ping", persistent: false };
-  window.cefViewQuery(req, function (res) {
-    status.textContent = "query ok, response: " + res;
-    status.style.color = "#cfc";
+  window.cefViewQuery({
+    request: "ping",
+    persistent: false,
+    onSuccess: function (res) {
+      status.textContent = "query ok, response: " + res;
+      status.style.color = "#cfc";
+    },
+    onFailure: function (errCode, errMsg) {
+      status.textContent = "query failed: " + errCode + " " + errMsg;
+      status.style.color = "#f88";
+    }
   });
 })();
 </script>

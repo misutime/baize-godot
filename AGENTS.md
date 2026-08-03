@@ -71,17 +71,32 @@ task dev                  # 或 just dev
 - CEF 151 头文件必须 **C++20**（`convertible_to` concept）+ `NOMINMAX` + `WIN32_LEAN_AND_MEAN`
 - **NDEBUG 必须**（CEF 侧源文件）：Release wrapper 把 `~RefCountedThreadSafeBase` 内联为 `= default`，Godot dev 构建不定义 NDEBUG 时 `DCHECK_IS_ON()=true` 引用外部析构 → LNK2019
 - CEF 静态库 CRT 必须与 Godot 一致：Godot 默认 `/MT`（`use_static_cpp=True`），stage 预构建 `-DSTATIC_CRT=ON`
-- 每个浏览器独立 `CefViewBrowserClient` + delegate；OSR 用 `windowless_rendering_enabled + external_begin_frame_enabled`（主线程 pump + `SendExternalBeginFrame`）
+- 每个浏览器独立 `CefViewBrowserClient` + delegate；OSR 用 `windowless_rendering_enabled + external_begin_frame_enabled`
+  （**2026-08-03 修复后为 internal_begin_frame**：`external_begin_frame_enabled=0`，CEF 内部帧源按
+  `windowless_frame_rate=60` 驱动，宿主每帧 `CefDoMessageLoopWork` 泵送，不再 `SendExternalBeginFrame`）
 
 ## 7. 平台支持现状
 
-- **当前仅 Windows x86_64 MSVC**（`modules/webview/SCsub` 平台门控，其他平台显式报错）
-- mac 支持见 `doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`（待实机调试）
-- `cef_dist.py` 的 `SDK_DIR_SUFFIX` 常量是为 mac/linux 扩展预留的抽象点
+- **Windows x86_64 MSVC** 与 **macOS arm64/x64（clang）** 双平台（`modules/webview/SCsub` 平台门控，其他平台显式报错）
+- mac 实机验证记录：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`；
+  internal_begin_frame 修复（2026-08-03）为共享代码，**mac 需复验**
+- `cef_dist.py` 的 `sdk_dir_suffix()` 按宿主自动判定（windows64/macosarm64/macosx64）
 
-## 8. 文档索引
+## 9. Godot 测试时限（30 秒规则，强制）
+
+打开 Godot 编辑器做验证/排障的命令（如
+`./bin/godot.windows.editor.dev.x86_64.console.exe --path <项目> --editor > 日志 2>&1 &`）：
+
+- **默认 30 秒内自动关闭**（sleep 30 → 采样日志 → Stop-Process 清理全部 godot/CefViewWing 进程）
+- 只需确认打开状态/页面加载/生成日志的场景：30 秒足够，**禁止拖到 1-2 分钟**
+- 需要长时间持续的（长时间稳定性、内存增长、GPU/性能采样等）可突破 30 秒，但必须说明理由
+- **每次测试后必须清理残留进程**（`Stop-Process -Name 'godot.windows*','CefViewWing'`），
+  残留双开会触发 CEF 同 root 单例冲突（CefInitialize failed）并污染后续测试
+
+## 10. 文档索引
 
 - 方案总览：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++生态复核与从零选型.md`
-- 构建集成（含首次流程/缓存机制）：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-构建集成方案分析.md`
 - mac 验证：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`
-- 历史（Rust 4A 路线，已切换）：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md`
+- GPU 验证：`doc/plans/验证计划-CEF-GPU加速-Win先行.md`
+- 第二日实施：`doc/plans/实施计划-第二日-双向桥与输入交互.md`
+- 历史（已归档）：`doc/plans/已完成-历史文档/`（构建集成方案分析、E0-CEF验证、RouteB-分发边界说明等）
