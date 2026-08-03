@@ -102,10 +102,14 @@ export default function App() {
   });
 
   // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。
+  // 任一轴编辑中跳过（审查 P1）：X 提交回写 setPosition 时若用户已在输入 Y，
+  // 无条件写 DOM 会重置 Y 的编辑文本——聚焦中不碰 DOM，blur 提交后恢复同步。
   useEffect(() => {
-    const value = position ? String(position.x) : "";
+    if (editingRef.current) {
+      return;
+    }
     if (xRef.current) {
-      xRef.current.value = value;
+      xRef.current.value = position ? String(position.x) : "";
     }
     if (yRef.current) {
       yRef.current.value = position ? String(position.y) : "";
@@ -137,6 +141,8 @@ export default function App() {
   // 输入框聚焦（未确认编辑）时不接管——浏览器文本撤销（非受控 input 原生可靠）。
   // 背景：web_panel 键盘转发无条件（面板聚焦即进页面 + accept_event 阻断 Godot 快捷键），
   // 不接管则 Ctrl+Z 总被浏览器吃掉；空栈按 Ctrl+Z 不报错（nothing_to_undo 为正常态）。
+  // 不经过 runAction（审查 P2）：busy 时 runAction 静默丢弃动作——快捷键是瞬时期望，
+  // 被防抖吞掉等于丢失；此处直接调用桥方法，错误仅非 nothing_* 时显示。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey)) {
@@ -150,43 +156,26 @@ export default function App() {
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         return; // 输入框：浏览器默认文本撤销（用户未确认的编辑）
       }
-      const doRedo = (): void => {
+      const runShortcut = (action: () => Promise<unknown>): void => {
         e.preventDefault();
-        void runAction(async () => {
-          try {
-            await editor.redo();
-          } catch (err) {
-            const e2 = err as { code?: string };
-            if (e2.code !== "nothing_to_redo") {
-              throw err;
-            }
-          }
-        });
-      };
-      const doUndo = (): void => {
-        e.preventDefault();
-        void runAction(async () => {
-          try {
-            await editor.undo();
-          } catch (err) {
-            const e2 = err as { code?: string };
-            if (e2.code !== "nothing_to_undo") {
-              throw err;
-            }
+        void action().catch((err) => {
+          const e2 = err as { code?: string; message?: string };
+          if (e2.code !== "nothing_to_undo" && e2.code !== "nothing_to_redo") {
+            setError(`操作失败 [${e2.code ?? "unknown"}]: ${e2.message ?? String(err)}`);
           }
         });
       };
       if (key === "z" && e.shiftKey) {
-        doRedo();
+        runShortcut(() => editor.redo());
       } else if (key === "z") {
-        doUndo();
+        runShortcut(() => editor.undo());
       } else {
-        doRedo(); // y
+        runShortcut(() => editor.redo()); // y
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runAction]);
+  }, []);
 
   const createNodeClick = useCallback((): void => {
     void runAction(async () => {
