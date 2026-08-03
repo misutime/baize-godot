@@ -30,6 +30,7 @@
 
 #include "webview_manager.h"
 
+#include "web_bridge.h"
 #include "web_panel.h"
 
 #include "core/object/callable_mp.h"
@@ -90,6 +91,7 @@ void WebViewManager::init_core() {
 	cbs.on_paint = &WebViewManager::_on_paint;
 	cbs.on_load_status = &WebViewManager::_on_load_status;
 	cbs.on_query = &WebViewManager::_on_query;
+	cbs.on_invoke_method = &WebViewManager::_on_invoke_method;
 	core_.set_callbacks(cbs);
 	if (!core_.init(exe_dir.utf8().get_data())) {
 		ERR_PRINT("[WebView] CEF core init failed (terminal) — exe_dir=" + exe_dir);
@@ -219,6 +221,27 @@ void WebViewManager::set_focus(int32_t p_id, bool p_focus) {
 		return;
 	}
 	core_.set_focus(p_id, p_focus);
+}
+
+void WebViewManager::emit_event(int32_t p_id, const String &p_event_name, const String &p_payload_json) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	const CharString event_name = p_event_name.utf8();
+	const CharString payload = p_payload_json.utf8();
+	core_.emit_event(p_id, event_name.get_data(), std::vector<std::string>{ payload.get_data() });
+}
+
+// invoke 上行（协议层）：静态回调 → WebBridge 方法注册表分派。
+// 注意:String(const char*) 是 Latin-1 解码——CEF 的 std::string 是 UTF-8,必须显式 utf8 构造,
+// 否则 JS 传入的中文参数/方法名会乱码(ustring.h:692 append_latin1)。
+void WebViewManager::_on_invoke_method(int32_t p_id, const std::string &p_method, const std::vector<std::string> &p_args) {
+	Vector<String> args;
+	args.resize(static_cast<int>(p_args.size()));
+	for (int i = 0; i < args.size(); i++) {
+		args.write[i] = String::utf8(p_args[i].c_str());
+	}
+	WebBridge::handle_invoke(p_id, String::utf8(p_method.c_str()), args);
 }
 
 void WebViewManager::_on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {

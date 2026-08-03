@@ -145,7 +145,7 @@ cefviewcore_sources = [
 env_webview = env_modules.Clone()
 env_webview.add_source_files(
     env.modules_sources,
-    ["editor_web_dock.cpp", "register_types.cpp", "web_panel.cpp", "webview_manager.cpp"],
+    ["editor_web_dock.cpp", "register_types.cpp", "web_bridge.cpp", "web_panel.cpp", "webview_manager.cpp"],
 )
 
 # CEF 侧源文件(webview_core.cpp + CefViewCore 源码):CEF 151 头文件要求(已实测)

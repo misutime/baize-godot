@@ -86,8 +86,12 @@ public:
 	void send_key_event(int32_t p_id, int32_t p_type, uint32_t p_modifiers, int32_t p_windows_key_code, int32_t p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable);
 	void set_focus(int32_t p_id, bool p_focus);
 
+	// 事件下行（协议层）：payload 为事件 payload JSON（经 WebViewCore::emit_event → TriggerEvent）。
+	void emit_event(int32_t p_id, const String &p_event_name, const String &p_payload_json);
+
 	// WebViewCore 回调（主线程，pump 内同步触发）→ 静态分发到面板注册表。
 	static void _on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
 	static void _on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url);
 	static void _on_query(int32_t p_id, const std::string &p_query, int64_t p_query_id);
+	static void _on_invoke_method(int32_t p_id, const std::string &p_method, const std::vector<std::string> &p_args);
 };

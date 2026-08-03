@@ -54,6 +54,7 @@
 #include <CefViewBrowserAppDelegate.h>
 #include <CefViewBrowserClient.h>
 #include <CefViewBrowserClientDelegate.h>
+#include <CefViewCoreProtocol.h>
 
 #include <atomic>
 #include <chrono>
@@ -253,6 +254,41 @@ struct WebViewCore::Impl {
 
 		void invokeMethodNotify(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_method, const CefRefPtr<CefListValue> &p_arguments) override {
 			try {
+				// 协议层上行:方法名 + 参数(字符串化)。对象参数由前端 SDK JSON.stringify 传入,
+				// 故此处只需处理基础类型 → 字符串;其余类型转 "null" 由协议层 JSON 兜底。
+				std::vector<std::string> args;
+				if (p_arguments) {
+					args.reserve(p_arguments->GetSize());
+					for (size_t i = 0; i < p_arguments->GetSize(); i++) {
+						const CefValueType t = p_arguments->GetType(i);
+						switch (t) {
+							case VTYPE_STRING:
+								args.push_back(p_arguments->GetString(i).ToString());
+								break;
+							case VTYPE_INT:
+								args.push_back(std::to_string(p_arguments->GetInt(i)));
+								break;
+							case VTYPE_BOOL:
+								args.push_back(p_arguments->GetBool(i) ? "true" : "false");
+								break;
+							case VTYPE_DOUBLE: {
+								// %.17g: double 可往返精度(max_digits10),%g 默认 6 位有效数字会丢精度。
+								char buf[64];
+								snprintf(buf, sizeof(buf), "%.17g", p_arguments->GetDouble(i));
+								args.push_back(buf);
+							} break;
+							case VTYPE_NULL:
+								args.push_back("null");
+								break;
+							default:
+								args.push_back("null"); // 对象/数组等:前端已 JSON.stringify,此处兜底
+								break;
+						}
+					}
+				}
+				if (self_->callbacks.on_invoke_method) {
+					self_->callbacks.on_invoke_method(id_, p_method.ToString(), args);
+				}
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::invokeMethodNotify", e.what());
 			} catch (...) {
@@ -1189,6 +1225,25 @@ void WebViewCore::set_focus(int32_t p_id, bool p_focus) {
 		return;
 	}
 	it->second.browser->GetHost()->SetFocus(p_focus);
+}
+
+bool WebViewCore::emit_event(int32_t p_id, const std::string &p_event_name, const std::vector<std::string> &p_args) {
+	if (!is_initialized()) {
+		return false;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return false;
+	}
+	// 事件下行(协议层:addEventListener 的事件名 + 字符串参数列表)。
+	// renderer 侧 CefViewRenderApp::OnTriggerEventNotifyMessage 按事件名分发到 JS 监听器。
+	CefRefPtr<CefProcessMessage> msg = CefProcessMessage::Create(kCefViewClientBrowserTriggerEventMessage);
+	CefRefPtr<CefListValue> args = msg->GetArgumentList();
+	args->SetString(0, p_event_name);
+	for (size_t i = 0; i < p_args.size(); i++) {
+		args->SetString(static_cast<int>(i + 1), p_args[i]);
+	}
+	return it->second.client->TriggerEvent(it->second.browser, CEFVIEW_MAIN_FRAME, msg);
 }
 
 void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {

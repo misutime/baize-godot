@@ -93,6 +93,33 @@ task dev                  # 或 just dev
 - **每次测试后必须清理残留进程**（`Stop-Process -Name 'godot.windows*','CefViewWing'`），
   残留双开会触发 CEF 同 root 单例冲突（CefInitialize failed）并污染后续测试
 
+## 11. 新文件头规则（2026-08-03 用户裁决）
+
+**新文件用单行 SPDX 标识**，不复制 Godot 上游的 30 行长版权块（占用顶部空间、妨碍读码）：
+
+```cpp
+// SPDX-License-Identifier: MIT
+```
+
+- 适用：本仓库所有**新建**的 C++ 头/源文件（及后续 web/ TS 工程文件按各自生态惯例，
+  TS 可省或同用 SPDX 单行）
+- **既有文件不动**：Godot 上游文件（含 `modules/webview/` 现有文件）保留原版权块
+- 合规依据：MIT 许可由 SPDX 标识 + 仓库 LICENSE 文件满足；Godot 上游 4.x 新文件也逐步转
+  SPDX 单行风格
+
+## 12. 编码规范（2026-08-03，全链路 UTF-8）
+
+**全链路统一 UTF-8**（CEF ↔ Godot ↔ 协议 JSON ↔ 文件），防乱码的关键是两端一致：
+
+- **硬规则（Godot 特有陷阱，已踩 P1）**：从 UTF-8 字节构造 String **必须** `String::utf8(...)`——
+  `String(const char*)` 走 `append_latin1`（Latin-1 解码），JS 传入的中文/UTF-8 内容必乱码
+  （`core/string/ustring.h:692`）
+- 转出给 CEF/外部用 `.utf8()`（CharString）
+- 协议 JSON：`JSON::stringify/parse_string` 默认 UTF-8，无需额外处理
+- 文件/页面：Godot 文本默认 UTF-8；HTML 必须带 `<meta charset="utf-8">`
+- **控制台乱码是显示层**：`fprintf(stderr)` 输出 UTF-8 字节到 GBK 控制台会显示乱码——
+  数据未坏；需中文可读时用 Godot `print_line`（自动转换）或 `chcp 65001`
+
 ## 10. 文档索引
 
 - 方案总览：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++生态复核与从零选型.md`

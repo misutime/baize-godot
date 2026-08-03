@@ -35,6 +35,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 // C++ 核心层:封装 CefViewCore(CefViewBrowserApp / CefViewBrowserClient)为引擎模块可用的
 // 生命周期 / 消息泵 / 浏览器 / OSR / JS 桥 API。这是 C++ 路线的基础切片,WebPanel /
@@ -69,6 +70,9 @@ public:
 		// id: 浏览器 id;query: JS 侧 window.cefViewQuery 请求体;query_id: 应答句柄
 		// (原样传给 respond_query)。
 		std::function<void(int32_t id, const std::string &query, int64_t query_id)> on_query;
+		// id: 浏览器 id;method: JS 侧 CefViewClient.invoke 的方法名(点号命名空间);
+		// args: 参数列表(协议约定已字符串化;对象参数由前端 SDK JSON.stringify 后传入)。
+		std::function<void(int32_t id, const std::string &method, const std::vector<std::string> &args)> on_invoke_method;
 	};
 
 	WebViewCore();
@@ -136,6 +140,11 @@ public:
 
 	// 焦点。OSR 视图获得/失去焦点时调用(键盘事件只在有焦点时被 renderer 处理)。
 	void set_focus(int32_t p_id, bool p_focus);
+
+	// 事件下行(C++→JS):触发页面 addEventListener 注册的 p_event_name 监听器。
+	// p_args 为字符串参数列表(协议约定;事件 payload 由协议层 JSON.stringify 成单字符串)。
+	// 返回 true 表示事件已发送到 renderer。
+	bool emit_event(int32_t p_id, const std::string &p_event_name, const std::vector<std::string> &p_args);
 
 	// 修饰键位标志(与 CEF cef_event_flags_t 对齐,宿主(Godot 壳层)映射用)。
 	static constexpr uint32_t MOD_SHIFT = 2;
