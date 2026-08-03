@@ -301,7 +301,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col gap-3 p-3">
       <header className="flex items-center justify-between">
-        <h1 className="text-sm font-semibold">WebDock</h1>
+        <h1 className="font-semibold">WebDock</h1>
         <span className={`${bridge === "ok" ? "text-[#7c7]" : "text-[#f88]"}`}>
           {bridge === "checking" && "桥连接中..."}
           {bridge === "ok" && "已连接"}

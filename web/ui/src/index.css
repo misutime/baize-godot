@@ -11,6 +11,8 @@ body,
 body {
   background: #223;
   color: #cfc;
+  /* 1rem 跟随 html font-size（JS 设为 main_font_size × display_scale）：
+     全部文字 = 主字号，与原生 dock 一致。固定 px 不随缩放（4K 下会偏小）。 */
+  font-size: 1rem;
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  font-size: 14px;
 }
