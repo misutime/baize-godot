@@ -73,6 +73,9 @@ public:
 		// id: 浏览器 id;method: JS 侧 CefViewClient.invoke 的方法名(点号命名空间);
 		// args: 参数列表(协议约定已字符串化;对象参数由前端 SDK JSON.stringify 后传入)。
 		std::function<void(int32_t id, const std::string &method, const std::vector<std::string> &args)> on_invoke_method;
+		// id: 浏览器 id;focus_on_editable: 页面焦点是否在可编辑元素(focusedEditableNodeChanged)。
+		// 宿主据此决定是否激活 IME 管道——非编辑节点聚焦时激活会截获按键(P1 回归)。
+		std::function<void(int32_t id, bool focus_on_editable)> on_focus_editable_changed;
 	};
 
 	WebViewCore();
@@ -145,6 +148,14 @@ public:
 	// p_args 为字符串参数列表(协议约定;事件 payload 由协议层 JSON.stringify 成单字符串)。
 	// 返回 true 表示事件已发送到 renderer。
 	bool emit_event(int32_t p_id, const std::string &p_event_name, const std::vector<std::string> &p_args);
+
+	// ---- IME(中文输入法,OSR 宿主职责;组合文本经 Godot DisplayServer IME 管道转发)----
+	// 组合中更新:设置组合文本与选中范围(候选窗定位为完整版,基础版交给系统候选窗)。
+	void ime_set_composition(int32_t p_id, const std::string &p_text, uint32_t p_selection_start, uint32_t p_selection_end);
+	// 组合结束:提交组合文本(上屏)。
+	void ime_commit_text(int32_t p_id, const std::string &p_text);
+	// 取消组合(丢弃未提交文本)。
+	void ime_cancel_composition(int32_t p_id);
 
 	// 修饰键位标志(与 CEF cef_event_flags_t 对齐,宿主(Godot 壳层)映射用)。
 	static constexpr uint32_t MOD_SHIFT = 2;

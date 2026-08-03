@@ -92,6 +92,7 @@ void WebViewManager::init_core() {
 	cbs.on_load_status = &WebViewManager::_on_load_status;
 	cbs.on_query = &WebViewManager::_on_query;
 	cbs.on_invoke_method = &WebViewManager::_on_invoke_method;
+	cbs.on_focus_editable_changed = &WebViewManager::_on_focus_editable_changed;
 	core_.set_callbacks(cbs);
 	if (!core_.init(exe_dir.utf8().get_data())) {
 		ERR_PRINT("[WebView] CEF core init failed (terminal) — exe_dir=" + exe_dir);
@@ -232,6 +233,30 @@ void WebViewManager::emit_event(int32_t p_id, const String &p_event_name, const 
 	core_.emit_event(p_id, event_name.get_data(), std::vector<std::string>{ payload.get_data() });
 }
 
+// IME 组合文本转发(面板 IME 更新 → CEF)。
+void WebViewManager::ime_set_composition(int32_t p_id, const String &p_text, int32_t p_selection_start, int32_t p_selection_end) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	const CharString text = p_text.utf8();
+	core_.ime_set_composition(p_id, text.get_data(), static_cast<uint32_t>(p_selection_start), static_cast<uint32_t>(p_selection_end));
+}
+
+void WebViewManager::ime_commit_text(int32_t p_id, const String &p_text) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	const CharString text = p_text.utf8();
+	core_.ime_commit_text(p_id, text.get_data());
+}
+
+void WebViewManager::ime_cancel_composition(int32_t p_id) {
+	if (!core_.is_initialized()) {
+		return;
+	}
+	core_.ime_cancel_composition(p_id);
+}
+
 // invoke 上行（协议层）：静态回调 → WebBridge 方法注册表分派。
 // 注意:String(const char*) 是 Latin-1 解码——CEF 的 std::string 是 UTF-8,必须显式 utf8 构造,
 // 否则 JS 传入的中文参数/方法名会乱码(ustring.h:692 append_latin1)。
@@ -242,6 +267,18 @@ void WebViewManager::_on_invoke_method(int32_t p_id, const std::string &p_method
 		args.write[i] = String::utf8(p_args[i].c_str());
 	}
 	WebBridge::handle_invoke(p_id, String::utf8(p_method.c_str()), args);
+}
+
+// 页面可编辑焦点回调 → 分发到面板(IME 管道激活依据)。
+void WebViewManager::_on_focus_editable_changed(int32_t p_id, bool p_focus_on_editable) {
+	WebViewManager *mgr = peek_singleton();
+	if (!mgr) {
+		return;
+	}
+	WebPanel **slot = mgr->panels_.getptr(p_id);
+	if (slot && *slot) {
+		(*slot)->set_focus_editable(p_focus_on_editable);
+	}
 }
 
 void WebViewManager::_on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {

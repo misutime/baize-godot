@@ -36,8 +36,11 @@
 #include "core/input/input_event.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/os/main_loop.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
+#include "scene/main/window.h"
+#include "servers/display/display_server.h"
 
 // Windows 平台头经 Godot 头链间接引入 winnt.h:DELETE/PRINT 等是宏,
 // 会展开破坏 Key::DELETE / Key::PRINT 枚举引用。局部取消宏定义(本 TU 不用 Windows API)。
@@ -94,10 +97,70 @@ void WebPanel::_notification(int p_what) {
 			if (browser_created) {
 				WebViewManager::get_singleton()->set_focus(browser_id, true);
 			}
+			// IME 管道激活不在此处(无条件激活会截获非编辑页面的按键)——由
+			// set_focus_editable 回调(editable=true)触发。
 		} break;
 		case NOTIFICATION_FOCUS_EXIT: {
 			if (browser_created) {
+				// 焦点离开:取消未完成的 IME 组合(丢弃未提交文本),再通知 CEF 失焦。
+				if (ime_composing) {
+					WebViewManager::get_singleton()->ime_cancel_composition(browser_id);
+					ime_composing = false;
+					ime_composing_text.clear();
+				}
 				WebViewManager::get_singleton()->set_focus(browser_id, false);
+			}
+			// 释放 IME 管道(ImmAssociateContext 解绑 + DestroyCaret),与 LineEdit 失焦一致。
+			_set_ime_active(false);
+		} break;
+		case NOTIFICATION_WM_WINDOW_FOCUS_IN: {
+			// 所属 Window 获得 OS 焦点:IME 更新按 OS 窗口隔离(P2)——窗口级 IME 状态。
+			window_has_focus = true;
+			if (browser_created && has_focus() && page_focus_editable) {
+				_set_ime_active(true);
+			}
+		} break;
+		case NOTIFICATION_WM_WINDOW_FOCUS_OUT: {
+			// 窗口失焦:取消组合 + 释放 IME 管道,防止非活动窗口注入组合串(P2)。
+			if (browser_created && ime_composing) {
+				WebViewManager::get_singleton()->ime_cancel_composition(browser_id);
+				ime_composing = false;
+				ime_composing_text.clear();
+			}
+			window_has_focus = false;
+			_set_ime_active(false);
+		} break;
+		case MainLoop::NOTIFICATION_OS_IME_UPDATE: {
+			// Godot Windows IME 管道:系统组合文本更新 → 转发 CEF(与 TextEdit 同模式,
+			// 见 text_edit.cpp:2151)。组合中 ImeSetComposition,组合结束(文本清空)提交上屏。
+			// 仅当本面板所属窗口拥有 OS 焦点时处理(P2:ime_get_text 读的是 OS 焦点窗口的组合)。
+			if (!browser_created || !has_focus() || !window_has_focus) {
+				break;
+			}
+			const String new_text = DisplayServer::get_singleton()->ime_get_text();
+			if (new_text.is_empty()) {
+				if (ime_composing) {
+					// 组合结束:Windows IME(微软拼音等)的 GCS_COMPSTR 只含拼音,上屏的汉字以
+					// key CHAR 事件到达(实测 unicode=20320 '你' 等)——提交拼音会错误上屏拼音。
+					// 正确做法:取消组合(丢弃拼音),上屏汉字由后续 CHAR 事件自然插入。
+					WebViewManager::get_singleton()->ime_cancel_composition(browser_id);
+					ime_composing = false;
+					ime_composing_text.clear();
+				}
+			} else {
+				if (!ime_composing) {
+					ime_composing = true;
+					// 注意:不在组合开始前 ImeCancelComposition——无活动组合时折叠 caret 不受影响,
+					// 但页面有非折叠选区时会提前删除选区(shifu:与 CEF 契约不一致,删掉)。
+				}
+				const Vector2i sel = DisplayServer::get_singleton()->ime_get_selection();
+				ime_composing_text = new_text;
+				// Godot ime_get_selection 返回 (组合内光标, 0)——第二个值恒 0,直接传 CefRange(x, y)
+				// 会得到反向非法范围 (cursor, 0),CEF 组合节点定位错乱(中文插到文本开头)。
+				// 正确语义:0 长度选择在光标处 = CefRange(cursor, cursor)。
+				// 注意:Godot 光标是 UTF-32 索引,CEF 按 UTF-16 code unit 解释——前缀转 UTF-16 长度(P2)。
+				const int utf16_cursor = new_text.substr(0, sel.x).utf16().length();
+				WebViewManager::get_singleton()->ime_set_composition(browser_id, new_text, utf16_cursor, utf16_cursor);
 			}
 		} break;
 		case NOTIFICATION_MOUSE_EXIT: {
@@ -186,6 +249,27 @@ void WebPanel::_gui_input(const Ref<InputEvent> &p_event) {
 	}
 	const Ref<InputEventKey> key = p_event;
 	if (key.is_valid()) {
+		// IME 提交合成事件(keycode=NONE + unicode 非空,如"你好" 20320/22909 或 IME 英文模式
+		// 提交的 hello):Godot 由孤立 WM_CHAR 合成,physical_keycode 无意义(实测误映射
+		// VK_PAUSE)。只发 KEY_CHAR 且 windows_key_code=unicode——CEF 151 Windows OSR 的
+		// CHAR 路径用 windows_key_code 作字符载荷(FromCharacter),传 VK 会变错字/控制符。
+		if (key->is_pressed() && key->get_keycode() == Key::NONE && key->get_unicode() != 0) {
+			const uint32_t unicode = key->get_unicode();
+			WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_CHAR, modifiers, static_cast<int>(unicode), 0, unicode, unicode, false);
+			// IME 提交完成:清除组合状态(Windows WM_IME_ENDCOMPOSITION 不发 IME_UPDATE,
+			// 不在此清会导致状态滞留、后续可打印键被组合抑制逻辑丢弃——P2)。
+			if (ime_composing) {
+				ime_composing = false;
+				ime_composing_text.clear();
+			}
+			accept_event();
+			return;
+		}
+		// IME 组合中:上屏由 ime_commit_text 提交,CHAR 事件会双插——组合中抑制字符转发
+		// (候选键/方向键的 RAWKEYDOWN 照常转发,供候选选择)。
+		if (ime_composing && key->get_unicode() != 0) {
+			return;
+		}
 		// 物理键码做 VK 映射(Shift+1 的物理键是 KEY_1;逻辑 keycode 对 Shift 标点如 EXCLAM
 		// 无对应 VK,且 Godot 标点码≠Windows VK——见 _key_to_windows_vk 的 OEM 映射)。
 		const int vk = _key_to_windows_vk(key->get_physical_keycode());
@@ -210,9 +294,10 @@ void WebPanel::_gui_input(const Ref<InputEvent> &p_event) {
 		if (key->is_pressed()) {
 			WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_RAWKEYDOWN, modifiers, vk, 0, 0, 0, false);
 			if (unicode != 0) {
-				// 按下与重复(echo)都发 CHAR:Windows 每次 WM_KEYDOWN+WM_CHAR 合并进 echo 事件,
-				// 只发一次会导致按住可打印键只插入第一个字符。
-				WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_CHAR, modifiers, vk, 0, unicode, unmodified, false);
+				// CHAR 的 windows_key_code 必须传 unicode(不是 vk):CEF 151 Windows OSR 的 CHAR
+				// 路径用 windows_key_code 作字符载荷(FromCharacter),传物理 VK('d'键=68='D')
+				// 会导致输入恒为大写/shifu 源码级确认。character 同时填 unicode(其他平台语义)。
+				WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_CHAR, modifiers, static_cast<int>(unicode), 0, unicode, unmodified, false);
 			}
 		} else {
 			WebViewManager::get_singleton()->send_key_event(browser_id, WebViewCore::KEY_KEYUP, modifiers, vk, 0, 0, 0, false);
@@ -254,6 +339,39 @@ uint32_t WebPanel::_get_modifiers(const Ref<InputEvent> &p_event) {
 		}
 	}
 	return mods;
+}
+
+void WebPanel::set_focus_editable(bool p_focus_on_editable) {
+	page_focus_editable = p_focus_on_editable;
+	if (!browser_created) {
+		return;
+	}
+	if (p_focus_on_editable && has_focus() && window_has_focus) {
+		// 页面焦点进入可编辑元素 → 激活 IME 管道(ImmAssociateContext + CreateCaret),
+		// 否则中文输入法组合(WM_IME_*)不工作;非编辑节点不激活(P1:截获按键回归)。
+		_set_ime_active(true);
+	} else if (!p_focus_on_editable) {
+		// 页面焦点离开可编辑元素:取消组合 + 释放 IME 管道。
+		if (ime_composing) {
+			WebViewManager::get_singleton()->ime_cancel_composition(browser_id);
+			ime_composing = false;
+			ime_composing_text.clear();
+		}
+		_set_ime_active(false);
+	}
+}
+
+void WebPanel::_set_ime_active(bool p_active) {
+	DisplayServerEnums::WindowID wid = get_window() ? get_window()->get_window_id() : DisplayServerEnums::INVALID_WINDOW_ID;
+	if (wid == DisplayServerEnums::INVALID_WINDOW_ID || !DisplayServer::get_singleton()->has_feature(DisplayServerEnums::FEATURE_IME)) {
+		return;
+	}
+	if (p_active) {
+		DisplayServer::get_singleton()->window_set_ime_position(get_global_position(), wid); // 基础版:候选窗定位到面板
+		DisplayServer::get_singleton()->window_set_ime_active(true, wid);
+	} else {
+		DisplayServer::get_singleton()->window_set_ime_active(false, wid);
+	}
 }
 
 int WebPanel::_key_to_windows_vk(Key p_key) {

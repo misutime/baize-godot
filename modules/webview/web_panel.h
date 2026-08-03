@@ -62,6 +62,14 @@ class WebPanel : public Control {
 	Vector<uint8_t> paint_buffer;
 	uint32_t paint_width = 0;
 	uint32_t paint_height = 0;
+	// IME 组合状态:组合中(ime_composing)抑制 CHAR 转发防双插;结束提交 ime_composing_text。
+	bool ime_composing = false;
+	String ime_composing_text;
+	// 页面焦点是否在可编辑元素(focusedEditableNodeChanged 回调):IME 管道激活依据——
+	// 非编辑节点聚焦时激活会截获按键(P1)。
+	bool page_focus_editable = false;
+	// 所属 Window 是否拥有 OS 焦点(WM_WINDOW_FOCUS_IN/OUT):IME 更新按 OS 窗口隔离(P2)。
+	bool window_has_focus = false;
 
 protected:
 	static void _bind_methods();
@@ -74,6 +82,8 @@ private:
 	static uint32_t _get_modifiers(const Ref<InputEvent> &p_event);
 	/// Godot Key → Windows 虚拟键码(VK)；未映射返回 0(调用方跳过转发)。ASCII 区直接透传。
 	static int _key_to_windows_vk(Key p_key);
+	/// 激活/释放 IME 管道(window_set_ime_active + 候选窗位置;仅 FEATURE_IME 支持时)。
+	void _set_ime_active(bool p_active);
 
 public:
 	~WebPanel();
@@ -89,6 +99,9 @@ public:
 
 	/// 面板尺寸变化或首次布局后调用（创建/调整浏览器）。
 	void sync_size();
+
+	/// 页面可编辑焦点回调（WebViewManager 分发）：editable=true 时激活 IME 管道（若窗口有焦点）。
+	void set_focus_editable(bool p_focus_on_editable);
 
 	/// 向页面发送消息：M2 接入 IPC（respond_query）后实现，当前打印日志。
 	void send_message(const String &p_msg);

@@ -245,6 +245,10 @@ struct WebViewCore::Impl {
 				if (entry != self_->browsers.end()) {
 					entry->second.focus_on_editable = p_focus_on_editable_node;
 				}
+				// 回调宿主(面板据此激活/禁用 IME 管道)。
+				if (self_->callbacks.on_focus_editable_changed) {
+					self_->callbacks.on_focus_editable_changed(id_, p_focus_on_editable_node);
+				}
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::focusedEditableNodeChanged", e.what());
 			} catch (...) {
@@ -1206,10 +1210,13 @@ void WebViewCore::send_key_event(int32_t p_id, int p_type, uint32_t p_modifiers,
 		CefKeyEvent ev_hi = ev;
 		ev_hi.character = hi;
 		ev_hi.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xD800 + ((p_unmodified_character - 0x10000) >> 10)) : p_unmodified_character);
+		// Windows OSR 的 CHAR 路径用 windows_key_code 作字符载荷——代理对必须对应 hi/lo 值。
+		ev_hi.windows_key_code = hi;
 		browser->GetHost()->SendKeyEvent(ev_hi);
 		CefKeyEvent ev_lo = ev;
 		ev_lo.character = lo;
 		ev_lo.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xDC00 + ((p_unmodified_character - 0x10000) & 0x3FF)) : p_unmodified_character);
+		ev_lo.windows_key_code = lo;
 		browser->GetHost()->SendKeyEvent(ev_lo);
 		return;
 	}
@@ -1244,6 +1251,46 @@ bool WebViewCore::emit_event(int32_t p_id, const std::string &p_event_name, cons
 		args->SetString(static_cast<int>(i + 1), p_args[i]);
 	}
 	return it->second.client->TriggerEvent(it->second.browser, CEFVIEW_MAIN_FRAME, msg);
+}
+
+void WebViewCore::ime_set_composition(int32_t p_id, const std::string &p_text, uint32_t p_selection_start, uint32_t p_selection_end) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	std::vector<CefCompositionUnderline> underlines; // 基础版:无下划线(候选窗定位为完整版)
+	// "无替换范围"必须用 InvalidRange:Chromium 151 视零宽 [0,0) 为合法 range,会先
+	// SelectRange(0,0) 把 caret 强制移到文档偏移 0——组合/上屏文本跑到文本开头
+	// (shifu 源码级确认;cefclient osr_window_win.cc 同用 InvalidRange)。
+	const CefRange replacement = CefRange::InvalidRange();
+	const CefRange selection(p_selection_start, p_selection_end);
+	it->second.browser->GetHost()->ImeSetComposition(p_text, underlines, replacement, selection);
+}
+
+void WebViewCore::ime_commit_text(int32_t p_id, const std::string &p_text) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	const CefRange replacement = CefRange::InvalidRange();
+	it->second.browser->GetHost()->ImeCommitText(p_text, replacement, 0);
+}
+
+void WebViewCore::ime_cancel_composition(int32_t p_id) {
+	if (!is_initialized()) {
+		return;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return;
+	}
+	it->second.browser->GetHost()->ImeCancelComposition();
 }
 
 void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {
