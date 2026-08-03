@@ -302,7 +302,7 @@ export default function App() {
     <div className="flex h-full flex-col gap-3 p-3">
       <header className="flex items-center justify-between">
         <h1 className="text-sm font-semibold">WebDock</h1>
-        <span className={`text-xs ${bridge === "ok" ? "text-[#7c7]" : "text-[#f88]"}`}>
+        <span className={`${bridge === "ok" ? "text-[#7c7]" : "text-[#f88]"}`}>
           {bridge === "checking" && "桥连接中..."}
           {bridge === "ok" && "已连接"}
           {bridge === "missing" && "桥缺失（非 WebDock 环境）"}
@@ -310,12 +310,12 @@ export default function App() {
       </header>
 
       {bridge === "missing" && (
-        <p className="text-xs text-[#f88]">CefViewClient 注入缺失——页面仅在 WebDock 内可用。</p>
+        <p className="text-[#f88]">CefViewClient 注入缺失——页面仅在 WebDock 内可用。</p>
       )}
 
       {/* 场景信息（验收 1 前置：真实数据来自桥） */}
       <section className="flex items-center justify-between gap-2">
-        <span className="text-xs text-[#9ca]">
+        <span className="text-[#9ca]">
           场景节点数: <b className="text-[#cfc]">{nodeCount ?? "—"}</b>
         </span>
         <button type="button" onClick={refreshCount} disabled={busy} className="btn">
@@ -338,34 +338,28 @@ export default function App() {
 
       {/* 选中节点属性（验收 2/3/4） */}
       <section className="flex flex-col gap-1.5 rounded border border-[#334] bg-[#2a2a2e] p-2">
-        <h2 className="text-xs text-[#9ca]">选中节点</h2>
+        <h2 className="text-[#9ca]">选中节点</h2>
         {currentPath ? (
           <>
-            <p className="truncate font-mono text-xs" title={currentPath}>
+            <p className="truncate font-mono" title={currentPath}>
               {currentPath}
             </p>
             <div className="grid grid-cols-3 gap-2">
               {(["x", "y", "z"] as const).map((axis) => (
-                <label
-                  key={axis}
-                  htmlFor={`pos-${axis}`}
-                  className="flex items-center gap-1 text-xs text-[#9ca]"
-                >
+                <label key={axis} htmlFor={`pos-${axis}`} className="flex items-center gap-1 text-[#9ca]">
                   <span className="w-3 uppercase">{axis}</span>
                   {numInput(axis)}
                 </label>
               ))}
             </div>
-            <p className="text-[0.625rem] text-[#789]">改后回车/失焦提交（可撤销）；视口拖动实时跟随。</p>
+            <p className="text-[#789]">改后回车/失焦提交（可撤销）；视口拖动实时跟随。</p>
           </>
         ) : (
-          <p className="text-xs text-[#789]">未选中节点（请先在场景中选中一个 Node3D）</p>
+          <p className="text-[#789]">未选中节点（请先在场景中选中一个 Node3D）</p>
         )}
       </section>
 
-      {error && (
-        <p className="rounded border border-[#844] bg-[#422] px-2 py-1 text-xs text-[#f88]">{error}</p>
-      )}
+      {error && <p className="rounded border border-[#844] bg-[#422] px-2 py-1 text-[#f88]">{error}</p>}
     </div>
   );
 }
