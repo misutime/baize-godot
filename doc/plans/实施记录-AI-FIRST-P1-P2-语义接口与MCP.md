@@ -133,6 +133,9 @@ blender-mcp、unity-mcp）均按**单实例假设** + **显式端口配置**（b
 据此采用：
 - **默认端口 47653 + 默认开启**（`AI_BRIDGE_PORT` 未设即默认），每实例可用环境变量显式指定——
   即 blender 同款机制；harness 多开时给每个实例分配不同端口即可。
+  **默认开启为显式用户决策**（2026-08-03，覆盖 shifu 评审的 "keep HTTP opt-in" 建议）：
+  理由是本机回环 + 可选 token 已构成可接受防线，且 harness 工作流依赖默认端口；
+  风险承受为知情选择，若未来暴露面扩大可改回显式开启。
 - **去掉 `set_reuse_address_enabled(true)`**：Windows 的 SO_REUSEADDR 允许第二个 socket
   绑定同一端口（端口劫持），多开时会把 MCP 连接发到错误实例——宁可干净 bind 失败。
 - **bind 失败清晰报错**：显示失败端口 + 端口来源（默认/环境变量）+ 改法
