@@ -94,6 +94,10 @@ void WebViewManager::init_core() {
 	cbs.on_invoke_method = &WebViewManager::_on_invoke_method;
 	cbs.on_focus_editable_changed = &WebViewManager::_on_focus_editable_changed;
 	core_.set_callbacks(cbs);
+	// 核心层日志（stderr）转发到 Godot stdout——GUI 版输出面板只显示 print_line。
+	core_.set_log_callback([](const std::string &p_msg) {
+		print_line(String::utf8(p_msg.c_str()).strip_edges());
+	});
 	if (!core_.init(exe_dir.utf8().get_data())) {
 		ERR_PRINT("[WebView] CEF core init failed (terminal) — exe_dir=" + exe_dir);
 		return;

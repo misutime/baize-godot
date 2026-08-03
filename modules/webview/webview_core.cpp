@@ -82,9 +82,15 @@ bool is_valid_browser_size(uint32_t p_w, uint32_t p_h) {
 
 // 标准库日志出口:本编译单元不得 include 任何 Godot 头(CEF net_error 与 Godot enum Error
 // 枚举成员重名,同 TU 共存 C2365),日志直接写 stderr;宿主导航层负责 Godot 侧日志。
+// 同时经宿主注入的 log 回调转发(见 WebViewCore::set_log_callback)——GUI 版编辑器输出
+// 面板只显示 stdout,不转发则 [webview_core] 日志在 GUI 版不可见。
+static WebViewCore::LogCallback s_log_cb;
 void log_stderr(const char *p_msg) {
 	fputs(p_msg, stderr);
 	fflush(stderr);
+	if (s_log_cb) {
+		s_log_cb(std::string(p_msg));
+	}
 }
 
 // CEF 虚回调入口的 catch-all 记录:CEF 在禁异常边界外编译,宿主代码(/EHsc)抛出的
@@ -1443,6 +1449,10 @@ void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {
 		return;
 	}
 	impl_->callbacks = p_callbacks;
+}
+
+void WebViewCore::set_log_callback(LogCallback p_cb) {
+	s_log_cb = std::move(p_cb);
 }
 
 bool WebViewCore::is_initialized() const {

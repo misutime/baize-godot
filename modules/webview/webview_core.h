@@ -185,6 +185,13 @@ public:
 	// 注入回调(可在 init 前后任意时刻调用;shutdown 后自动清空)。
 	void set_callbacks(const Callbacks &p_callbacks);
 
+	// 日志回调：核心层内部日志（log_stderr，写 stderr）同时转发给宿主。
+	// GUI 版编辑器输出面板只显示 stdout（print_line）——stderr 不可见，宿主应
+	// 设置本回调转发到 print_line，使 [webview_core] 日志（含页面 console 转发）
+	// 在输出面板可见。
+	using LogCallback = std::function<void(const std::string &p_msg)>;
+	void set_log_callback(LogCallback p_cb);
+
 	// 查询状态(诊断用):CEF 已初始化且未失败、未关闭。
 	bool is_initialized() const;
 
