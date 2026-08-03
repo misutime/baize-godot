@@ -107,18 +107,19 @@ task dev                  # 或 just dev
 - 合规依据：MIT 许可由 SPDX 标识 + 仓库 LICENSE 文件满足；Godot 上游 4.x 新文件也逐步转
   SPDX 单行风格
 
-## 12. 编码规范（2026-08-03，全链路 UTF-8）
+## 12. 编码规范与中文优先（2026-08-03 更新，用户裁决）
 
-**全链路统一 UTF-8**（CEF ↔ Godot ↔ 协议 JSON ↔ 文件），防乱码的关键是两端一致：
+**fork 立场（用户裁决）**：本仓库是 Godot 的 fork——**不被上游历史负担束缚**。上游为兼容/性能保留的旧契约（如 `String(const char*)` 的 Latin-1 语义）与中文优先冲突时直接改进（标注 FORK-CUSTOM），不必因"上游没这么做"而妥协。
 
-- **硬规则（Godot 特有陷阱，已踩 P1）**：从 UTF-8 字节构造 String **必须** `String::utf8(...)`——
-  `String(const char*)` 走 `append_latin1`（Latin-1 解码），JS 传入的中文/UTF-8 内容必乱码
-  （`core/string/ustring.h:692`）
+**中文优先（用户裁决）**：项目第一语言是中文——代码/日志/文档/UI 的字符串默认中文；全链路 UTF-8。
+
+**全链路 UTF-8**（CEF ↔ Godot ↔ 协议 JSON ↔ 文件），防乱码关键：
+
+- **FORK-CUSTOM（b175d92bd6）**：`String(const char*)` 已改为**智能解码**——合法 UTF-8（含纯 ASCII）按 UTF-8 解码，非法序列回退 Latin-1（兼容字节透传）。C++ 中文字面量/UTF-8 数据直接构造即正确——**旧硬规则"必须 String::utf8()"已废除**；显式 `String::utf8()` 仍可用于强制 UTF-8 语义（外部二进制等）
 - 转出给 CEF/外部用 `.utf8()`（CharString）
-- 协议 JSON：`JSON::stringify/parse_string` 默认 UTF-8，无需额外处理
+- 协议 JSON：`JSON::stringify/parse_string` 默认 UTF-8
 - 文件/页面：Godot 文本默认 UTF-8；HTML 必须带 `<meta charset="utf-8">`
-- **控制台乱码是显示层**：`fprintf(stderr)` 输出 UTF-8 字节到 GBK 控制台会显示乱码——
-  数据未坏；需中文可读时用 Godot `print_line`（自动转换）或 `chcp 65001`
+- 日志：中文日志可直接写（String 构造已 UTF-8）；显示依赖终端代码页——Godot 输出面板/UTF-8 终端正常，GBK 控制台需 `chcp 65001`（显示层，非数据问题）
 
 ## 10. 文档索引
 
