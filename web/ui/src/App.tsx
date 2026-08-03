@@ -101,6 +101,26 @@ export default function App() {
     setCanRedo(payload.can_redo);
   });
 
+  // 字体大小跟随 Godot 编辑器设置（EditorSettings main_font_size）：
+  // html font-size = 该值，Tailwind 字号全用 rem 相对 root 整体缩放。
+  // 初始拉取 + settings_changed 事件实时跟随。
+  const applyUiFontSize = useCallback((size: number): void => {
+    document.documentElement.style.fontSize = `${size}px`;
+  }, []);
+
+  useEffect(() => {
+    void editor
+      .getUiFontSize()
+      .then(applyUiFontSize)
+      .catch(() => {
+        // 拉取失败：保持默认（index.css 14px），不阻塞面板
+      });
+  }, [applyUiFontSize]);
+
+  useEditorEvent(editor.onUiFontSizeChanged, (payload) => {
+    applyUiFontSize(payload.size);
+  });
+
   // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。
   // 任一轴编辑中跳过（审查 P1）：X 提交回写 setPosition 时若用户已在输入 Y，
   // 无条件写 DOM 会重置 Y 的编辑文本——聚焦中不碰 DOM，blur 提交后恢复同步。

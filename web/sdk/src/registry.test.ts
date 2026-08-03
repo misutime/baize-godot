@@ -47,6 +47,7 @@ describe("shipped 方法注册表", () => {
     ],
     ["editor.undo", () => editor.undo()],
     ["editor.redo", () => editor.redo()],
+    ["editor.get_ui_font_size", () => editor.getUiFontSize()],
   ] as Array<[string, () => Promise<unknown>]>)("方法 %s 发出正确协议名", (protocolName, call) => {
     const { bridge, invoked } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
@@ -61,6 +62,7 @@ describe("shipped 事件注册表", () => {
     ["editor.selection_changed", editor.onSelectionChanged],
     ["editor.node_position_changed", editor.onPositionChanged],
     ["editor.undo_stack_changed", editor.onUndoStackChanged],
+    ["editor.ui_font_size_changed", editor.onUiFontSizeChanged],
   ] as Array<[string, (listener: (payload: unknown) => void) => () => void]>)(
     "事件 %s 订阅/退订",
     (protocolName, subscribe) => {

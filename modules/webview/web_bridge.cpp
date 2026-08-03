@@ -13,6 +13,7 @@
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/settings/editor_settings.h"
 #include "scene/3d/node_3d.h"
 #include "scene/main/node.h"
 
@@ -51,6 +52,8 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 		_method_editor_undo(p_browser_id, args_json);
 	} else if (p_method == "editor.redo") {
 		_method_editor_redo(p_browser_id, args_json);
+	} else if (p_method == "editor.get_ui_font_size") {
+		_method_editor_get_ui_font_size(p_browser_id, args_json);
 	} else {
 		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 	}
@@ -228,6 +231,18 @@ Node3D *WebBridge::_resolve_node3d(int32_t p_browser_id, const String &p_req_id,
 	return node;
 }
 
+void WebBridge::_method_editor_get_ui_font_size(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id }。返回编辑器主字体大小(EditorSettings interface/editor/fonts/main_font_size,默认 14)。
+	// WebDock 基线 14px 与该默认一致——页面按返回值设 html font-size 即可整体缩放(Tailwind 字号全 rem)。
+	String req_id;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
+	}
+	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
+	_respond(p_browser_id, req_id, true, size);
+}
+
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
 	String req_id;
 	const Variant parsed = JSON::parse_string(p_args_json);
@@ -289,6 +304,7 @@ bool WebBridge::event_sources_connected_ = false;
 HashMap<ObjectID, Vector3> WebBridge::tracked_positions_;
 bool WebBridge::last_can_undo_ = true; // 哨兵：首帧 diff 必发一次当前状态
 bool WebBridge::last_can_redo_ = true;
+int WebBridge::last_ui_font_size_ = -1; // 哨兵：首帧比较必发当前值（连接时即设基线，实际不发）
 
 void WebBridge::set_event_browser_id(int32_t p_browser_id) {
 	event_browser_id_ = p_browser_id;
@@ -307,7 +323,11 @@ void WebBridge::init_event_sources() {
 		return; // 启动时序未就绪（dock 注册发生在 Main::start 后，正常不应出现）
 	}
 	ed->get_editor_selection()->connect("selection_changed", callable_mp_static(&WebBridge::_on_selection_changed));
+	// 编辑器设置变化（任何设置变化都触发，回调内过滤 main_font_size）。
+	EditorSettings::get_singleton()->connect("settings_changed", callable_mp_static(&WebBridge::_on_editor_settings_changed));
 	event_sources_connected_ = true;
+	// 基线：当前字体大小（不在此发初始事件——页面经 get_ui_font_size 拉取）。
+	last_ui_font_size_ = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
 	// 初始同步一次当前选中：此时浏览器 id 可能未注册（面板刚创建），
 	// 事件发不出但基线会建立；前端订阅前的首次真实选中仍会触发。
 	_on_selection_changed();
@@ -320,6 +340,9 @@ void WebBridge::deinit_event_sources() {
 	EditorNode *ed = EditorNode::get_singleton();
 	if (ed && ed->get_editor_selection()) {
 		ed->get_editor_selection()->disconnect("selection_changed", callable_mp_static(&WebBridge::_on_selection_changed));
+	}
+	if (EditorSettings::get_singleton()) {
+		EditorSettings::get_singleton()->disconnect("settings_changed", callable_mp_static(&WebBridge::_on_editor_settings_changed));
 	}
 	event_sources_connected_ = false;
 }
@@ -365,6 +388,20 @@ void WebBridge::_on_selection_changed() {
 	}
 	// 重建位置跟踪基线：新选中节点立即发初始位置（验收 2：选中即显示 X）。
 	_refresh_tracked_positions(event_browser_id_ >= 0);
+}
+
+void WebBridge::_on_editor_settings_changed() {
+	if (event_browser_id_ < 0) {
+		return;
+	}
+	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
+	if (size == last_ui_font_size_) {
+		return; // 非字体设置变化/无变化：不发
+	}
+	last_ui_font_size_ = size;
+	Dictionary body;
+	body["size"] = size;
+	emit_event(event_browser_id_, "editor.ui_font_size_changed", JSON::stringify(body));
 }
 
 void WebBridge::_refresh_tracked_positions(bool p_emit_initial_for_new) {

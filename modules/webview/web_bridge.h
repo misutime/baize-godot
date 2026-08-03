@@ -62,6 +62,7 @@ private:
 	static void _method_scene_set_node_position(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_undo(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_redo(int32_t p_browser_id, const String &p_args_json);
+	static void _method_editor_get_ui_font_size(int32_t p_browser_id, const String &p_args_json);
 
 	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
 	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。
@@ -78,10 +79,13 @@ private:
 	static HashMap<ObjectID, Vector3> tracked_positions_;
 	static bool last_can_undo_; // undo 栈上次状态（哨兵 true：首帧 diff 必发一次）
 	static bool last_can_redo_;
+	static int last_ui_font_size_; // main_font_size 基线（变化才发事件）
 
 	/// EditorSelection::selection_changed → 下行 selection_changed(node_paths) +
 	/// 重建位置跟踪基线（新选中节点立即发初始位置，验收 2：选中即显示 X）。
 	static void _on_selection_changed();
+	/// EditorSettings::settings_changed → main_font_size 变化时下行 ui_font_size_changed。
+	static void _on_editor_settings_changed();
 	/// 刷新选中 Node3D 位置跟踪；p_emit_initial_for_new 时对新选中节点立即发初始位置。
 	static void _refresh_tracked_positions(bool p_emit_initial_for_new);
 	static void _emit_node_position_changed(ObjectID p_node_id, const Vector3 &p_position);

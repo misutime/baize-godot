@@ -30,6 +30,9 @@ export const undo = defineMethod<EmptyParams, Record<string, never>>("editor.und
 /** 重做上一步（nothing_to_redo 时 reject）。 */
 export const redo = defineMethod<EmptyParams, Record<string, never>>("editor.redo");
 
+/** 编辑器主字体大小（EditorSettings main_font_size，默认 14；WebDock 按此设 html font-size）。 */
+export const getUiFontSize = defineMethod<EmptyParams, number>("editor.get_ui_font_size");
+
 // ---- 事件（C++→JS）----
 
 export interface SelectionChangedPayload {
@@ -54,3 +57,6 @@ export const onPositionChanged = defineEvent<PositionChangedPayload>("editor.nod
 
 /** undo 栈状态变化。 */
 export const onUndoStackChanged = defineEvent<UndoStackChangedPayload>("editor.undo_stack_changed");
+
+/** 编辑器主字体大小变化（跟随 EditorSettings）。 */
+export const onUiFontSizeChanged = defineEvent<{ size: number }>("editor.ui_font_size_changed");

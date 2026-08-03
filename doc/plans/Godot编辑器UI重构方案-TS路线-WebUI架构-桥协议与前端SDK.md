@@ -112,6 +112,7 @@ sequenceDiagram
 | `scene.set_node_position` | `{ node_path: string, position: { x, y, z } }` | `{}` | 设置 Node3D 位置，**undo 可撤销**（EditorUndoRedoManager） |
 | `editor.undo` | — | `{}` | 撤销上一步 |
 | `editor.redo` | — | `{}` | 重做 |
+| `editor.get_ui_font_size` | — | `number` | 编辑器主字体大小（EditorSettings `interface/editor/fonts/main_font_size`，默认 14；WebDock 按此设 html font-size 整体缩放） |
 
 **错误码**（`error.code`，除 `invalid_params`/`method_not_found`/`no_scene` 外）：
 `invalid_node`——node_path 找不到节点或节点不是 Node3D（位置读写方法）。
@@ -123,6 +124,7 @@ sequenceDiagram
 | `editor.selection_changed` | `{ node_paths: string[] }` | 编辑器选中变化（MVP2：帧轮询 diff 或信号） |
 | `editor.node_position_changed` | `{ node_id: number, position: {x,y,z} }` | 属性/拖动变化 |
 | `editor.undo_stack_changed` | `{ can_undo: bool, can_redo: bool }` | undo 栈状态（可选，MVP2 后） |
+| `editor.ui_font_size_changed` | `{ size: number }` | 编辑器主字体大小变化（EditorSettings settings_changed 过滤推送） |
 
 **方法名**：小写点号命名空间（`scene.`/`editor.`/`inspector.`），与 C++ 注册表一一对应；
 **事件名**：同风格，`*_changed` 后缀表状态推送。
