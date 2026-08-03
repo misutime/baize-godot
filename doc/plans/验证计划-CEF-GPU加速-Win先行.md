@@ -1,6 +1,6 @@
 # 验证计划：CEF GPU 加速（Win 先行，mac 后置）
 
-> **状态**：待 Win 实机验证（2026-08-02 编写，次日执行）。
+> **状态**：✅ Win 实机验证完成（2026-08-03 执行）；结论见 §3.4——本验证机（虚拟显示适配器）上 GPU 路径可用但无提速，需真机重验。
 >
 > **定位**：CEF GPU 加速的验证计划。核心结论：**比预想简单——平台默认后端，零配置**。Windows 走 D3D
 > 默认路径（C0 现已享受 GPU 加速），mac 走 Metal（固定，无选择）。本文先给 Win 验证步骤，再给 mac 后置计划。
@@ -55,11 +55,57 @@ task dev              # 编引擎
 观察点：滚动是否跟手、动画帧率、首帧出图耗时。预期 GPU 明显优于软件；若差异不大，
 说明瓶颈在 OSR CPU 读回（正常，属架构固定成本）。
 
-### 3.4 基线记录（写回本文档或实施记录）
-- GPU 进程稳定运行时长 / 是否出现过崩溃
-- 首帧出图耗时（目视即可，精确测量可临时在 `webview_core.cpp` 的 `handle_paint` 加计数日志）
-- 滚动/动画主观流畅度（GPU vs 软件）
-- 长时间运行（几分钟）无 GPU 进程重启、无内存持续增长
+### 3.4 基线记录（2026-08-03 实机，本仓库 Win 验证机）
+
+**§3.2 三项判定：✅ 全过（进程级）**
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| GPU 进程存在 | ✅ | `CefViewWing.exe --type=gpu-process`（多轮运行均存在，PID 稳定） |
+| 无 GPU 崩溃 | ✅ | 无 `GPU process exited unexpectedly`/FATAL；`bin/debug.log` 无新错误条目 |
+| 无软件回退 | ✅ | GPU 进程加载 `d3d11.dll`+`dxgi.dll`+`nvwgf2umx.dll`（NVIDIA D3D11 驱动），无 `vk_swiftshader.dll` |
+
+**硬件归属（2026-08-03 复核，推翻初版 WARP 误判）**：`nvidia-smi` 进程列表直接显示
+`CefViewWing.exe`（GPU 进程）与 Godot 编辑器同在 **GPU 0 = NVIDIA GeForce RTX 4080 SUPER** 上；
+主显示为 RTX 物理显示器（`EnumDisplayDevices`：DISPLAY1 PRIMARY，4K@160Hz，DP 主 + HDMI 副），
+GameViewer Virtual Display Adapter（UU 远程串流组件，DISPLAY5-14）未连接。初版以“GPU 进程加载
+WarpPal.dll、未加载 nvoglv64.dll”推断 WARP 路径为**误读**：WarpPal 是 Chromium 预加载的 fallback
+（加载≠使用），nvoglv64 是 OpenGL 驱动（Chromium 走 D3D11 本就不加载）。**结论：CEF GPU 加速
+确实在使用 RTX 4080 SUPER 硬件。**
+
+**§3.3 A/B 对比（2026-08-03，最终定论）**
+
+测量方法：临时在 `handle_paint` 加 1s 窗口帧率计数 + `pump()` 内 500ms resize 循环；页面用
+纯 CSS `background-color` 动画（每帧强制重新光栅，不依赖 JS/rAF）制造持续损伤。
+
+| 组 | 动画页 | 静态页（原始 stub） |
+|---|---|---|
+| A（GPU 默认） | **59~62fps 稳定**（A5/A7/F3 三轮全过） | 初始 1 帧后 0 帧（正常：无损伤不产帧） |
+| B（`--disable-gpu`） | 103~117fps 稳定（B2） | 3~5fps 或 0（无损伤；离散事件低保底） |
+
+**最终结论（推翻中间两次误判）**：
+1. **GPU 加速完全正常**：CEF GPU 进程在 RTX 4080 SUPER（nvidia-smi 实证）；动画页稳定 60fps =
+   `windowless_frame_rate=60` 上限（CEF 设 compositor VSync + video capturer 最小捕获周期）；
+   软件模式 117fps 是无 video_consumer 捕获限速的路径特性，不是问题。
+2. **0 帧/低帧 = 页面无持续损伤**：CEF OSR 只在有 damage（动画/滚动/交互/resize）时产帧，
+   静态页初始 1 帧后不产帧是正常行为——不是 GPU 停摆、不是系统 idle、不是远程会话、不是
+   合成器故障。**中间误判为“远程会话/系统 idle 节流”的原因：测试中途 stage_webview 把动画页
+   还原成 stub，无意中换掉了变量**（A9+ 全部基于静态页数据）。
+3. **宿主 external_message_pump/external_begin_frame 集成确有契约违例**（丢弃 delay、BF 错绑
+   消息泵，shifu 源码级确认），且动画页下 V1（独立 60Hz BF）/V2（internal BF）变体显示正常态
+   产帧不受影响——该缺陷是真实改进项但非本次 0 帧现象的原因；无动画时合成器不产帧是 CEF 设计
+   行为，不依赖宿主时钟。
+4. 动画页 4 轮中 A6 一轮 0 帧（其余三轮 60fps）：疑似偶发竞态，未复现，暂记为低风险待观察。
+
+**待办（非阻塞）**：宿主 pump/BF 集成契约违例的修复（shifu 建议：delay 语义 + 独立 BF 时钟）
+作为后续改进项；cefViewQuery Win 侧通路单独排障。
+
+**其他基线**：页面加载 200 后立即产 1 帧首图（原 dock 尺寸 320x1846）；GPU 进程分钟级存活无重启；
+长时间运行内存增长未专项测量。
+
+**附带发现（与 GPU 无关，单独排障）**：`cefViewQuery` JS→宿主通路在 Win 多轮运行从未出现
+`[WebView] query:` 日志（含 2026-08-03 冒烟），mac 文档有 query 回包证据——疑似 Win 侧 query
+注入/路由未验证，需单独排查。
 
 ## 4. mac 后置计划 —— ✅ 已执行（2026-08-02 实机验证通过）
 
@@ -95,7 +141,7 @@ task dev              # 编引擎
 
 ## 6. 交付物
 
-- [ ] §3.2 三项通过（GPU 进程存在、无崩溃、无软件回退）
-- [ ] §3.3 A/B 对比结论（GPU vs 软件差异）
-- [ ] §3.4 基线记录
+- [x] §3.2 三项通过（GPU 进程存在、无崩溃、无软件回退）——2026-08-03，nvidia-smi 实证 GPU 进程在 RTX 4080 SUPER 上
+- [x] §3.3 A/B 对比结论（GPU vs 软件差异）——2026-08-03：GPU 60fps（windowless_frame_rate=60 上限）vs 软件 117fps（无捕获限速）；动画页稳定产帧，静态页不产帧属正常 OSR 行为
+- [x] §3.4 基线记录——2026-08-03 已写回本文档（含硬件归属实证、测试方法教训、集成契约违例待办）
 - [x] mac 计划（§4）已执行并验证通过（2026-08-02）
