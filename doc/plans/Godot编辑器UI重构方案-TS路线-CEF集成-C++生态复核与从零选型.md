@@ -473,8 +473,8 @@ Godot 编辑器
 
 该依据本身成立，但候选集不完整：方案没有评估 CefViewCore、官方 MessageRouter，以及从 cefclient/tests/shared 抽取最小 C++ 层。参见原方案：
 
-- `Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md:53-63`
-- `Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md:65-90`
+- `doc/plans/已完成-历史文档/Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md:53-63`（已归档）
+- `doc/plans/已完成-历史文档/Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md:65-90`（已归档）
 
 因此应把原结论修订为：
 
@@ -506,6 +506,6 @@ Godot 编辑器
 
 ### 本仓库既有方案
 
-- `doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md`
-- `doc/plans/Godot编辑器UI重构方案-TS路线-引擎级WebDock-RouteB-方案.md`
-- `doc/plans/实施记录-CEF-4A引擎原生Rust.md`
+- `doc/plans/已完成-历史文档/Godot编辑器UI重构方案-TS路线-CEF集成-4A引擎原生Rust-方案.md`（**已归档**：4A/Rust 底座废弃，被 C++ CefViewCore 路线取代）
+- `doc/plans/已完成-历史文档/Godot编辑器UI重构方案-TS路线-引擎级WebDock-RouteB-方案.md`（**已归档**：方案身份废弃；MVP 验收基准已固化至《WebUI架构-桥协议与前端SDK.md》§6）
+- ~~`doc/plans/实施记录-CEF-4A引擎原生Rust.md`~~（悬空引用，文件不存在，删除）

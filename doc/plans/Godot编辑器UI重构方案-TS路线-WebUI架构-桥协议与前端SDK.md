@@ -185,8 +185,81 @@ const unsub: () => void = editor.onSelectionChanged((e) => setSelection(e.node_p
   ui 消费；vite 构建产物进 `bin/webview/ui/`
 - **后续**：方法/事件扩展（inspector.set_prop、下行事件补全）；协议类型自动生成（可选）
 
-## 6. 相关文档
+## 6. MVP 验收基准（源自 RouteB，2026-08-03 归档固化）
 
-- 《C++生态复核与从零选型.md》§9 C0.4（JS 双向桥）——桥机制来源
+> 来源：《引擎级WebDock-RouteB-方案.md》（技术底座 4A/Rust 废弃后随方案归档，见
+> 《实施记录-第二日》§8）。其**产品层验收目标仍为现行路线的验收基准**（技术底座已改为
+> C++ CefViewCore，见 §1），此处固化以免归档后丢失。划分与判定按 C++ 路线口径改写，
+> 验收项不变。
+
+**MVP 划分（按 C++ 路线更新）**：
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| MVP1（骨架+静态页） | modules/webview/（SCsub+register_types+webview_manager+web_panel+editor_web_dock），加载 bridge.html | ✅ 完成（C0.1-C0.3） |
+| MVP2（双向桥+undo） | 协议层已完成（方法注册表 + method_result 下行）；**剩余：事件源**——selection_changed 信号 + _process 帧轮询 diff→node_position_changed + undo_stack_changed | 进行中 |
+| MVP3（React 壳） | web/ 工程（sdk + ui，Vite base:'./'）→ 产物进 bin/webview/ui/ | 未开始 |
+
+**MVP 验收（四条）**：
+
+| # | 验收项 | 判定 |
+|---|---|---|
+| 1 | 编辑器打开任意项目 → 左侧 WebDock，可拖到右侧/底部停靠 | 页面渲染、拖拽停靠正常 |
+| 2 | 场景选中 Node3D → 页面显示其 Position X | 数字与选中节点一致 |
+| 3 | 页面改 X → 3D 视口节点移动 | 移动生效，Ctrl+Z 撤销恢复 |
+| 4 | 3D 视口拖动节点 → 页面 X 实时跟随 | 数字随拖动更新 |
+
+**机制决策（事件源实现依据，源自 RouteB 决策表）**：
+
+- 属性双向：`EditorSelection.selection_changed` 信号推送选中变化；`_process` 帧轮询
+  diff（阈值 `1e-6`，节流只在变化时推送）→ `node_position_changed`
+- 撤销：`EditorUndoRedoManager`（编辑器 undo 栈，非游戏侧 UndoRedo）；set_prop 必须入栈
+- 验收 2/3 需要位置读写方法（`scene.get_node_position` / `set_node_position`，undo 入栈）——
+  当前注册表只有 get_node_count/create_node/undo/redo，**React 壳验收前补齐**
+
+---
+
+## 7. 复用架构原则（2026-08-03，长期约束）
+
+### 7.1 原则（修正版：复用编辑器 API，而非自建服务）
+
+**Godot 编辑器 API（`EditorInterface`/`EditorUndoRedoManager`/`EditorSelection` 等）本身就是统一层**——
+WebUI 与未来 TS 脚本层都调用它，不需要自建"编辑器功能服务"：
+
+```text
+Godot 编辑器 API（引擎提供，统一）
+  ├── WebUI 通道: web_bridge（适配层）→ JSON-RPC 协议 → CEF 桥 → 页面
+  ├── TS 脚本层: GDExtension/脚本绑定 → 直接调同一批 API
+  └── 共同点: 都消费编辑器 API；web_bridge 只是把 API 转成 WebUI 友好的协议形态
+```
+
+**web_bridge 的定位**：不是"编辑器功能的实现"（实现本来就在引擎里），而是**编辑器 API 的
+WebUI 适配层**——方法实现薄（直接调 `EditorInterface`/`EditorUndoRedoManager` 等），价值在
+协议形态（JSON-RPC + 事件 + req_id 配对）。
+
+### 7.2 双消费方现实
+
+编辑器功能存在**两类消费方**：脚本插件（EditorPlugin 生态）与 WebUI 面板（WebDock）——
+两者都通过编辑器 API 操作（创建节点 / undo / selection），**复用的是编辑器 API 本身**。
+
+### 7.3 边界（明确）
+
+| 共享 | 各通道独有 |
+|---|---|
+| 编辑器 API（`EditorInterface`/`EditorUndoRedoManager`/`EditorSelection`/`SceneTreeDock` 等） | 传输机制（CEF IPC vs GDExtension 直调） |
+| 方法/事件语义（`scene.create_node`、`editor.selection_changed`） | 适配层（web_bridge 的 JSON-RPC 封装 vs 脚本绑定） |
+| 返回格式 `{ok, result/error}` | dock 注册（EditorPlugin::add_control_to_dock vs WebDock 模块注册） |
+
+### 7.4 实施约束（本方案遵守）
+
+- `web_bridge.cpp` 保持**薄适配**：方法实现只调编辑器 API，不复制业务逻辑；新方法 = 编辑器
+  API 调用 + 协议包装
+- 能力面：C++ 模块可达 ClassDB 面 + 编辑器内部类（`SceneTreeDock` 等，脚本/GDExtension 不可达）
+  ——WebUI 能力 ≥ 脚本插件；TS 脚本层（GDExtension）≈ 脚本插件面
+- 未来 TS 脚本层直接调编辑器 API，无需经 web_bridge（两条通道独立，共享底层的编辑器 API）
+
+---
+
+## 8. 相关文档
 - 《实施计划-第二日-双向桥与输入交互.md》——C 项（协议层落地）执行计划
-- 《引擎级WebDock-RouteB-方案.md》——MVP2 验收场景（选中/属性双向 + undo）来源
+- 《引擎级WebDock-RouteB-方案.md》（**已归档** `已完成-历史文档/`）——MVP2 验收场景来源；验收基准已固化见 §6
