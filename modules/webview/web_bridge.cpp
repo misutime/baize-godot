@@ -264,10 +264,12 @@ void WebBridge::_method_editor_get_ui_scale(int32_t p_browser_id, const String &
 	float scale;
 	if (mode == 0) {
 		scale = es->get_auto_display_scale(); // Windows: screen_get_dpi/96
-	} else if (mode == 7) {
-		scale = es->get_setting("interface/editor/appearance/custom_display_scale");
-	} else {
+	} else if (mode >= 1 && mode <= 6) {
 		scale = (mode + 2) * 0.25f; // 1→0.75, 2→1.0, ..., 6→2.0
+	} else {
+		// 越界/7=Custom：对齐原生 editor_node 语义（非 1..6 一律用 custom_display_scale，
+		// 审查 P2——原 (mode+2)*0.25 对损坏值（如 8）会算出 2.5 与原生不一致）。
+		scale = es->get_setting("interface/editor/appearance/custom_display_scale");
 	}
 	_respond(p_browser_id, req_id, true, scale);
 }

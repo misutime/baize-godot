@@ -148,6 +148,7 @@ export default function App() {
       if (!regular) {
         styleEl.textContent = ""; // 内置回退（无外部路径）：清除注入，回退系统字体
         document.documentElement.style.fontFamily = "";
+        document.body.style.fontFamily = ""; // 恢复 index.css 的 body 字体声明
         return;
       }
       const src = (p: string): string => `url("${toFileUrl(p)}")`;
@@ -158,6 +159,10 @@ export default function App() {
           : `@font-face { font-family: "baize-editor-font"; src: ${src(regular)}; font-weight: 100 500; font-display: swap; }\n` +
             `@font-face { font-family: "baize-editor-font"; src: ${src(bold)}; font-weight: 600 900; font-display: swap; }`;
       document.documentElement.style.fontFamily =
+        '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
+      // body 也设（审查 P1）：index.css 的 body 显式 font-family 覆盖 html 继承，
+      // 只设 html 时注入字体根本不渲染。
+      document.body.style.fontFamily =
         '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
     },
     [toFileUrl],

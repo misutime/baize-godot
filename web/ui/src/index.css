@@ -8,6 +8,12 @@ body,
   margin: 0;
 }
 
+/* 根字号兜底 14px（审查 P2）：JS 拉取 main_font_size×scale 失败时 1rem 保持 14px
+   基线（浏览器默认 16px 会放大面板）。JS 成功后覆盖此值。 */
+html {
+  font-size: 14px;
+}
+
 body {
   background: #223;
   color: #cfc;
