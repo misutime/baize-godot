@@ -97,8 +97,11 @@ WarpPal.dll、未加载 nvoglv64.dll”推断 WARP 路径为**误读**：WarpPal
    行为，不依赖宿主时钟。
 4. 动画页 4 轮中 A6 一轮 0 帧（其余三轮 60fps）：疑似偶发竞态，未复现，暂记为低风险待观察。
 
-**待办（非阻塞）**：宿主 pump/BF 集成契约违例的修复（shifu 建议：delay 语义 + 独立 BF 时钟）
-作为后续改进项；cefViewQuery Win 侧通路单独排障。
+**待办（非阻塞）**：~~宿主 pump/BF 集成契约违例的修复~~ **已完成（2026-08-03）**：采用 shifu 首选方案
+（`external_begin_frame_enabled=0` + 删除 `SendExternalBeginFrame`），并实测补充 pump 侧配合——
+internal BF 的帧处理依赖 `CefDoMessageLoopWork` 每帧泵送（节流泵会饿死内部帧源→动画 0 帧）。
+Win 实测：动画页 60fps 稳定、静态页正常、60s 无崩溃；**mac 需复验**（共享代码，机制平台无关但
+未在 mac 实机验证）。cefViewQuery Win 侧通路单独排障（未开始）。
 
 **其他基线**：页面加载 200 后立即产 1 帧首图（原 dock 尺寸 320x1846）；GPU 进程分钟级存活无重启；
 长时间运行内存增长未专项测量。

@@ -66,7 +66,6 @@ namespace {
 
 // 泵送预热帧数:初始化后前 N 帧无条件泵送,防 CEF 首帧不通知 OnScheduleMessagePumpWork
 // 导致 renderer 不产出(4A 实测坑)。
-constexpr uint32_t kPumpWarmupFrames = 60;
 
 // 浏览器尺寸合法性:0 拒绝(CEF 要求非空视口),>INT_MAX 拒绝(GetViewRect 输出 int
 // 坐标,超限强转会变负)。create_browser 与 resize_browser 统一校验。
@@ -122,7 +121,6 @@ struct WebViewCore::Impl {
 	// 原子标志:OnScheduleMessageLoopWork 可能来自任意 CEF 线程(CEF 文档:any thread),
 	// delegate 只允许原子置位;主线程 pump() 用 exchange(false) 读取并清除。
 	std::atomic<bool> pump_requested{false};
-	uint32_t pump_frame_count = 0; // 仅主线程访问(pump / init / shutdown)
 
 	// ---- CEF 对象 ----
 	std::shared_ptr<CefViewBrowserAppDelegateInterface> app_delegate;
@@ -874,7 +872,6 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	}
 
 	impl_->cef_initialized = true;
-	impl_->pump_frame_count = 0;
 	log_stderr("[webview_core] init: CEF initialized\n");
 	return true;
 }
@@ -887,29 +884,14 @@ void WebViewCore::pump() {
 		return;
 	}
 
-	// 节流:前 kPumpWarmupFrames 帧无条件泵送(防首帧饥饿);之后仅当 CEF 请求泵送时工作。
-	const bool force = impl_->pump_frame_count < kPumpWarmupFrames;
-	// exchange(false):原子读取并清除,避免与 CEF 线程的 store(true) 竞争丢置位。
-	const bool requested = impl_->pump_requested.exchange(false, std::memory_order_relaxed);
-	if (!force && !requested) {
-		return;
-	}
-	impl_->pump_frame_count++;
+	// internal_begin_frame 模式(external_begin_frame_enabled=0):CEF 内部帧源按
+	// windowless_frame_rate=60 驱动,宿主不再 SendExternalBeginFrame。
+	// 每帧泵送:internal BF 的帧处理依赖 CefDoMessageLoopWork 持续运转(实测节流泵会
+	// 饿死内部帧源→动画 0 帧);CEF 无工作时开销近乎为零(实测静态页 60s CEF 累计 CPU≈0)。
+	// 清空 pump_requested 防标志累积(每帧泵下不再作为门控)。
+	impl_->pump_requested.exchange(false, std::memory_order_relaxed);
 
 	CefDoMessageLoopWork();
-
-	// external_begin_frame 模式:pump 后显式 SendExternalBeginFrame 驱动产帧
-	// (4A 验证的组合;否则 renderer 不产出)。遍历前拷贝引用,防回调修改注册表。
-	std::vector<CefRefPtr<CefBrowser>> alive;
-	alive.reserve(impl_->browsers.size());
-	for (const auto &kv : impl_->browsers) {
-		alive.push_back(kv.second.browser);
-	}
-	for (const auto &browser : alive) {
-		if (browser) {
-			browser->GetHost()->SendExternalBeginFrame();
-		}
-	}
 }
 
 void WebViewCore::shutdown() {
@@ -946,7 +928,6 @@ void WebViewCore::shutdown() {
 			impl_->cef_initialized = false;
 			impl_->cef_shutdown = true;
 			impl_->pump_requested.store(false, std::memory_order_relaxed);
-			impl_->pump_frame_count = 0;
 			impl_->paint_buffer.clear();
 			impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
 			return;
@@ -969,7 +950,6 @@ void WebViewCore::shutdown() {
 	impl_->cef_initialized = false;
 	impl_->cef_shutdown = true;
 	impl_->pump_requested.store(false, std::memory_order_relaxed);
-	impl_->pump_frame_count = 0;
 	impl_->pending_close = 0;
 	impl_->paint_buffer.clear();
 	impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
@@ -992,7 +972,9 @@ int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t
 	CefWindowInfo window_info;
 	window_info.windowless_rendering_enabled = 1; // OSR
 	window_info.shared_texture_enabled = 0; // 软件路径 → OnPaint(BGRA)
-	window_info.external_begin_frame_enabled = 1; // pump 显式 SendExternalBeginFrame 驱动产帧
+	// internal_begin_frame:CEF 内部帧源按 windowless_frame_rate=60 驱动产帧,宿主不干预
+	// (shifu 契约修复首选;外部 BF 与消息泵时钟错绑的根治)。
+	window_info.external_begin_frame_enabled = 0;
 
 	CefBrowserSettings browser_settings;
 	browser_settings.windowless_frame_rate = 60;
