@@ -125,8 +125,10 @@ export default function App() {
     applyUiMetrics(payload.size, scaleRef.current);
   });
 
-  // 字体族跟随编辑器设置（main_font 路径，空 = 默认）：@font-face 加载 TTF/OTF
-  // 应用到 root，与原生 dock 字形一致；空路径恢复系统字体。
+  // 字体族跟随编辑器设置（main_font 路径）：
+  // - 自定义（非空）：@font-face 加载用户字体文件，与原生 dock 一致；
+  // - 默认（空）：本地分发思源（./fonts/，与编辑器默认字体同一文件——原生 dock 也用它）。
+  // 两者都注入 @font-face 后应用 font-family；字体缺失时 CSS 回退系统字体。
   const applyUiFont = useCallback((path: string): void => {
     let styleEl = document.getElementById("baize-font-face") as HTMLStyleElement | null;
     if (!styleEl) {
@@ -134,14 +136,13 @@ export default function App() {
       styleEl.id = "baize-font-face";
       document.head.appendChild(styleEl);
     }
-    if (!path) {
-      styleEl.textContent = ""; // 默认字体：清除注入，回退系统字体
-      document.documentElement.style.fontFamily = "";
-      return;
-    }
-    const fileUrl = `file:///${path.replace(/\\/g, "/")}`;
-    const encoded = `url("${encodeURI(fileUrl)}")`;
-    styleEl.textContent = `@font-face { font-family: "baize-editor-font"; src: ${encoded}; font-display: swap; }`;
+    const src = path
+      ? `url("${encodeURI(`file:///${path.replace(/\\/g, "/")}`)}")`
+      : `url("./fonts/NotoSansCJKsc-Regular.otf")`;
+    const srcBold = path ? src : `url("./fonts/NotoSansCJKsc-Bold.otf")`;
+    styleEl.textContent =
+      `@font-face { font-family: "baize-editor-font"; src: ${src}; font-weight: 100 500; font-display: swap; }\n` +
+      `@font-face { font-family: "baize-editor-font"; src: ${srcBold}; font-weight: 600 900; font-display: swap; }`;
     document.documentElement.style.fontFamily =
       '"baize-editor-font", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
   }, []);

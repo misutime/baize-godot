@@ -155,8 +155,21 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	const int default_font_size = int(EDITOR_GET("interface/editor/fonts/main_font_size")) * EDSCALE;
 	const float embolden_strength = 0.6;
 
-	Ref<Font> default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-	Ref<Font> default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+	// 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
+	// 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失回退内置 Inter（防御，
+	// 不静默——外部分发是正常部署形态）。换默认字体 = 换文件 + 重启，无需重编引擎。
+	const String bundled_main_font = OS::get_singleton()->get_executable_path().get_base_dir()
+											  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
+	const bool use_bundled_main_font = FileAccess::exists(bundled_main_font);
+	Ref<Font> default_font;
+	Ref<Font> default_font_msdf;
+	if (use_bundled_main_font) {
+		default_font = load_external_font(bundled_main_font, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+		default_font_msdf = load_external_font(bundled_main_font, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+	} else {
+		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+		default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+	}
 
 	Dictionary default_features;
 	default_features["calt"] = false; // Disable contextual alternates by default.
@@ -211,12 +224,9 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	if (!noto_cjk_path.is_empty()) {
 		load_external_font(noto_cjk_path, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
 	}
-	Ref<FontFile> fallback_font = load_internal_font(_font_DroidSansFallback, _font_DroidSansFallback_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
-	fallback_font->set_language_support_override("ja", false);
-	fallback_font->set_language_support_override("zh", true);
-	fallback_font->set_language_support_override("ko", true);
-	fallback_font->set_language_support_override("*", false);
-	Ref<FontFile> japanese_font = load_internal_font(_font_DroidSansJapanese, _font_DroidSansJapanese_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
+	// 思源（Noto CJK SC）为主字体后覆盖 CJK——DroidSansFallback 冗余移除（内置数组随之
+// 编译期剔除，省 ~1.19MB）；DroidSansJapanese 保留（日文变体字形）。
+Ref<FontFile> japanese_font = load_internal_font(_font_DroidSansJapanese, _font_DroidSansJapanese_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
 	japanese_font->set_language_support_override("ja", true);
 	japanese_font->set_language_support_override("zh", false);
 	japanese_font->set_language_support_override("ko", false);
@@ -224,8 +234,23 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	default_font->set_fallbacks(fallbacks);
 	default_font_msdf->set_fallbacks(fallbacks);
 
-	Ref<FontFile> default_font_bold = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-	Ref<FontFile> default_font_bold_msdf = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+	Ref<Font> default_font_bold;
+	Ref<Font> default_font_bold_msdf;
+	if (use_bundled_main_font) {
+		const String bundled_bold = OS::get_singleton()->get_executable_path().get_base_dir()
+										  .path_join("webview/ui/fonts/NotoSansCJKsc-Bold.otf");
+		if (FileAccess::exists(bundled_bold)) {
+			default_font_bold = load_external_font(bundled_bold, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+			default_font_bold_msdf = load_external_font(bundled_bold, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+		} else {
+			// Bold 文件缺失：Regular + embolden 合成（与 fallback 粗体同机制）。
+			default_font_bold = make_bold_font(default_font, embolden_strength);
+			default_font_bold_msdf = make_bold_font(default_font_msdf, embolden_strength);
+		}
+	} else {
+		default_font_bold = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+		default_font_bold_msdf = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
+	}
 
 	TypedArray<Font> fallbacks_bold;
 	Ref<FontFile> arabic_font_bold = load_internal_font(_font_Vazirmatn_Bold, _font_Vazirmatn_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks_bold);
@@ -242,7 +267,6 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	if (!noto_cjk_bold_path.is_empty()) {
 		load_external_font(noto_cjk_bold_path, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks_bold);
 	}
-	Ref<FontVariation> fallback_font_bold = make_bold_font(fallback_font, embolden_strength, &fallbacks_bold);
 	Ref<FontVariation> japanese_font_bold = make_bold_font(japanese_font, embolden_strength, &fallbacks_bold);
 
 	if (OS::get_singleton()->has_feature("system_fonts")) {
