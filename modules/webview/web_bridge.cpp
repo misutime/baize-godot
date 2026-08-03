@@ -54,6 +54,8 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 		_method_editor_redo(p_browser_id, args_json);
 	} else if (p_method == "editor.get_ui_font_size") {
 		_method_editor_get_ui_font_size(p_browser_id, args_json);
+	} else if (p_method == "editor.get_ui_scale") {
+		_method_editor_get_ui_scale(p_browser_id, args_json);
 	} else {
 		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 	}
@@ -241,6 +243,29 @@ void WebBridge::_method_editor_get_ui_font_size(int32_t p_browser_id, const Stri
 	}
 	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
 	_respond(p_browser_id, req_id, true, size);
+}
+
+void WebBridge::_method_editor_get_ui_scale(int32_t p_browser_id, const String &p_args_json) {
+	// 参数: { req_id }。返回编辑器界面生效缩放(EditorSettings display_scale)。
+	// WebDock 与原生 dock 视觉对齐的关键:CEF 独立渲染,不应用 Godot 的界面缩放
+	// (4K/Auto 下 150%+,原生 14px 实际渲染 21px+,WebDock 仍 14px——文字偏小)。
+	// 页面按 main_font_size × display_scale 设 html font-size 整体对齐。
+	String req_id;
+	const Variant parsed = JSON::parse_string(p_args_json);
+	if (parsed.get_type() == Variant::DICTIONARY) {
+		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
+	}
+	EditorSettings *es = EditorSettings::get_singleton();
+	const int mode = es->get_setting("interface/editor/appearance/display_scale"); // 0=Auto,1..6=75%..200%,7=Custom
+	float scale;
+	if (mode == 0) {
+		scale = es->get_auto_display_scale(); // Windows: screen_get_dpi/96
+	} else if (mode == 7) {
+		scale = es->get_setting("interface/editor/appearance/custom_display_scale");
+	} else {
+		scale = (mode + 2) * 0.25f; // 1→0.75, 2→1.0, ..., 6→2.0
+	}
+	_respond(p_browser_id, req_id, true, scale);
 }
 
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {

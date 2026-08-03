@@ -112,7 +112,8 @@ sequenceDiagram
 | `scene.set_node_position` | `{ node_path: string, position: { x, y, z } }` | `{}` | 设置 Node3D 位置，**undo 可撤销**（EditorUndoRedoManager） |
 | `editor.undo` | — | `{}` | 撤销上一步 |
 | `editor.redo` | — | `{}` | 重做 |
-| `editor.get_ui_font_size` | — | `number` | 编辑器主字体大小（EditorSettings `interface/editor/fonts/main_font_size`，默认 14；WebDock 按此设 html font-size 整体缩放） |
+| `editor.get_ui_font_size` | — | `number` | 编辑器主字体大小（EditorSettings `interface/editor/fonts/main_font_size`，默认 14） |
+| `editor.get_ui_scale` | — | `number` | 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0）。WebDock 按 `font_size × scale` 设 html font-size 与原生 dock 视觉对齐（CEF 独立渲染不应用 Godot 界面缩放） |
 
 **错误码**（`error.code`，除 `invalid_params`/`method_not_found`/`no_scene` 外）：
 `invalid_node`——node_path 找不到节点或节点不是 Node3D（位置读写方法）。

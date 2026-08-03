@@ -33,6 +33,9 @@ export const redo = defineMethod<EmptyParams, Record<string, never>>("editor.red
 /** 编辑器主字体大小（EditorSettings main_font_size，默认 14；WebDock 按此设 html font-size）。 */
 export const getUiFontSize = defineMethod<EmptyParams, number>("editor.get_ui_font_size");
 
+/** 编辑器界面生效缩放（display_scale：Auto 按 DPI/96，或显式 0.75-2.0；与原生 dock 视觉对齐）。 */
+export const getUiScale = defineMethod<EmptyParams, number>("editor.get_ui_scale");
+
 // ---- 事件（C++→JS）----
 
 export interface SelectionChangedPayload {

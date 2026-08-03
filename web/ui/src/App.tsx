@@ -101,24 +101,28 @@ export default function App() {
     setCanRedo(payload.can_redo);
   });
 
-  // 字体大小跟随 Godot 编辑器设置（EditorSettings main_font_size）：
-  // html font-size = 该值，Tailwind 字号全用 rem 相对 root 整体缩放。
-  // 初始拉取 + settings_changed 事件实时跟随。
-  const applyUiFontSize = useCallback((size: number): void => {
-    document.documentElement.style.fontSize = `${size}px`;
+  // 字体/界面缩放跟随 Godot 编辑器设置：视觉与原生 dock 对齐。
+  // html font-size = main_font_size × display_scale（Tailwind 字号/间距全 rem 相对 root；
+  // CEF 独立渲染不应用 Godot 界面缩放，4K Auto 下原生 14px 实际渲染 21px+，不乘则偏小）。
+  // scale 重启生效（display_scale 需重启，页面加载拉取即可）；font_size 运行时生效（事件跟随）。
+  const scaleRef = useRef(1);
+  const applyUiMetrics = useCallback((fontSize: number, scale: number): void => {
+    document.documentElement.style.fontSize = `${Math.round(fontSize * scale * 100) / 100}px`;
   }, []);
 
   useEffect(() => {
-    void editor
-      .getUiFontSize()
-      .then(applyUiFontSize)
+    void Promise.all([editor.getUiFontSize(), editor.getUiScale()])
+      .then(([fontSize, scale]) => {
+        scaleRef.current = scale;
+        applyUiMetrics(fontSize, scale);
+      })
       .catch(() => {
         // 拉取失败：保持默认（index.css 14px），不阻塞面板
       });
-  }, [applyUiFontSize]);
+  }, [applyUiMetrics]);
 
   useEditorEvent(editor.onUiFontSizeChanged, (payload) => {
-    applyUiFontSize(payload.size);
+    applyUiMetrics(payload.size, scaleRef.current);
   });
 
   // 外部位置变化（选中拉取/拖动/撤销）→ 同步非受控输入框 DOM 值（不触发提交）。
@@ -312,7 +316,7 @@ export default function App() {
                 </label>
               ))}
             </div>
-            <p className="text-[10px] text-[#789]">改后回车/失焦提交（可撤销）；视口拖动实时跟随。</p>
+            <p className="text-[0.625rem] text-[#789]">改后回车/失焦提交（可撤销）；视口拖动实时跟随。</p>
           </>
         ) : (
           <p className="text-xs text-[#789]">未选中节点（请先在场景中选中一个 Node3D）</p>

@@ -48,6 +48,7 @@ describe("shipped 方法注册表", () => {
     ["editor.undo", () => editor.undo()],
     ["editor.redo", () => editor.redo()],
     ["editor.get_ui_font_size", () => editor.getUiFontSize()],
+    ["editor.get_ui_scale", () => editor.getUiScale()],
   ] as Array<[string, () => Promise<unknown>]>)("方法 %s 发出正确协议名", (protocolName, call) => {
     const { bridge, invoked } = makeFakeBridge();
     _setBridgeClientForTest(bridge);
