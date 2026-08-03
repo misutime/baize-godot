@@ -107,7 +107,10 @@ export default function App() {
   // scale 重启生效（display_scale 需重启，页面加载拉取即可）；font_size 运行时生效（事件跟随）。
   const scaleRef = useRef(1);
   const applyUiMetrics = useCallback((fontSize: number, scale: number): void => {
-    document.documentElement.style.fontSize = `${Math.round(fontSize * scale * 100) / 100}px`;
+    const px = Math.round(fontSize * scale * 100) / 100;
+    document.documentElement.style.fontSize = `${px}px`;
+    // 实际字号对照（诊断级）：html font-size 计算值，与原生 [editor-font] 实际字号对照。
+    console.log(`[webdock-font] htmlFontSize=${px}px (mainFontSize=${fontSize} × scale=${scale})`);
   }, []);
 
   useEffect(() => {

@@ -181,8 +181,10 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 		default_font_msdf = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 		resolved_main_font = bundled_main_font;
 #ifdef DEV_ENABLED
-		// 原生 dock 默认字体加载决策（诊断级）：与 WebDock 的 [webdock-font] 诊断对照。
-		print_line("[editor-font] 默认字体: 外部分发 " + bundled_main_font);
+		// 原生 dock 默认字体实际加载确认（诊断级）：路径 + 真实读入字节数（非仅选择决策）
+		// + 实际渲染字号（main_font_size × EDSCALE，即主题 default_font_size）。
+		print_line("[editor-font] 默认字体已加载: " + bundled_main_font + " bytes=" + itos(s_bundled_main_data.size()));
+		print_line("[editor-font] 实际字号: " + itos(default_font_size) + "px (main_font_size=" + itos(int(EDITOR_GET("interface/editor/fonts/main_font_size"))) + " × EDSCALE=" + String::num(EDSCALE) + ")");
 #endif
 	} else {
 		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
