@@ -36,6 +36,7 @@
 
 #include "core/io/image.h"
 #include "scene/resources/image_texture.h"
+#include "scene/resources/texture_rd.h"
 
 #include <cstdint>
 
@@ -61,6 +62,17 @@ class WebPanel : public Control {
 	Vector<uint8_t> paint_buffer;
 	uint32_t paint_width = 0;
 	uint32_t paint_height = 0;
+	// GPU OSR（shared_texture_enabled=1，mac）纹理路径：CEF OnAcceleratedPaint 交付
+	// IOSurface → 回调内经 Metal 复制到自有 RD 纹理（gpu_texture_rid，Godot 队列上
+	// 执行，天然与面板绘制同队列 FIFO）→ Texture2DRD 包装供 _draw 直接绘制，无 CPU
+	// 读回。软件路径（set_paint ImageTexture）保留为回退：WEBVIEW_OSR_SOFTWARE=1 /
+	// 非 mac 平台。gpu_path_active 表示最近一帧来自 GPU 路径（_draw 优先）。
+	RID gpu_texture_rid; // 自有目标纹理（RD 创建，尺寸变化时重建；CEF 帧复制目标）
+	Ref<Texture2DRD> gpu_texture; // 包装 gpu_texture_rid（RS 侧纹理，供 _draw）
+	bool gpu_path_active = false; // 最近一帧由 GPU 路径交付
+	Size2i gpu_size = Size2i(-1, -1); // gpu_texture_rid 的尺寸（尺寸变化时重建）
+	bool gpu_osr_logged_ = false; // GPU 首帧/尺寸变化日志（收敛证据）
+	Size2i last_paint_log_size_ = Size2i(-1, -1);
 	// IME 组合状态:组合中(ime_composing)抑制 CHAR 转发防双插;结束提交 ime_composing_text。
 	bool ime_composing = false;
 	String ime_composing_text;
@@ -104,6 +116,14 @@ public:
 
 	/// 由 WebViewManager 的 paint 回调调用（主线程，paint 期间缓冲有效，内部拷贝）。
 	void set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
+
+	/// 由 WebViewManager 的加速 paint 回调调用（GPU 纹理直通，主线程；handle 为
+	/// mac IOSurfaceRef 按 uint64 透传）。句柄仅回调期间有效——本函数内完成
+	/// 打开 + 复制到自有纹理；非 mac 平台为无操作（保持软件路径）。
+	void set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h);
+
+	/// 释放 GPU 纹理路径资源（gpu_texture 包装 → 先解包再 free RD RID；幂等）。
+	void _free_gpu_texture();
 
 	/// 面板尺寸变化或首次布局后调用（创建/调整浏览器）。
 	void sync_size();

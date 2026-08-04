@@ -143,6 +143,12 @@ cefviewcore_sources = [
 # 显式列出文件,不用 "*.cpp" 通配——CEF 侧需要特殊 flags。
 # ---------------------------------------------------------------------------
 env_webview = env_modules.Clone()
+if is_macos:
+    # GPU OSR(mac):web_panel.cpp 的 Metal/RD 消费端(OnAcceleratedPaint IOSurface →
+    # MTL::Device::newTexture → RD::texture_create_from_extension)需要 metal-cpp 头——
+    # 与 drivers/metal 共用同一份 thirdparty/metal-cpp(IOSurface framework 已在下文
+    # LINKFLAGS 链接;rendering_context_driver_metal.h 内部以 METAL_ENABLED 门控)。
+    env_webview.Prepend(CPPPATH=[Dir("#/thirdparty/metal-cpp").abspath])
 env_webview.add_source_files(
     env.modules_sources,
     ["cef_application_mac.cpp", "editor_web_dock.cpp", "register_types.cpp", "web_bridge.cpp", "web_panel.cpp", "webview_manager.cpp"],

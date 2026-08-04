@@ -65,6 +65,11 @@ public:
 		// id: 浏览器 id;rgba: RGBA8 像素缓冲(w*h*4),仅回调期间有效,宿主必须拷贝;
 		// w / h: 像素尺寸(CEF OnPaint 输出 BGRA,本核心层已转 RGBA)。
 		std::function<void(int32_t id, const uint8_t *rgba, uint32_t w, uint32_t h)> on_paint;
+		// id: 浏览器 id;handle: GPU 共享纹理句柄(shared_texture_enabled=1,mac: IOSurfaceRef
+		// 按 uint64 透传)。句柄每帧变化、仅回调期间有效,宿主必须在该回调内打开并复制到
+		// 自有纹理(CEF 文档:不能缓存、不能在回调外访问,见 cef_render_handler.h
+		// OnAcceleratedPaint);w / h: 纹理像素尺寸(CEF coded_size)。
+		std::function<void(int32_t id, uint64_t handle, uint32_t w, uint32_t h)> on_accelerated_paint;
 		// id: 浏览器 id;status: HTTP 状态码(加载错误为 -1);url: 加载的 URL。
 		std::function<void(int32_t id, int32_t status, const std::string &url)> on_load_status;
 		// id: 浏览器 id;query: JS 侧 window.cefViewQuery 请求体;query_id: 应答句柄
@@ -99,9 +104,13 @@ public:
 	// CefShutdown。幂等,可重复调用。
 	void shutdown();
 
-	// 创建窗口渲染(OSR,软件路径)浏览器。p_id 由调用方分配,必须唯一;w / h 为物理像素,
-	// 必须非零。返回 0 成功,-1 失败(未初始化 / id 重复 / 尺寸非法 / CEF 创建失败)。
-	int create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h);
+	// 创建窗口渲染(OSR)浏览器。p_id 由调用方分配,必须唯一;w / h 为物理像素,必须非零。
+	// p_gpu_osr_enabled: 宿主在创建前判定的 GPU 纹理直通能力(mac: Metal 渲染器 +
+	// 主线程==渲染线程);为 false 或环境变量 WEBVIEW_OSR_SOFTWARE=1 时走软件路径
+	// (OnPaint BGRA)。GPU 路径零 CPU 读回;resize 收敛为实测口径,确切机制见交接文档
+	// 修正记录。非 mac 平台恒为软件路径。返回 0 成功,-1 失败
+	// (未初始化 / id 重复 / 尺寸非法 / CEF 创建失败)。
+	int create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, bool p_gpu_osr_enabled);
 
 	// 调整浏览器尺寸(物理像素)。返回 0 成功,-1 失败(未初始化 / id 不存在 / 尺寸非法
 	// ——0 或 >INT_MAX 拒绝,与 create_browser 统一校验)。

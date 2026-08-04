@@ -860,6 +860,35 @@ struct WebViewCore::Impl {
 			}
 		}
 
+		// GPU 纹理直通(shared_texture_enabled=1):CEF 经本回调交付共享纹理句柄
+		// (mac: IOSurface)。句柄每帧来自缓冲池、仅本回调内有效——只透传给宿主,
+		// 由宿主在回调内完成“打开 → 复制到自有纹理”(见 handle_accelerated_paint)。
+		void onAcceleratedPaint(CefRefPtr<CefBrowser> &p_browser, CefRenderHandler::PaintElementType p_type, const CefRenderHandler::RectList &p_dirty_rects, const CefAcceleratedPaintInfo &p_info) override {
+			try {
+				if (p_type != PET_VIEW) {
+					return;
+				}
+#if defined(__APPLE__)
+				const void *handle = p_info.shared_texture_io_surface;
+				if (handle == nullptr) {
+					return;
+				}
+				const int32_t w = static_cast<int32_t>(p_info.extra.coded_size.width);
+				const int32_t h = static_cast<int32_t>(p_info.extra.coded_size.height);
+				if (w <= 0 || h <= 0) {
+					return;
+				}
+				self_->handle_accelerated_paint(id_, reinterpret_cast<uint64_t>(handle), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+#else
+				// 非 mac 平台暂未实现共享纹理消费端(保持软件路径);收到即忽略。
+#endif
+			} catch (const std::exception &e) {
+				log_callback_exception("ClientDelegate::onAcceleratedPaint", e.what());
+			} catch (...) {
+				log_callback_exception("ClientDelegate::onAcceleratedPaint", "unknown");
+			}
+		}
+
 	private:
 		Impl *self_;
 		int32_t id_;
@@ -870,6 +899,15 @@ struct WebViewCore::Impl {
 	// =======================================================================
 	// 内部处理(全部在主线程,无锁)。
 	// =======================================================================
+
+	// OnAcceleratedPaint → 宿主回调(mac: IOSurfaceRef)。句柄仅回调期间有效、每帧来自
+	// 缓冲池(可能变化),宿主必须在回调内打开并复制到自有纹理(CEF 契约,见
+	// cef_render_handler.h OnAcceleratedPaint 文档)。
+	void handle_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_width, uint32_t p_height) {
+		if (callbacks.on_accelerated_paint) {
+			callbacks.on_accelerated_paint(p_id, p_handle, p_width, p_height);
+		}
+	}
 
 	// OnPaint → BGRA→RGBA → 宿主回调(4A core.rs bgra_to_rgba 逻辑)。
 	void handle_paint(int32_t p_id, const void *p_buffer, int p_width, int p_height) {
@@ -1192,7 +1230,7 @@ void WebViewCore::shutdown() {
 	impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
 }
 
-int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h) {
+int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, bool p_gpu_osr_enabled) {
 	if (impl_ == nullptr) {
 		return -1;
 	}
@@ -1208,7 +1246,23 @@ int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t
 
 	CefWindowInfo window_info;
 	window_info.windowless_rendering_enabled = 1; // OSR
+	// 交付路径:mac 默认 GPU 纹理直通(shared_texture_enabled=1 → OnAcceleratedPaint)。
+	// p_gpu_osr_enabled 由宿主在浏览器创建前判定(Metal 渲染器 + 主线程==渲染线程),
+	// 不满足必须置 0——否则 CEF 只交付加速帧而消费端丢弃,面板空白且无软件帧兑底。
+	// 注:Chromium 合成器无论 GPU/软件均为按需提交(damage-driven)——GPU OSR 只改像素
+	// 交付方式、不改帧调度。resize 收敛为实测口径(连续 resize 瞬时收敛、尾随重发 0 触发),
+	// 确切机制(Invalidate 真提交 vs viz 自动重分配)待确认——见交接文档“为什么 GPU OSR
+	// 能根治(实测口径,2026-08-04 修正)”与《技术详解-GPU-OSR与帧调度》。
+	// WEBVIEW_OSR_SOFTWARE=1 为显式强制软件路径(调试/回退)。
+#if defined(__APPLE__)
+	{
+		const char *osr_software = std::getenv("WEBVIEW_OSR_SOFTWARE");
+		const bool force_software = osr_software != nullptr && osr_software[0] == '1';
+		window_info.shared_texture_enabled = (force_software || !p_gpu_osr_enabled) ? 0 : 1;
+	}
+#else
 	window_info.shared_texture_enabled = 0; // 软件路径 → OnPaint(BGRA)
+#endif
 	// internal 帧源（external_begin_frame_enabled=0）：CEF 按 windowless_frame_rate
 	// 驱动。曾试 external（=1）+ 宿主持续 SendExternalBeginFrame：软件渲染路径下
 	// viz 不触发 Draw（OnPaint 完全无输出，实测 8 秒卡死）——软件 OSR 不支持外部

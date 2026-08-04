@@ -33,6 +33,7 @@
 #include "web_bridge.h"
 #include "web_panel.h"
 
+#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/object/object.h"
 #include "core/os/os.h"
@@ -40,7 +41,36 @@
 #include "core/string/ustring.h"
 #include "scene/main/scene_tree.h"
 
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+#include "drivers/metal/rendering_context_driver_metal.h"
+#include "servers/rendering/rendering_device.h"
+#endif
+
 namespace {
+
+// GPU OSR(mac)能力判定:浏览器创建前由宿主决定 shared_texture_enabled,防止 CEF 只
+// 交付加速帧而消费端丢弃(面板空白)。两个硬性前提,任一不满足即走软件路径:
+// 1. 渲染器为 Metal(RD 上下文驱动是 RenderingContextDriverMetal)——Vulkan/MoltenVK
+//    下 IOSurface 导入路径不可用(set_accelerated_paint 静默返回);
+// 2. 主线程 == 渲染线程(thread_model=Safe)——Separate 模式下主线程回调内的
+//    RD::texture_copy / free_rid 被 ERR_RENDER_THREAD_GUARD 拒绝(目标空白 + 每帧
+//    泄漏导入的源纹理),GPU OSR 的“回调内同步拷贝”契约无法满足。
+// WEBVIEW_OSR_SOFTWARE=1 的显式覆盖在核心层 create_browser 内叠加。
+static bool gpu_osr_capable() {
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (rd == nullptr || rd->get_context_driver() == nullptr) {
+		return false;
+	}
+	if (dynamic_cast<RenderingContextDriverMetal *>(rd->get_context_driver()) == nullptr) {
+		return false;
+	}
+	const int thread_model = GLOBAL_GET("rendering/driver/threads/thread_model");
+	return thread_model != OS::RENDER_SEPARATE_THREAD;
+#else
+	return false;
+#endif
+}
 
 // 每帧消息泵驱动器：CEF 初始化成功后挂到 SceneTree::process_frame，使 pump 与面板
 // 数量解耦——最后一个面板退出后、异步关闭（OnBeforeClose）送达前仍持续泵送。
@@ -89,6 +119,7 @@ void WebViewManager::init_core() {
 	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
 	WebViewCore::Callbacks cbs;
 	cbs.on_paint = &WebViewManager::_on_paint;
+	cbs.on_accelerated_paint = &WebViewManager::_on_accelerated_paint;
 	cbs.on_load_status = &WebViewManager::_on_load_status;
 	cbs.on_query = &WebViewManager::_on_query;
 	cbs.on_invoke_method = &WebViewManager::_on_invoke_method;
@@ -162,7 +193,7 @@ int WebViewManager::create_browser(int32_t p_id, const String &p_url, int32_t p_
 		return -1;
 	}
 	const CharString url = p_url.utf8();
-	return core_.create_browser(p_id, url.get_data(), (uint32_t)p_w, (uint32_t)p_h);
+	return core_.create_browser(p_id, url.get_data(), (uint32_t)p_w, (uint32_t)p_h, gpu_osr_capable());
 }
 
 void WebViewManager::resize_browser(int32_t p_id, int32_t p_w, int32_t p_h) {
@@ -287,6 +318,19 @@ void WebViewManager::_on_focus_editable_changed(int32_t p_id, bool p_focus_on_ed
 	WebPanel **slot = mgr->panels_.getptr(p_id);
 	if (slot && *slot) {
 		(*slot)->set_focus_editable(p_focus_on_editable);
+	}
+}
+
+void WebViewManager::_on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_w, uint32_t p_h) {
+	// 静态回调（GPU 纹理直通，mac IOSurface）：peek 不创建——单例为 null
+	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。
+	WebViewManager *mgr = peek_singleton();
+	if (!mgr) {
+		return;
+	}
+	WebPanel **slot = mgr->panels_.getptr(p_id);
+	if (slot && *slot) {
+		(*slot)->set_accelerated_paint(p_handle, p_w, p_h); // 句柄仅回调期间有效，宿主在回调内复制
 	}
 }
 

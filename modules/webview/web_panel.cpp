@@ -43,6 +43,15 @@
 #include "scene/main/window.h"
 #include "servers/display/display_server.h"
 
+// GPU OSR（mac）：CEF OnAcceleratedPaint 交付 IOSurface → Metal 打开 → RD 导入 →
+// 同队列拷贝到自有纹理。RenderingDevice 接口已具备跨 API 纹理导入
+// （texture_create_from_extension，见 texture_storage.cpp:1415 注释），无需引擎改动。
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+#include "drivers/metal/rendering_context_driver_metal.h"
+#include "servers/rendering/rendering_device.h"
+#include <Metal/Metal.hpp>
+#endif
+
 // Windows 平台头经 Godot 头链间接引入 winnt.h:DELETE/PRINT 等是宏,
 // 会展开破坏 Key::DELETE / Key::PRINT 枚举引用。局部取消宏定义(本 TU 不用 Windows API)。
 #ifdef DELETE
@@ -96,17 +105,24 @@ void WebPanel::_notification(int p_what) {
 			// 前不填充：露出面板原生底色——问题暴露时黑边是可视诊断信号（用户定案）。
 			// 绘制区域 = WebPanel 自身 rect（position 0,0、尺寸 = get_size()），
 			// 无子控件布局依赖。
-			if (!texture.is_valid()) {
+			// 纹理源：GPU OSR（gpu_path_active）优先绘制自有 RD 纹理（无 CPU 读回），
+			// 否则软件 ImageTexture（回退路径）。两路径共用同一裁剪策略。
+			Ref<Texture2D> tex;
+			if (gpu_path_active && gpu_texture.is_valid()) {
+				tex = gpu_texture;
+			} else if (texture.is_valid()) {
+				tex = texture;
+			} else {
 				return;
 			}
 			const Size2 panel = get_size();
-			const Size2 tex_size = texture->get_size();
+			const Size2 tex_size = tex->get_size();
 			if (tex_size == panel) {
-				draw_texture_rect(texture, Rect2(Point2(), panel), false);
+				draw_texture_rect(tex, Rect2(Point2(), panel), false);
 			} else {
 				const Size2 draw_size(Size2(MIN(tex_size.x, panel.x), MIN(tex_size.y, panel.y)));
 				if (draw_size.x > 0 && draw_size.y > 0) {
-					draw_texture_rect_region(texture, Rect2(Point2(), draw_size), Rect2(Point2(), draw_size));
+					draw_texture_rect_region(tex, Rect2(Point2(), draw_size), Rect2(Point2(), draw_size));
 				}
 			}
 		} break;
@@ -214,6 +230,7 @@ void WebPanel::_notification(int p_what) {
 				WebViewManager::get_singleton()->destroy_browser(browser_id);
 				browser_created = false;
 			}
+			_free_gpu_texture(); // GPU OSR 自有纹理（先解包 RS 再 free RD RID）
 			if (browser_id >= 0) {
 				WebViewManager::get_singleton()->unregister_panel(browser_id);
 				browser_id = -1;
@@ -543,6 +560,9 @@ void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 	if (p_w == 0 || p_h == 0 || !p_rgba) {
 		return;
 	}
+	// 软件帧到达：交付切回软件路径（与 GPU 直通互斥的防御性处理——CEF 按
+	// shared_texture_enabled 二选一交付，正常不会两路同发）。
+	gpu_path_active = false;
 	// checked 乘法:按 size_t(64 位)计算,拒绝超过 Vector 容量(int)的尺寸——
 	// 防 4K/60fps 下 uint32 乘法溢出导致负长度 resize 或截断拷贝。
 	const size_t byte_count = static_cast<size_t>(p_w) * static_cast<size_t>(p_h) * 4;
@@ -570,6 +590,115 @@ void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 		texture->update(paint_image);
 	}
 	queue_redraw(); // 纹理更新 → 重绘（_draw 直接绘制，无子控件 set_texture）
+}
+
+// GPU OSR（mac）：CEF OnAcceleratedPaint 交付的 IOSurface 句柄 → 自有 RD 纹理。
+// 时序契约（CEF cef_render_handler.h）：句柄每帧来自缓冲池、仅本回调内有效、不得
+// 缓存——本函数在回调内完成“打开 → 复制 → 释放源”，复制经 Godot 队列执行
+// （RD::texture_copy 进 draw_graph），与后续面板绘制同队列 FIFO，顺序天然保证。
+// 跨进程同步：CEF 在 GPU 帧就绪后才回调（cefclient mac 同款时序），无需额外 fence。
+// 非 mac 平台 / 非 Metal 渲染器：无操作（保持软件路径，见 webview_core create_browser）。
+void WebPanel::set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h) {
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+	if (p_handle == 0 || p_w == 0 || p_h == 0) {
+		return;
+	}
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (rd == nullptr) {
+		ERR_PRINT_ONCE("[WebView] GPU OSR: RenderingDevice unavailable (set WEBVIEW_OSR_SOFTWARE=1 to force software path).");
+		return;
+	}
+	// mac 上渲染器可为 Metal（默认）或 Vulkan/MoltenVK（--rendering-driver vulkan）：
+	// IOSurface 导入只支持 Metal 上下文驱动，其余渲染器忽略 GPU OSR 保持软件路径。
+	RenderingContextDriver *ctx = rd->get_context_driver();
+	RenderingContextDriverMetal *metal_ctx = dynamic_cast<RenderingContextDriverMetal *>(ctx);
+	if (metal_ctx == nullptr || metal_ctx->get_metal_device() == nullptr) {
+		return;
+	}
+
+	// 尺寸变化：重建目标纹理。格式 BGRA8（与 IOSurface 字节序一致；Metal 硬件采样
+	// 自动映射 RGBA，显示与软件路径逐字节一致）。先解包 RS 纹理再 free RD RID。
+	const Size2i new_size(static_cast<int>(p_w), static_cast<int>(p_h));
+	if (!gpu_texture_rid.is_valid() || gpu_size != new_size) {
+		_free_gpu_texture();
+		RenderingDevice::TextureFormat tf;
+		tf.format = RenderingDevice::DATA_FORMAT_B8G8R8A8_UNORM;
+		tf.texture_type = RenderingDevice::TEXTURE_TYPE_2D;
+		tf.width = p_w;
+		tf.height = p_h;
+		tf.depth = 1;
+		tf.array_layers = 1;
+		tf.mipmaps = 1;
+		tf.usage_bits = RenderingDevice::TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		gpu_texture_rid = rd->texture_create(tf, RenderingDevice::TextureView());
+		if (!gpu_texture_rid.is_valid()) {
+			ERR_PRINT("[WebView] GPU OSR: failed to create target texture " + itos(p_w) + "x" + itos(p_h));
+			return;
+		}
+		gpu_texture.instantiate();
+		gpu_texture->set_texture_rd_rid(gpu_texture_rid); // 单线程渲染模式即时，多线程走渲染线程
+		gpu_size = new_size;
+	}
+
+	// 回调内：从 IOSurface 打开源纹理（每帧新句柄，不得缓存/不得回调外访问）。
+	// 用 alloc/init 而非 texture2DDescriptor 便捷构造（后者返回 autoreleased 对象，
+	// release 会过度释放）。
+	MTL::TextureDescriptor *desc = MTL::TextureDescriptor::alloc()->init();
+	desc->setTextureType(MTL::TextureType2D);
+	desc->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+	desc->setWidth(p_w);
+	desc->setHeight(p_h);
+	desc->setMipmapLevelCount(1);
+	desc->setArrayLength(1);
+	desc->setStorageMode(MTL::StorageModeShared);
+	desc->setUsage(MTL::TextureUsageShaderRead);
+	MTL::Texture *src = metal_ctx->get_metal_device()->newTexture(desc, static_cast<IOSurfaceRef>(reinterpret_cast<void *>(p_handle)), 0);
+	desc->release();
+	if (src == nullptr) {
+		ERR_PRINT("[WebView] GPU OSR: newTexture(IOSurface) failed");
+		return;
+	}
+	// 导入 RD（句柄格式匹配时不建 view，RD 直接接管引用，free_rid 时 release）。
+	const RID src_rid = rd->texture_create_from_extension(
+			RenderingDevice::TEXTURE_TYPE_2D,
+			RenderingDevice::DATA_FORMAT_B8G8R8A8_UNORM,
+			RenderingDevice::TEXTURE_SAMPLES_1,
+			RenderingDevice::TEXTURE_USAGE_CAN_COPY_FROM_BIT,
+			reinterpret_cast<uint64_t>(src),
+			p_w, p_h, 1, 1, 1);
+	if (!src_rid.is_valid()) {
+		src->release(); // 导入失败：释放模块侧引用（未移交 RD）
+		return;
+	}
+	// 拷贝（Godot 队列，与绘制同帧 FIFO）后释放源：src 所有权已移交 RD。
+	rd->texture_copy(src_rid, gpu_texture_rid, Vector3(0, 0, 0), Vector3(0, 0, 0), Vector3(p_w, p_h, 1), 0, 0, 0, 0);
+	rd->free_rid(src_rid);
+
+	last_paint_size_ = new_size; // 收敛/显示基线（与软件路径共用）
+	gpu_path_active = true;
+	if (!gpu_osr_logged_ || last_paint_size_ != last_paint_log_size_) {
+		// 首帧/尺寸变化日志：resize 收敛证据（面板目标尺寸与纹理尺寸对齐）。
+		print_line("[WebView] GPU OSR frame: " + itos(p_w) + "x" + itos(p_h));
+		gpu_osr_logged_ = true;
+		last_paint_log_size_ = last_paint_size_;
+	}
+	queue_redraw();
+#endif
+}
+
+void WebPanel::_free_gpu_texture() {
+	if (gpu_texture.is_valid()) {
+		gpu_texture.unref(); // 先解包：Texture2DRD 析构 free 其 RS 纹理（引用了 RD RID），顺序不能反
+	}
+	if (gpu_texture_rid.is_valid()) {
+		RenderingDevice *rd = RenderingDevice::get_singleton();
+		if (rd != nullptr) {
+			rd->free_rid(gpu_texture_rid);
+		}
+		gpu_texture_rid = RID();
+	}
+	gpu_size = Size2i(-1, -1);
+	gpu_path_active = false;
 }
 
 void WebPanel::sync_size() {
