@@ -86,6 +86,7 @@ private:
 	static HashMap<ObjectID, Vector3> tracked_positions_;
 	static bool last_can_undo_; // undo 栈上次状态（哨兵 true：首帧 diff 必发一次）
 	static bool last_can_redo_;
+	static String last_scene_key_; // 场景状态基线（"has_scene|path"），变化才发事件
 	static int last_ui_font_size_; // main_font_size 基线（变化才发事件）
 	static String last_ui_font_; // main_font 路径基线（变化才发事件）
 
@@ -94,6 +95,11 @@ private:
 	static void _on_selection_changed();
 	/// EditorSettings::settings_changed → main_font_size 变化时下行 ui_font_size_changed。
 	static void _on_editor_settings_changed();
+	/// 帧轮询场景状态：场景上下文（有无根/路径）变化时下行 scene_changed。
+	/// 覆盖打开/关闭/切换标签/当前标签内新建根/撤销删根——EditorNode::scene_changed
+	/// 信号不覆盖标签内建根路径（SceneTreeDock add_root_node → set_edited_scene），
+	/// 故用轮询 diff（与 node_position_changed/undo_stack_changed 同机制）。
+	static void _poll_scene_state();
 
 	// ---- 字体解析路径（运行时存储，非持久化）----
 	// editor_fonts.cpp 加载默认字体后写入实际生效路径；WebDock 桥读取。不用

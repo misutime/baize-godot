@@ -129,6 +129,7 @@ sequenceDiagram
 | `editor.undo_stack_changed` | `{ can_undo: bool, can_redo: bool }` | undo 栈状态（可选，MVP2 后） |
 | `editor.ui_font_size_changed` | `{ size: number }` | 编辑器主字体大小变化（EditorSettings settings_changed 过滤推送） |
 | `editor.ui_font_changed` | `{ path: string }` | 主字体**实际生效路径**变化（main_font 设置或默认思源外部分发路径；空 = 内置回退/系统字体） |
+| `editor.scene_changed` | `{ has_scene: bool, scene_path: string }` | 编辑场景上下文变化（打开/关闭/切标签/当前标签内新建或撤销根节点；帧轮询 diff，与 `node_position_changed` 同机制——`EditorNode::scene_changed` 信号不覆盖标签内建根路径）。`has_scene=false` = [empty] 占位标签/无打开场景（编辑器正常初始态，前端应中性展示而非报错）；`scene_path` 为空 = 新建未保存或未打开 |
 
 **方法名**：小写点号命名空间（`scene.`/`editor.`/`inspector.`），与 C++ 注册表一一对应；
 **事件名**：同风格，`*_changed` 后缀表状态推送。

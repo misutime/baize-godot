@@ -70,6 +70,7 @@ describe("shipped 事件注册表", () => {
     ["editor.selection_changed", editor.onSelectionChanged],
     ["editor.node_position_changed", editor.onPositionChanged],
     ["editor.undo_stack_changed", editor.onUndoStackChanged],
+    ["editor.scene_changed", editor.onSceneChanged],
     ["editor.ui_font_size_changed", editor.onUiFontSizeChanged],
     ["editor.ui_font_changed", editor.onUiFontChanged],
   ] as EventTableEntry[])("事件 %s 订阅/退订", (protocolName, subscribe) => {

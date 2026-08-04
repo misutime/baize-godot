@@ -27,6 +27,8 @@ export default function App() {
   const [canRedo, setCanRedo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 无编辑场景（[empty] 占位标签无根节点）：编辑器正常初始态，中性占位显示。
+  const [noScene, setNoScene] = useState(false);
   // 输入框聚焦中：不被 node_position_changed 事件覆盖（用户编辑优先），blur 时提交。
   const editingRef = useRef(false);
   const busyRef = useRef(false);
@@ -36,6 +38,17 @@ export default function App() {
   const zRef = useRef<HTMLInputElement>(null);
 
   const currentPath = selection[0] ?? null;
+
+  // 统一错误分类：no_scene = 编辑器正常态（[empty] 占位标签无根节点）→ 中性占位；
+  // 其余错误进红色横幅。除已定义的 no_scene 正常态外不静默吞错（AGENTS.md）。
+  const applyBridgeError = useCallback((err: { code?: string; message?: string }): void => {
+    if (err.code === "no_scene") {
+      setNoScene(true);
+      setNodeCount(null);
+      return;
+    }
+    setError(`操作失败 [${err.code ?? "unknown"}]: ${err.message ?? String(err)}`);
+  }, []);
 
   const runAction = useCallback(async (action: () => Promise<unknown>): Promise<void> => {
     if (busyRef.current) {
@@ -47,32 +60,45 @@ export default function App() {
     try {
       await action();
     } catch (e) {
-      const err = e as { code?: string; message?: string };
-      setError(`操作失败 [${err.code ?? "unknown"}]: ${err.message ?? String(e)}`);
+      applyBridgeError(e as { code?: string; message?: string });
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
-  }, []);
+  }, [applyBridgeError]);
 
   const refreshCount = useCallback((): void => {
     void runAction(async () => {
-      setNodeCount(await scene.getNodeCount());
+      const count = await scene.getNodeCount();
+      setNodeCount(count);
+      setNoScene(false); // 拉取成功 = 有场景根：自校正（覆盖原生建根等无事件路径）
     });
   }, [runAction]);
 
-  // 初始：桥探测 + 场景节点数。
+  // 场景状态同步：不经 runAction 的 busy 防并发——场景切换事件驱动的刷新不应被丢弃
+  // （事件与用户动作重叠时 runAction 会静默丢弃）。只读查询，无副作用，可并发。
+  const syncSceneState = useCallback((): void => {
+    void scene
+      .getNodeCount()
+      .then((count) => {
+        setNodeCount(count);
+        setNoScene(false);
+      })
+      .catch((e) => {
+        applyBridgeError(e as { code?: string; message?: string });
+      });
+  }, [applyBridgeError]);
+
+  // 初始：桥探测 + 场景状态（无场景为正常态，不报错）。
   useEffect(() => {
     try {
       getBridgeClient();
       setBridge("ok");
-      void runAction(async () => {
-        setNodeCount(await scene.getNodeCount());
-      });
+      syncSceneState();
     } catch {
       setBridge("missing");
     }
-  }, [runAction]);
+  }, [syncSceneState]);
 
   // 选中变化 → 显示路径 + 拉取位置（getNodePosition 用场景相对路径，与事件对齐）。
   useEditorEvent(editor.onSelectionChanged, (payload) => {
@@ -99,6 +125,20 @@ export default function App() {
   useEditorEvent(editor.onUndoStackChanged, (payload) => {
     setCanUndo(payload.can_undo);
     setCanRedo(payload.can_redo);
+  });
+
+  // 编辑场景上下文变化（打开/关闭/切标签/建根删根）→ 刷新场景状态；无场景为正常态。
+  useEditorEvent(editor.onSceneChanged, (payload) => {
+    if (payload.has_scene) {
+      setNoScene(false);
+      syncSceneState(); // 场景打开/切换：重拉节点数（含新建未保存场景的根）
+    } else {
+      setNoScene(true);
+      setNodeCount(null);
+      setSelection([]);
+      setPosition(null);
+      setError(null); // 旧场景上下文遗留错误不再适用
+    }
   });
 
   // 字体/界面缩放跟随 Godot 编辑器设置：视觉与原生 dock 对齐。
@@ -360,7 +400,7 @@ export default function App() {
       {/* 场景信息（验收 1 前置：真实数据来自桥） */}
       <section className="flex items-center justify-between gap-2">
         <span className="text-[#9ca]">
-          场景节点数: <b className="text-[#cfc]">{nodeCount ?? "—"}</b>
+          场景节点数: <b className="text-[#cfc]">{noScene ? "未打开场景" : nodeCount ?? "—"}</b>
         </span>
         <button type="button" onClick={refreshCount} disabled={busy} className="btn">
           刷新
@@ -398,6 +438,8 @@ export default function App() {
             </div>
             <p className="text-[#789]">改后回车/失焦提交（可撤销）；视口拖动实时跟随。</p>
           </>
+        ) : noScene ? (
+          <p className="text-[#789]">未打开场景（请先新建或打开一个场景）</p>
         ) : (
           <p className="text-[#789]">未选中节点（请先在场景中选中一个 Node3D）</p>
         )}

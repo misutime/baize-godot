@@ -58,6 +58,13 @@ export interface UndoStackChangedPayload {
   can_redo: boolean;
 }
 
+export interface SceneChangedPayload {
+  /** 是否有编辑场景根（false = [empty] 占位标签/无打开场景，编辑器正常初始态）。 */
+  has_scene: boolean;
+  /** 当前场景文件路径（新建未保存场景为空串）。 */
+  scene_path: string;
+}
+
 /** 编辑器选中变化（node_paths 为场景相对路径数组）。 */
 export const onSelectionChanged = defineEvent<SelectionChangedPayload>("editor.selection_changed");
 
@@ -66,6 +73,9 @@ export const onPositionChanged = defineEvent<PositionChangedPayload>("editor.nod
 
 /** undo 栈状态变化。 */
 export const onUndoStackChanged = defineEvent<UndoStackChangedPayload>("editor.undo_stack_changed");
+
+/** 编辑场景上下文变化（打开/关闭/切标签/当前标签内新建或撤销根节点；帧轮询 diff 推送）。 */
+export const onSceneChanged = defineEvent<SceneChangedPayload>("editor.scene_changed");
 
 /** 编辑器主字体大小变化（跟随 EditorSettings）。 */
 export const onUiFontSizeChanged = defineEvent<{ size: number }>("editor.ui_font_size_changed");

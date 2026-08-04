@@ -371,6 +371,7 @@ bool WebBridge::event_sources_connected_ = false;
 HashMap<ObjectID, Vector3> WebBridge::tracked_positions_;
 bool WebBridge::last_can_undo_ = true; // 哨兵：首帧 diff 必发一次当前状态
 bool WebBridge::last_can_redo_ = true;
+String WebBridge::last_scene_key_; // 空 = 首帧必发一次当前场景状态
 int WebBridge::last_ui_font_size_ = -1; // 哨兵：首帧比较必发当前值（连接时即设基线，实际不发）
 String WebBridge::last_ui_font_; // main_font 路径基线
 String WebBridge::resolved_main_font_; // 运行时解析字体路径（editor_fonts 写入，不持久化）
@@ -387,6 +388,7 @@ void WebBridge::set_event_browser_id(int32_t p_browser_id) {
 	// 重置 undo 哨兵：新消费者首帧 poll 收到当前栈状态（否则旧值 diff 吞掉状态）。
 	last_can_undo_ = true;
 	last_can_redo_ = true;
+	last_scene_key_ = String(); // 场景基线重置：新消费者首帧 poll 收到当前场景状态
 }
 
 void WebBridge::init_event_sources() {
@@ -429,6 +431,7 @@ void WebBridge::poll_editor_state() {
 	}
 	_refresh_tracked_positions(false); // 纯 diff：位置变化才发
 	_poll_undo_stack();
+	_poll_scene_state();
 }
 
 void WebBridge::emit_initial_state() {
@@ -487,6 +490,7 @@ void WebBridge::_on_editor_settings_changed() {
 		emit_event(event_browser_id_, "editor.ui_font_changed", JSON::stringify(body));
 	}
 }
+
 
 void WebBridge::_refresh_tracked_positions(bool p_emit_initial_for_new) {
 	EditorNode *ed = EditorNode::get_singleton();
@@ -551,4 +555,22 @@ void WebBridge::_poll_undo_stack() {
 	body["can_undo"] = can_undo;
 	body["can_redo"] = can_redo;
 	emit_event(event_browser_id_, "editor.undo_stack_changed", JSON::stringify(body));
+}
+
+void WebBridge::_poll_scene_state() {
+	// 场景上下文（有无根 + 路径）变化时下行 scene_changed。轮询 diff 而非信号：
+	// EditorNode::scene_changed 不覆盖当前标签内新建/撤销根节点（SceneTreeDock
+	// add_root_node → set_edited_scene 路径不发射该信号）——轮询与 node_position/
+	// undo 同机制，统一覆盖打开/关闭/切换标签/建根/删根全部路径。
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	const String key = String::num_int64(root != nullptr ? 1 : 0) + "|" + (root ? root->get_scene_file_path() : String());
+	if (key == last_scene_key_) {
+		return;
+	}
+	last_scene_key_ = key;
+	Dictionary body;
+	body["has_scene"] = root != nullptr;
+	body["scene_path"] = root ? root->get_scene_file_path() : String();
+	emit_event(event_browser_id_, "editor.scene_changed", JSON::stringify(body));
 }

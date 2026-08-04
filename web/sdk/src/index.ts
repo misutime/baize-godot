@@ -2,6 +2,7 @@
 
 export type {
   PositionChangedPayload,
+  SceneChangedPayload,
   SelectionChangedPayload,
   UndoStackChangedPayload,
   Vec3,
@@ -15,6 +16,7 @@ export {
   getUiFontSize,
   getUiScale,
   onPositionChanged,
+  onSceneChanged,
   onSelectionChanged,
   onUiFontChanged,
   onUiFontSizeChanged,
@@ -36,6 +38,7 @@ import {
   getUiFontSize,
   getUiScale,
   onPositionChanged,
+  onSceneChanged,
   onSelectionChanged,
   onUiFontChanged,
   onUiFontSizeChanged,
@@ -63,6 +66,7 @@ export const editor = {
   getUiFontBold,
   onSelectionChanged,
   onPositionChanged,
+  onSceneChanged,
   onUndoStackChanged,
   onUiFontSizeChanged,
   onUiFontChanged,
