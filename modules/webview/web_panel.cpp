@@ -37,6 +37,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/main_loop.h"
+#include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
 #include "scene/main/window.h"
@@ -74,11 +75,6 @@ void WebPanel::_bind_methods() {
 void WebPanel::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY: {
-			// 显示纹理：OSR paint 经 Image → ImageTexture 到此 TextureRect。
-			texture_rect = memnew(TextureRect);
-			texture_rect->set_anchors_preset(Control::PRESET_FULL_RECT);
-			texture_rect->set_stretch_mode(TextureRect::STRETCH_SCALE);
-			add_child(texture_rect);
 			// 可点击聚焦:页面点击/键盘输入需要控件持有 Godot 焦点(键盘事件才进 gui_input)。
 			set_focus_mode(Control::FOCUS_CLICK);
 			// GUI 输入经信号连接(C++ 控件标准模式;_gui_input 非 Control 虚函数)。
@@ -89,9 +85,52 @@ void WebPanel::_notification(int p_what) {
 			// 每帧恰好泵一次（与面板数量解耦，最后面板退出后仍持续泵到异步关闭送达）。
 			WebViewManager::get_singleton()->register_panel(this);
 			sync_size();
+			set_process(true); // 节流补发：拖动停止后把最后一次 pending 尺寸下发给 CEF
 		} break;
 		case NOTIFICATION_RESIZED: {
 			sync_size();
+		} break;
+		case NOTIFICATION_DRAW: {
+			// 直接绘制 OSR 纹理：纹理与面板一致时精确全幅；不一致（resize 未收敛的
+			// 滞后窗口）时 1:1 左上裁剪——不变形（stretch 压字）。余区/首次 OnPaint
+			// 前不填充：露出面板原生底色——问题暴露时黑边是可视诊断信号（用户定案）。
+			// 绘制区域 = WebPanel 自身 rect（position 0,0、尺寸 = get_size()），
+			// 无子控件布局依赖。
+			if (!texture.is_valid()) {
+				return;
+			}
+			const Size2 panel = get_size();
+			const Size2 tex_size = texture->get_size();
+			if (tex_size == panel) {
+				draw_texture_rect(texture, Rect2(Point2(), panel), false);
+			} else {
+				const Size2 draw_size(Size2(MIN(tex_size.x, panel.x), MIN(tex_size.y, panel.y)));
+				if (draw_size.x > 0 && draw_size.y > 0) {
+					draw_texture_rect_region(texture, Rect2(Point2(), draw_size), Rect2(Point2(), draw_size));
+				}
+			}
+		} break;
+		case NOTIFICATION_PROCESS: {
+			const uint64_t now_ms = OS::get_singleton()->get_ticks_msec();
+			// 分支 1（新 desired 下发）：pending 变更（pending != applied）且未渲染出
+			// → 节流窗口后下发最新 desired。区分“新目标”与“同尺寸重发”（shifu 终审：
+			// 原条件 pending != last_paint 在停止后未收敛时每 25ms 都满足，分支 2 成死代码）。
+			if (browser_created && pending_size_ != applied_size_ &&
+					pending_size_ != last_paint_size_ &&
+					now_ms - last_resize_ms_ >= static_cast<uint64_t>(RESIZE_THROTTLE_MS)) {
+				last_resize_ms_ = now_ms;
+				applied_size_ = pending_size_;
+				WebViewManager::get_singleton()->resize_browser(browser_id, pending_size_.x, pending_size_.y);
+			} else if (browser_created && applied_size_ != last_paint_size_ &&
+					now_ms - last_resize_ms_ > 250) {
+				// 分支 2（尾随重发）：无新 desired 但 applied 未渲染出 → 250ms 后重发
+				// 同尺寸 WasResized+Invalidate，强制合成器活动加速收敛。不改 GetViewBounds
+				// 为其他尺寸（避免 CEF hold 死锁：旧 surface 永远 ≠ 新期望）。
+				// 250ms 折中：比原 1s 快（收敛速度接近当前 25ms 高频验证效果），
+				// 比 25ms 低频（减少对 CEF hold 的无效刺激）。
+				last_resize_ms_ = now_ms;
+				WebViewManager::get_singleton()->resize_browser(browser_id, applied_size_.x, applied_size_.y);
+			}
 		} break;
 		case NOTIFICATION_FOCUS_ENTER: {
 			// 面板获得 Godot 焦点 → 通知 CEF(键盘事件只在有焦点时被 renderer 处理)。
@@ -511,6 +550,7 @@ void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 		ERR_PRINT("[WebView] set_paint: buffer too large (" + itos(p_w) + "x" + itos(p_h) + ")");
 		return;
 	}
+	last_paint_size_ = Size2i(static_cast<int>(p_w), static_cast<int>(p_h)); // 收敛/显示基线
 	if (paint_image.is_null() || paint_width != p_w || paint_height != p_h) {
 		// 尺寸变化才重建 Image + ImageTexture(尺寸/格式变化必须重建)。
 		paint_width = p_w;
@@ -529,9 +569,7 @@ void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 		paint_image->set_data(p_w, p_h, false, Image::FORMAT_RGBA8, paint_buffer);
 		texture->update(paint_image);
 	}
-	if (texture_rect) {
-		texture_rect->set_texture(texture);
-	}
+	queue_redraw(); // 纹理更新 → 重绘（_draw 直接绘制，无子控件 set_texture）
 }
 
 void WebPanel::sync_size() {
@@ -543,17 +581,22 @@ void WebPanel::sync_size() {
 	if (size.x <= 0 || size.y <= 0) {
 		return;
 	}
-	if (browser_created) {
-		WebViewManager::get_singleton()->resize_browser(browser_id, size.x, size.y);
-	} else {
+	pending_size_ = size; // 总是记录最新目标（节流窗口内被丢弃时由 process 补发）
+	if (!browser_created) {
+		// 首次创建浏览器：立即创建（初始尺寸 = 当前布局）。
 		const int ret = WebViewManager::get_singleton()->create_browser(browser_id, url, size.x, size.y);
 		if (ret == 0) {
 			browser_created = true;
+			applied_size_ = size;
+			last_resize_ms_ = OS::get_singleton()->get_ticks_msec();
 			print_line("[WebView] WebPanel browser created: id=" + itos(browser_id) + " url=" + url);
 		} else {
 			ERR_PRINT("[WebView] WebPanel browser create failed: id=" + itos(browser_id));
 		}
+		return;
 	}
+	// 已创建：只记录最新 desired（pending_size_），由 NOTIFICATION_PROCESS 节流下发
+	// （见 process 注释：节流合并 + 未收敛尾随重发）。
 }
 
 void WebPanel::send_message(const String &p_msg) {

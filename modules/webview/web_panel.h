@@ -54,8 +54,7 @@ class WebPanel : public Control {
 	String url;
 	bool browser_created = false;
 
-	TextureRect *texture_rect = nullptr;
-	Ref<ImageTexture> texture;
+	Ref<ImageTexture> texture; // OSR 纹理（_draw 直接绘制，无子控件布局依赖）
 	// paint 缓存:尺寸不变时复用 Image/ImageTexture(update 上传),避免每帧重建;
 	// paint_buffer 为每帧 memcpy 目标(避免 Vector 反复分配)。
 	Ref<Image> paint_image;
@@ -70,6 +69,15 @@ class WebPanel : public Control {
 	bool page_focus_editable = false;
 	// 所属 Window 是否拥有 OS 焦点(WM_WINDOW_FOCUS_IN/OUT):IME 更新按 OS 窗口隔离(P2)。
 	bool window_has_focus = false;
+	// resize 拖动节流：拖动中每帧 RESIZED 都 resize 会让 CEF 渲染队列积压（软件渲染
+	// 异步，纹理尺寸严重滞后面板 → 被 STRETCH_SCALE 拉伸变形）。节流窗口内合并，
+	// 窗口过期由 NOTIFICATION_PROCESS 补发最新目标尺寸（停止拖动后仍收敛）。
+	// 25ms ≈ 40fps 更新：比 50ms 平滑（拖动态时更跟手），仍远大于单次渲染耗时防积压。
+	static constexpr int RESIZE_THROTTLE_MS = 25;
+	uint64_t last_resize_ms_ = 0;
+	Size2i pending_size_ = Size2i(-1, -1); // 最新目标尺寸（节流窗口内每帧更新）
+	Size2i applied_size_ = Size2i(-1, -1); // 已下发给 CEF 的尺寸
+	Size2i last_paint_size_ = Size2i(-1, -1); // CEF 最近一次 OnPaint 输出的纹理尺寸
 
 protected:
 	static void _bind_methods();

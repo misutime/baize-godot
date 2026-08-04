@@ -1087,6 +1087,9 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	settings.windowless_rendering_enabled = 1; // OSR 软件渲染(OnPaint)
 	settings.external_message_pump = 1; // 由宿主主循环 CefDoMessageLoopWork 驱动
 	settings.log_severity = LOGSEVERITY_DEFAULT; // debug.log 在 exe 目录
+	// 不设 background_color：页面背景是页面自身职责（body 背景不透明 + height:100%
+	// 填满视口即无透明区域）。固定 CEF 底色（曾试 #223）会与未来动态主题冲突；
+	// 且页面加载完成后背景不透明，底色本就不可见（仅加载瞬态可能短暂露黑）。
 
 	impl_->app_delegate = std::make_shared<Impl::AppDelegate>(impl_.get());
 	impl_->app = new CefViewBrowserApp(CefString(), CefString(), impl_->app_delegate);
@@ -1206,8 +1209,11 @@ int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t
 	CefWindowInfo window_info;
 	window_info.windowless_rendering_enabled = 1; // OSR
 	window_info.shared_texture_enabled = 0; // 软件路径 → OnPaint(BGRA)
-	// internal_begin_frame:CEF 内部帧源按 windowless_frame_rate=60 驱动产帧,宿主不干预
-	// (shifu 契约修复首选;外部 BF 与消息泵时钟错绑的根治)。
+	// internal 帧源（external_begin_frame_enabled=0）：CEF 按 windowless_frame_rate
+	// 驱动。曾试 external（=1）+ 宿主持续 SendExternalBeginFrame：软件渲染路径下
+	// viz 不触发 Draw（OnPaint 完全无输出，实测 8 秒卡死）——软件 OSR 不支持外部
+	// 帧驱动。internal 模式下 onPaint 正常输出，resize 收敛延迟（hold 机制）由宿主
+	// “尾随重发同尺寸”加速（见 web_panel NOTIFICATION_PROCESS）。
 	window_info.external_begin_frame_enabled = 0;
 
 	CefBrowserSettings browser_settings;
@@ -1253,6 +1259,11 @@ int WebViewCore::resize_browser(int32_t p_id, uint32_t p_w, uint32_t p_h) {
 	// 同步 delegate 内尺寸(GetViewRect 直接读取,无需跨结构查找)。
 	static_cast<Impl::ClientDelegate *>(entry.client_delegate.get())->set_size(p_w, p_h);
 	entry.browser->GetHost()->WasResized(); // 通知 CEF 重新查询 GetViewRect
+	// Invalidate(PET_VIEW) 请求整幅重绘（cefclient OnResize 同款配套）：页面静止时
+	// 合成器按需不产帧，Invalidate 输出 host_display_client 的 pixel_size_（由 viz
+	// 分配共享内存时更新）——新尺寸渲染由 internal 帧源 + 宿主“尾随重发”加速收敛
+	// （见 web_panel NOTIFICATION_PROCESS 与 create_browser 注释）。
+	entry.browser->GetHost()->Invalidate(PET_VIEW);
 	return 0;
 }
 
