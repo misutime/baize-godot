@@ -5,6 +5,11 @@
 > （webview_core.cpp 纯 C++ 核心层 + webview_manager.cpp 桥 + web_panel.cpp 显示层）。
 > 行号以 2026-08-05 工作区代码为准（原 d51af20db9 行号已过时）。
 > **2026-08-05 更新**：帧源方案已切换——`external_begin_frame_enabled=1` + `SendExternalBeginFrame` 于 2026-08-03 废弃（软件路径实测 8 秒零帧卡死），现为 internal 帧源 + 每帧无条件泵；`shared_texture_enabled` 已平台分化（mac 默认 1，Windows 恒 0）。本文 §3/§4 已按当前代码更新。
+>
+> **⚠️ 路线状态（2026-08-05 批注）**：本文定位为 **OSR 路径说明（历史）**——渲染已演进为**非 OSR 窗口模式**
+> （CEF 原生子窗口、像素零回传，main 合并 `f832eae09b`），`modules/webview/` 的 OSR 显示/输入/IME 链路已删除
+> （web_panel 现为子窗口矩形/显隐同步，见 `web_panel.h`）。文中"当前工程"表述指 OSR 时代代码；窗口模式
+> 取舍与现状见《技术详解-WebDock原生子窗口-非OSR可行性分析与取舍.md》《实施记录-WebDock非OSR窗口模式-MVP落地.md》。
 
 ---
 

@@ -79,7 +79,7 @@ defineEvent<{ node_paths: string[] }>("editor.selection_changed") // → 订阅�
 
 - **零依赖体积**：SDK 构建产物 `index.js` gzip 1.13kB（Vite 8 lib mode + `external:["react"]`）；
   react 为 optional peerDependency，主包不绑框架
-- **base:'./'**：ui 产物资源路径为 `./assets/...`（已实测），`file://` 下由 WebDock OSR 直接加载
+- **base:'./'**：ui 产物资源路径为 `./assets/...`（已实测），`file://` 下由 WebDock 直接加载（CEF 窗口模式/非 OSR，页面加载机制与渲染模式无关）
 - **测试方法**：vitest node 环境 + `_setBridgeClientForTest` 注入假桥（记录 invoke + 手动触发
   method_result/事件），13 用例覆盖协议字符串格式、配对、超时、错误、注入缺失
 - **踩坑留档**：npm 包名 `biome` 是他人旧包（0.3.3）——正解 `@biomejs/biome`；CSS 不能用 `//`
@@ -132,7 +132,7 @@ pnpm exec biome check .      # lint + 格式（--write 自动修复）
 ## 9. 遗留与下一步
 
 - **MVP 验收 2/3/4 交互验证**（手动）：选中 Node3D 显示 X；改 X 节点移动 + Ctrl+Z 撤销；
-  3D 视口拖动数字实时跟随——链路已通（事件源/输入转发/桥均实测），UI 交互待实机点验
+  3D 视口拖动数字实时跟随——链路已通（事件源/桥均实测；输入/IME 由 CEF 原生子窗口直收，无转发链），UI 交互待实机点验
 - **体积优化**（可选）：ui JS ~60KB gzip 为 React 基础体积，面板复杂后可考虑分包/lazy
 - 协议扩展：`inspector.set_prop` 等后续方法（架构文档 §5 后续项）
 

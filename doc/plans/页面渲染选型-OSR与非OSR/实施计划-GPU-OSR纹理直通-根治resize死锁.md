@@ -1,6 +1,10 @@
 # 实施计划：GPU OSR 纹理直通——根治 WebDock resize 死锁（交接文档）
 
 > **状态**：✅ 已实施并验证（2026-08-04，mac arm64 实机）。交付：`shared_texture_enabled=1` + `OnAcceleratedPaint`（IOSurface）+ Godot 侧 Metal→RD 纹理直通（**零引擎改动**——本 fork 已具备 `RD::texture_create_from_extension` 跨 API 导入，见 §3.2 Step 2 注记）。
+>
+> **⚠️ 路线状态（2026-08-05 批注）**：本文为 OSR 路径 GPU 直通的实施记录（历史）——渲染已演进为**非 OSR 窗口模式**
+> （main 合并 `f832eae09b`），OSR 代码（含本计划交付的 GPU 直通）已删除；文中实施/验证结论仅作 OSR 时代
+> 性能与机制档案，不再适用于现行代码。
 > **验证结论**：GPU OSR 路径正常渲染、颜色与软件路径逐字节一致、**7 次连续快速 resize 全部瞬时收敛且尾随重发分支 0 触发**（mac 单机观察，详见 §8）、退出干净（exit 0、无残留 helper）。软件路径回退可用（`WEBVIEW_OSR_SOFTWARE=1`）。
 > **⚠️ 2026-08-05 修正**：“resize 瞬时收敛”是 **mac 单机观察、机制未证实**——源码（refers/cef）推演两条交付路径共用同一 video capturer（video_consumer_osr.cc:37-57）、hold 释放检查逐行相同（render_widget_host_view_osr.cc:1640/1677），**GPU 直通不提供结构性免死锁**（详见《技术详解-GPU-OSR与帧调度》§3.3）。**不得**将本观察作为 Win 路径或“丝滑”的依据；Win 落地后必须实测。本文档的确定收益只有**零 CPU 读回**（交付契约）；resize 死锁根治手段见《实施计划-CEF源码修改-根治resize收敛死锁.md》方案 A/B。
 > **遗留**：Win D3D11→D3D12 导入路径（§3.3 矩阵）未实施——非 mac 平台保持软件路径；Step 4 的尾随重发/1:1 裁剪简化未做（mac 观察显示其已惰性，但收敛未证实，移除属独立行为变更，另行评审）。

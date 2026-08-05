@@ -16,7 +16,7 @@
 
 | 组件 | 位置 | 状态 |
 |---|---|---|
-| CEF 接入（CefViewCore + OSR + 输入转发 + IME） | `modules/webview/`（webview_core / web_panel / editor_web_dock / cef_application_mac） | ✅ MVP1 完成，MVP2 实机验收 4 条进行中（《桥协议》§6） |
+| CEF 接入（窗口模式/非 OSR：CEF 原生子窗口渲染、像素零回传、输入/IME 原生直收） | `modules/webview/`（webview_core / web_panel / editor_web_dock / cef_application_mac） | ✅ MVP1 完成，MVP2 实机验收 4 条进行中（《桥协议》§6）；渲染 = 非 OSR 窗口模式（最终态，`webview_core.cpp:1028` `windowless_rendering_enabled=0`、`:1149` `SetAsChild`） |
 | CEF↔Godot 进程内桥（方法注册表 + req_id 配对 + 事件源 + 字体体系） | `modules/webview/web_bridge.{h,cpp}` | ✅ 方法 10 个、事件 6 个；事件源目前**单浏览器目标**（`set_event_browser_id`） |
 | 前端 workspace（sdk + ui） | `web/`（@baize/ui-sdk + @baize/ui，React 19 + Vite 8 + Tailwind） | ✅ sdk 13 单测通过；产物经 `misc/scripts/stage_ui.py` 进 `bin/webview/ui/` |
 | 语义能力面（注册表 + 语义操作 + 语义 UI 树） | `modules/ai/semantic_registry.{h,cpp}` + `semantic_ops` + `editor_ui_tree` | ✅ 唯一事实源：方法名/描述/schema/handler 集中注册 |
@@ -32,7 +32,7 @@
 ### 1.3 本文交付边界
 
 - **范围**：sidecar 工程落地（S0）→ NodeJS↔Godot 通道（S1）→ CEF↔NodeJS 直连 + 事件多目标化（S2）→ 首个真实服务（S3）→ 发布运维（S4）。S0-S2 构成"sidecar 三端直连落地"核心；S3 服务选型留用户裁决（§9）；
-- **不涉及**：不改 Godot 状态权威模型（场景树/属性/UndoRedo 仍在引擎）；不做 WebBridge→SemanticRegistry 委托重构（列为后续，避免与本计划耦合）；不做 GPU 加速渲染（独立计划）。
+- **不涉及**：不改 Godot 状态权威模型（场景树/属性/UndoRedo 仍在引擎）；不做 WebBridge→SemanticRegistry 委托重构（列为后续，避免与本计划耦合）；不涉及渲染方案——WebDock 渲染已定型为非 OSR 窗口模式（CEF 原生子窗口、像素零回传、输入/IME 原生直收），OSR 时代的 GPU 直通 / fork CEF 等计划已随路线演进废弃，归档于 `页面渲染选型-OSR与非OSR/`（§10）。
 
 ---
 
@@ -331,4 +331,5 @@ SDK 内部
 - 《TS路线-WebUI架构-桥协议与前端SDK.md》（doc/plans）：CEF↔Godot 通道现状 + 协议语义（`{ok,result}`、req_id、点号命名空间）
 - 《WebUI前端工程-实现文档-sdk与ui-workspace.md》：web/ workspace 现状、Node 24.14/24.18 实测、stage_ui 机制
 - 《实施记录-AI-FIRST-P1-P2-语义接口与MCP.md》：SemanticRegistry/ai_bridge 实现、端口与鉴权模式、排坑清单（§4 编号直接引用）；ai_bridge 定位（实验品）与退役路径见 §1.1/§5.2
+- 《页面渲染选型-OSR与非OSR/》（doc/plans 子目录）：WebDock 渲染路线选型与落地记录——最终态 = 非 OSR 窗口渲染（《实施记录-WebDock非OSR窗口模式-MVP落地.md》《技术详解-WebDock原生子窗口-非OSR可行性分析与取舍.md》）；OSR 相关技术详解/实施计划归档于此，本文按最终态口径描述，不重复渲染细节
 - 仓库事实：`modules/webview/web_bridge.h`（单目标事件源 `set_event_browser_id`）、`modules/ai/semantic_registry.h`（能力面注册表）、`modules/websocket/editor/editor_debugger_server_websocket.cpp`（WS server 参照）、`web/package.json`（workspace 现状）
