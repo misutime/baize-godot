@@ -21,7 +21,7 @@
 5. WS 资源限制：认证 deadline 3s、连接上限、~780KB 快照策略、慢客户端关闭；
 6. 错误令牌拒绝；kill sidecar → 退避重启（第 4 次不重启）；dev 模式外部 watcher；BAIZE_NODE 缺失报错；
 7. 4 个重叠 WebBridge 方法委托后回归；
-8. `BAIZE_SIDECAR=0` 无 spawn；端口冲突清晰报错；退出竞态零残留；日志有界 + redaction。
+8. sidecar 恒启用（默认 spawn，无禁用路径——2026-08-05 决策）；无 Node 时明确报错并引导安装（不静默、不降级）；端口冲突清晰报错；退出竞态零残留；日志有界 + redaction。
 
 ## 2. 实现
 
@@ -36,7 +36,7 @@
 
 **协议**（方案 §5.1 线级合同）：一帧一 document；request id 一律 string；batch 显式拒绝（-32600）；server 拒 response 输入；错误码 -32601/-32602/-32000，内部字符串码入 `error.data.code`（如 `no_scene`/`unauthorized`）。
 
-**env 契约**（方案 §4.3/§4.4）：`BAIZE_SIDECAR=0|1|dev`（默认 1）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生）、`BAIZE_GODOT_TOKEN`（spawn 生成）、`BAIZE_PROJECT_PATH`、`BAIZE_SIDECAR_ENTRY`（sidecar 入口，缺失明确报错）、`BAIZE_NODE`（>PATH）、dev 模式 `BAIZE_SIDECAR_TOKEN`（父环境显式提供，缺失拒绝）。
+**env 契约**（方案 §4.3/§4.4）：`BAIZE_SIDECAR=1|dev`（默认 1；`0` 已弃用——**恒启用决策（2026-08-05）：sidecar 为编辑器地基组件，不提供关闭路径；无 Node 时报错引导安装**）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生）、`BAIZE_GODOT_TOKEN`（spawn 生成）、`BAIZE_PROJECT_PATH`、`BAIZE_SIDECAR_ENTRY`（sidecar 入口，缺失明确报错）、`BAIZE_NODE`（>PATH）、dev 模式 `BAIZE_SIDECAR_TOKEN`（父环境显式提供，缺失拒绝）。
 
 ### 2.2 Node 侧（`web/runtime/`，2 文件 + 测试）
 

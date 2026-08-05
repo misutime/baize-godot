@@ -150,7 +150,7 @@ CEF = 表现层。连接建立后数据面直连（VS Code main-process 模式�
 | 项 | 方案 |
 |---|---|
 | 进程监督（S1 前置） | 仓库级 `ProcessSupervisor`（扩展 OS API）：原子接收 env + cwd + stdout/stderr pipes + 进程树 ownership；Windows = Job Object（关闭即 kill tree），macOS/Unix = 新 session/进程组 + killpg + waitpid。**不得**经修改 Godot 全局环境注入，**不得**经 argv 传 token（当前 `OS::create_process` 无 per-spawn env/stdio/进程树能力，`core/os/os.h:216-220`、`platform/windows/os_windows.cpp:1554-1620`——审查修订 P1-1） |
-| 启动 | 编辑器（editor 模式）启动时经 ProcessSupervisor spawn（懒加载备选：首次 sidecar 服务被调用时，S4 后评估）；`BAIZE_SIDECAR=0` 关闭、`BAIZE_SIDECAR=dev` 外部自管（Godot listen，外部 sidecar 主动连接；父环境须显式提供同一 `BAIZE_SIDECAR_TOKEN`，缺失则拒绝 dev 模式并给出启动指令——审查修订 P1-5） |
+| 启动 | 编辑器（editor 模式）启动时经 ProcessSupervisor spawn（懒加载备选：首次 sidecar 服务被调用时，S4 后评估）；**sidecar 恒启用（地基组件，2026-08-05 决策——不提供关闭路径；旧 `BAIZE_SIDECAR=0` 弃用，警告后按默认 spawn）**；`BAIZE_SIDECAR=dev` 外部自管（Godot listen，外部 sidecar 主动连接；父环境须显式提供同一 `BAIZE_SIDECAR_TOKEN`，缺失则拒绝 dev 模式并给出启动指令——审查修订 P1-5） |
 | 连接 | 握手退避序列 0.5/1/2/4/8s（单次封顶），上限 10 次；sidecar 侧认证 deadline 3s；超时告警不阻塞编辑器（sidecar 是增强不是命门） |
 | 崩溃恢复 | Godot 检测 WS 断开 → 若进程仍活着先杀 → 自动重启（同退避序列）；单次会话上限 3 次，**稳定运行 5 分钟后重置计数器**，第 4 次崩溃不再自动重启（明确日志 + 用户手动恢复，审查修订 P2-7）；重启后重新握手 + 事件重订阅；**epoch/generation 递增**，旧连接的 response/事件不得串入新连接 |
 | 退出 | 唯一 owner = 编辑器 pre-exit 路径（EditorNode 仍存活时显式编排，不依赖模块级 teardown 顺序——`Main::cleanup` 实际顺序为 SceneTree → EDITOR 模块 → SCENE 模块：AI 在 EDITOR 级、CEF 在 SCENE 级，审查修订 P1-6）：UI 面板停发事件 → sidecar（发 shutdown 通知 + 等 2s + kill 进程树含派生 worker）→ CEF 随 SCENE 级自然 shutdown → 引擎；无残留进程（Win Job Object / mac 进程组） |
@@ -260,7 +260,7 @@ SDK 内部
 
 - C++：`modules/ai/sidecar_server.{h,cpp}`（WS server + 帧泵 + 令牌握手 + **自做严格 JSON-RPC 2.0 解析/分派**（§5.3 裁决，不依赖引擎内置 `JSONRPC` 类）→ SemanticRegistry + 连接上限）；`register_types.cpp` 接线；
 - spawn 管理：编辑器启动钩子（沿用 `ai_bridge` 的 MessageQueue 第一帧模式）→ **ProcessSupervisor**（env 传 godot token/url/项目路径，§4.4）；断开检测 + 自动重启（退避 + 上限）；退出编排（§4.4）；
-- env：`BAIZE_SIDECAR=0|1|dev`（默认 1）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生，spawn 时下发）、`BAIZE_GODOT_TOKEN`（spawn 时自动生成）、`BAIZE_PROJECT_PATH`、`BAIZE_NODE`、`BAIZE_SIDECAR_TOKEN`（仅 dev 模式：父环境显式提供，缺失拒绝 dev 模式——审查修订 P1-5）；
+- env：`BAIZE_SIDECAR=1|dev`（默认 1；`0` 已弃用——sidecar 恒启用，2026-08-05 决策）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生，spawn 时下发）、`BAIZE_GODOT_TOKEN`（spawn 时自动生成）、`BAIZE_PROJECT_PATH`、`BAIZE_NODE`、`BAIZE_SIDECAR_TOKEN`（仅 dev 模式：父环境显式提供，缺失拒绝 dev 模式——审查修订 P1-5）；
 - 方法面：`sidecar.hello/health/echo` + SemanticRegistry 全量方法透传（`scene.get_node_count` / `scene.create_node` / `editor.get_state` / `editor.undo` 等）；
 - 日志：sidecar stdout/stderr → Godot 日志文件（`user://logs/sidecar.log`，**有界 + token redaction，S1 起**）+ 编辑器退出时收尾（防残留句柄）。
 
@@ -272,7 +272,7 @@ SDK 内部
 5. **WS 资源限制**：认证 deadline 3s、连接数上限、~780KB 快照策略、慢客户端关闭、每帧预算；
 6. 错误令牌 → 拒绝 + 明确日志；kill sidecar → 自动重启（退避序列），第 4 次崩溃不再自动重启；`BAIZE_SIDECAR=dev` 外部 watcher 正常连接（显式 token）、`BAIZE_NODE` 缺失明确报错；
 7. **4 个重叠 WebBridge 方法委托后回归**（`scene.get_node_count`/`scene.create_node`/`editor.undo`/`editor.redo` 与前端既有调用一致）；
-8. `BAIZE_SIDECAR=0` → 无 spawn、无告警噪声；端口冲突/权限 → 清晰报错不静默回退；正常退出与各竞态（握手中/重启退避中/CEF 关闭中）零残留进程；日志有界 + token 字段 redaction 生效。
+8. sidecar 恒启用（默认 spawn，无禁用路径）；端口冲突/权限 → 清晰报错不静默回退；正常退出与各竞态（握手中/重启退避中/CEF 关闭中）零残留进程；日志有界 + token 字段 redaction 生效。
 
 ### S2：CEF↔NodeJS 直连 + 事件多目标化
 
@@ -326,7 +326,7 @@ SDK 内部
 
 | 风险 | 评估 | 缓解 |
 |---|---|---|
-| Node 运行时分发 | 用户机器无 Node → sidecar 不可用 | **发布形态 = SEA 单文件（用户零 Node 依赖，§3.1，已裁决）**；SEA 落地前（开发期/中间期）`BAIZE_SIDECAR=0` 可关 + Node 缺失明确报错 |
+| Node 运行时分发 | 用户机器无 Node → sidecar 不可用 | **发布形态 = SEA 单文件（用户零 Node 依赖，§3.1，已裁决）**；SEA 落地前（开发期/中间期）无 Node/入口缺失 → spawn 失败**明确报错并引导安装 Node.js**（一次性，不静默、不降级），编辑器继续运行——**不提供禁用选项（sidecar 恒启用，2026-08-05 决策）** |
 | WS 通道在本 fork 的可靠性 | WebSocketServer 路径（TCPServer+poll）已被编辑器 debug server 长期使用，风险低；但参照实现仅管理单 pending peer | S1 先方法面、后事件面；按 §5.3 资源预算压测大消息（语义树快照 ~780KB）与多 peer |
 | 事件风暴/订阅膨胀 | 订阅全量事件高频推送 | 订阅白名单 + 增量 diff（沿用现有帧轮询 diff 语义）；每订阅者可过滤；状态型事件 coalesce（§5.2） |
 | sidecar 状态一致性 | 缓存引擎状态产生漂移 | 架构约束：不缓存权威状态，只发命令收事件（§2）；连接级游标不视为权威状态 |
@@ -342,7 +342,7 @@ SDK 内部
 |---|---|---|---|
 | 1 | S3 首个真实服务 | Agent 服务 / LSP worker / 资产管线 | **Agent 服务**：消费既有语义能力面、差异化最大、验收直观（但依赖 LLM API） |
 | 2 | Node 分发策略 | 要求系统 Node / SEA 单文件打包 | **已裁决（2026-08-04）：发布 = SEA 单文件打包，用户零 Node 依赖；开发期用本机 Node 24.x（§3.1）** |
-| 3 | sidecar 默认开启？ | 默认开（`BAIZE_SIDECAR` 缺省 1）/ 显式开启 | 默认开（沿 `AI_BRIDGE` 已裁决口径；`=0` 可关） |
+| 3 | sidecar 启用策略 | 恒启用（地基组件）/ 可显式关闭 | **已裁决（2026-08-05）：恒启用**——sidecar 是 Agent/LSP/资产管线等编辑器功能的地基，不提供关闭路径；无 Node 时明确报错并引导安装（开发期），SEA 发布后无 Node 依赖；`BAIZE_SIDECAR=dev` 仅切换为外部自管（开发调试），非禁用 |
 | 4 | 目录形态 | `web/runtime`（并入现有 workspace）/ 根级 `runtime/` | **`web/runtime`**（单一 lockfile/toolchain，§3.2） |
 | 5 | AI MCP 宿主迁移 | S3 选 Agent 且 Node MCP 达成功能/鉴权等价后迁（含外部消费者盘点，harness 曾依赖 47653）/ 暂缓（保留） | **S3 同步迁（gate 化，审查修订 P2-5）**：退役 gate 见 §5.2——Node MCP 完成 tools/list + tools/call + 鉴权 + 外部消费者迁移验收后才删 `ai_bridge`（删除清单含 register_types/build 接线）；S3 选 LSP/资产则保留到后续 |
 | 6 | C++ 侧 JSON-RPC 解析实现 | sidecar_server 自做严格解析（薄层，推荐）/ 扩展引擎内置 `modules/jsonrpc` | **自做薄层**：内置类缺 error.data/string id 且非 virtual 扩展点，改动隔离在 sidecar_server、协议向量可测（§5.3，审查修订 P1-2） |

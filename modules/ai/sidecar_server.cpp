@@ -65,13 +65,15 @@ void SidecarServer::start() {
 	if (started_) {
 		return;
 	}
-	// BAIZE_SIDECAR：默认 1（spawn）；0 关闭；dev 外部自管（只 listen，不 spawn）。
+	// BAIZE_SIDECAR：1（默认）= spawn；dev = 外部自管（只 listen，不 spawn）。
+	// 决策（2026-08-05）：sidecar 是编辑器地基（Agent/LSP/资产管线宿主），恒启用，不提供关闭路径；
+	// 旧值 0 视为弃用（警告后按默认 spawn，避免旧 env 静默异常）。
 	const char *env_mode = std::getenv("BAIZE_SIDECAR");
 	const String mode = env_mode ? String(env_mode) : String("1");
 	if (mode == "0") {
-		print_line("[Sidecar] disabled (BAIZE_SIDECAR=0)");
-		started_ = true; // 标记已处理，避免每帧重试
-		return;
+		print_line("[Sidecar] BAIZE_SIDECAR=0 已弃用：sidecar 为编辑器基础组件恒启用（设 BAIZE_SIDECAR=dev 可外部自管）");
+	} else if (mode != "dev" && mode != "1") {
+		ERR_PRINT("[Sidecar] 无效 BAIZE_SIDECAR: " + mode + "（支持 1/dev，默认 1；按默认 spawn 继续）");
 	}
 
 	// listen：仅回环，port 0（OS 分配，spawn 后经 env 下发实际 URL——§4.3 审查修订 P2-1）。
@@ -237,7 +239,9 @@ void SidecarServer::_spawn_sidecar() {
 	ProcessSupervisor::ProcessHandle handle;
 	Error err = ProcessSupervisor::spawn(opts, handle);
 	if (err != OK) {
-		ERR_PRINT("[Sidecar] spawn sidecar 失败：" + opts.path + "（请确认 BAIZE_NODE/node 与 BAIZE_SIDECAR_ENTRY 可用）");
+		// 恒启用决策（2026-08-05）：无 Node 是环境配置错误——明确报错 + 安装指引，不静默、不降级。
+		ERR_PRINT("[Sidecar] spawn sidecar 失败：" + opts.path + " " + String(env_entry) + "（错误 " + itos(err) + "）");
+		ERR_PRINT("[Sidecar] 请确认：① 已安装 Node.js（https://nodejs.org，SEA 发布前开发期必需）；② BAIZE_SIDECAR_ENTRY 指向 sidecar 入口（如 D:/.../web/runtime/dist/index.js）；③ 或设 BAIZE_NODE 指定 node 可执行文件路径。");
 		return;
 	}
 	sidecar_proc_ = handle;
