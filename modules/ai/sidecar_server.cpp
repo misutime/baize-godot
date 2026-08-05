@@ -117,8 +117,9 @@ void SidecarServer::start() {
 
 	if (mode == "dev") {
 		print_line("[Sidecar] dev 模式：监听 ws://127.0.0.1:" + itos(listen_port_) + "，等待外部 sidecar 连接（BAIZE_SIDECAR_TOKEN 已由环境提供）");
-	} else {
-		_spawn_sidecar();
+	} else if (!_spawn_sidecar()) {
+		// 恒启用：首次 spawn 失败也进入退避重试（上限 3 次），不静默放弃（遗留 P2 修复）。
+		_schedule_restart();
 	}
 }
 
@@ -143,8 +144,17 @@ void SidecarServer::stop() {
 				peer.peer->send_text(JSON::stringify(notify));
 			}
 		}
-		// 等 2s 让 sidecar 优雅收尾（发 shutdown 通知 + 等 2s + kill 进程树，§4.4）。
-		OS::get_singleton()->delay_usec(2000000);
+		// 等 2s 让 sidecar 优雅收尾：先 poll 推进 wslay 内部发送队列（慢客户端下 send_text 返回 OK 但帧未落 socket——遗留 P2），
+		// 再等待剩余时间，最后 kill 进程树（§4.4）。
+		for (int attempt = 0; attempt < 5; attempt++) {
+			for (int i = 0; i < peers_.size(); i++) {
+				if (peers_.write[i].peer.is_valid()) {
+					peers_.write[i].peer->poll();
+				}
+			}
+			OS::get_singleton()->delay_usec(100000);
+		}
+		OS::get_singleton()->delay_usec(1500000);
 	}
 	if (spawned_) {
 		_kill_sidecar();
@@ -200,12 +210,12 @@ String SidecarServer::_resolve_node() const {
 	return String("node"); // PATH 解析；找不到由 ProcessSupervisor spawn 报错
 }
 
-void SidecarServer::_spawn_sidecar() {
+bool SidecarServer::_spawn_sidecar() {
 	const char *env_entry = std::getenv("BAIZE_SIDECAR_ENTRY");
 	if (!env_entry || String(env_entry).is_empty()) {
 		ERR_PRINT("[Sidecar] BAIZE_SIDECAR=1 需要 BAIZE_SIDECAR_ENTRY 指向 sidecar 入口脚本/SEA 可执行（开发期如 D:/misutime/104_game/baize-godot/web/runtime/dist/index.js）");
 		ERR_PRINT("[Sidecar] 未 spawn；WS 监听保持（ws://127.0.0.1:" + itos(listen_port_) + "），可手动连接");
-		return;
+		return false;
 	}
 	ProcessSupervisor::SpawnOptions opts;
 	opts.path = _resolve_node();
@@ -231,7 +241,9 @@ void SidecarServer::_spawn_sidecar() {
 	const String log_file = log_dir.path_join("sidecar.log");
 	// 日志有界（审查 P2）：>5MB 轮转为 .1（保留 1 份），避免无界磁盘增长（与注释“有界”一致）。
 	if (FileAccess::exists(log_file) && FileAccess::get_size(log_file) > 5 * 1024 * 1024) {
-		DirAccess::rename_absolute(log_file, log_file + ".1");
+		if (DirAccess::rename_absolute(log_file, log_file + ".1") != OK) {
+			ERR_PRINT("[Sidecar] 日志轮转失败（文件可能被占用，将继续追加）：" + log_file);
+		}
 	}
 	opts.stdout_file = log_file;
 	opts.stderr_file = log_file;
@@ -242,17 +254,21 @@ void SidecarServer::_spawn_sidecar() {
 		// 恒启用决策（2026-08-05）：无 Node 是环境配置错误——明确报错 + 安装指引，不静默、不降级。
 		ERR_PRINT("[Sidecar] spawn sidecar 失败：" + opts.path + " " + String(env_entry) + "（错误 " + itos(err) + "）");
 		ERR_PRINT("[Sidecar] 请确认：① 已安装 Node.js（https://nodejs.org，SEA 发布前开发期必需）；② BAIZE_SIDECAR_ENTRY 指向 sidecar 入口（如 D:/.../web/runtime/dist/index.js）；③ 或设 BAIZE_NODE 指定 node 可执行文件路径。");
-		return;
+		return false;
 	}
 	sidecar_proc_ = handle;
 	session_start_ms_ = handle.spawn_ms; // health uptime 基准 = 子进程启动时刻
 	spawned_ = true;
 	print_line("[Sidecar] sidecar spawned: " + opts.path + " " + String(env_entry) + " → ws://127.0.0.1:" + itos(listen_port_));
+	return true;
 }
 
 void SidecarServer::_kill_sidecar() {
 	if (spawned_) {
-		ProcessSupervisor::kill_tree(sidecar_proc_);
+		// 遗留 P2：已退出（is_running 已 reap）的进程跳过 kill_tree——避免对可能复用的 PID 发进程组信号（Unix）。
+		if (ProcessSupervisor::is_running(sidecar_proc_)) {
+			ProcessSupervisor::kill_tree(sidecar_proc_);
+		}
 		ProcessSupervisor::release(sidecar_proc_);
 		spawned_ = false;
 	}
@@ -309,7 +325,10 @@ void SidecarServer::poll() {
 	if (spawned_ == false && restart_count_ > 0 && next_spawn_ms_ != 0) {
 		if (OS::get_singleton()->get_ticks_msec() >= next_spawn_ms_) {
 			next_spawn_ms_ = 0;
-			_spawn_sidecar();
+			if (!_spawn_sidecar()) {
+				// 遗留 P2：spawn 失败（入口缺失/Job/stdio 临时错误）也进入退避重试，不静默放弃剩余次数。
+				_schedule_restart();
+			}
 		}
 	}
 	_accept_connections();
@@ -401,6 +420,11 @@ void SidecarServer::_poll_peers() {
 			msgs++;
 		}
 		if (sp.dead) {
+			// 遗留 P2：已认证 sidecar 致命 drop（非文本帧/读帧失败/输出队列超限）与连接关闭同等对待——kill + 退避重启。
+			if (sp.authenticated && spawned_) {
+				_kill_sidecar();
+				_schedule_restart();
+			}
 			_drop_peer(i, sp.drop_reason.is_empty() ? "致命状态" : sp.drop_reason);
 			continue;
 		}

@@ -37,6 +37,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+// 前向声明：_inherit_std_handle 定义在文件尾部，spawn（文件前部）先使用（遗留 P2 stdio 继承）。
+static HANDLE _inherit_std_handle(DWORD p_std);
 #else
 #include <cerrno>
 #include <csignal>
@@ -75,17 +77,38 @@ Error ProcessSupervisor::spawn(const SpawnOptions &p_opts, ProcessHandle &r_hand
 	si.cb = sizeof(si);
 	bool use_std_handles = !p_opts.stdout_file.is_empty() || !p_opts.stderr_file.is_empty();
 	HANDLE h_in = nullptr, h_out = nullptr, h_err = nullptr;
+	bool own_out = false, own_err = false; // 继承的父句柄不能 CloseHandle（遗留 P2）
 	if (use_std_handles) {
 		si.dwFlags |= STARTF_USESTDHANDLES;
-		// STARTF_USESTDHANDLES 要求句柄可继承；一律用继承的 NUL/文件句柄，不 fallback GetStdHandle（可能不可继承 → 87）。
-		h_in = (HANDLE)_open_log_handle(String("NUL"));
-		h_out = (HANDLE)_open_log_handle(p_opts.stdout_file.is_empty() ? String("NUL") : p_opts.stdout_file);
-		h_err = (HANDLE)_open_log_handle(p_opts.stderr_file.is_empty() ? String("NUL") : p_opts.stderr_file);
+		// STARTF_USESTDHANDLES 要求句柄可继承。
+		// 指定流 → 打开可继承文件句柄；未指定流 → 继承父进程句柄（SetHandleInformation 设为可继承，与 Unix 语义一致——遗留 P2）；
+		// 继承失败兜底 NUL（不静默用不可继承句柄直传 → 87）。
+		h_in = (HANDLE)_open_log_handle(String("NUL")); // sidecar 无 stdin 需求
+		if (p_opts.stdout_file.is_empty()) {
+			h_out = _inherit_std_handle(STD_OUTPUT_HANDLE);
+		} else {
+			h_out = (HANDLE)_open_log_handle(p_opts.stdout_file);
+			own_out = true;
+		}
+		if (p_opts.stderr_file.is_empty()) {
+			h_err = _inherit_std_handle(STD_ERROR_HANDLE);
+		} else {
+			h_err = (HANDLE)_open_log_handle(p_opts.stderr_file);
+			own_err = true;
+		}
+		if (!h_out) {
+			h_out = (HANDLE)_open_log_handle(String("NUL"));
+			own_out = true;
+		}
+		if (!h_err) {
+			h_err = (HANDLE)_open_log_handle(String("NUL"));
+			own_err = true;
+		}
 		if (!h_in || !h_out || !h_err) {
 			ERR_PRINT("[Sidecar] ProcessSupervisor::spawn stdio 句柄打开失败（NUL/日志文件不可访问）");
 			if (h_in) CloseHandle(h_in);
-			if (h_out) CloseHandle(h_out);
-			if (h_err) CloseHandle(h_err);
+			if (h_out && own_out) CloseHandle(h_out);
+			if (h_err && own_err) CloseHandle(h_err);
 			return ERR_CANT_OPEN;
 		}
 		si.hStdInput = h_in;
@@ -128,8 +151,8 @@ Error ProcessSupervisor::spawn(const SpawnOptions &p_opts, ProcessHandle &r_hand
 	if (ret == 0) {
 		ERR_PRINT("[Sidecar] ProcessSupervisor::spawn 失败: " + command + " err=" + itos(GetLastError()));
 		if (h_in) CloseHandle(h_in);
-		if (h_out) CloseHandle(h_out);
-		if (h_err) CloseHandle(h_err);
+		if (h_out && own_out) CloseHandle(h_out);
+		if (h_err && own_err) CloseHandle(h_err);
 		return ERR_CANT_FORK;
 	}
 
@@ -157,19 +180,33 @@ Error ProcessSupervisor::spawn(const SpawnOptions &p_opts, ProcessHandle &r_hand
 	}
 	if (!job_ok) {
 		ERR_PRINT("[Sidecar] ProcessSupervisor: Job Object 配置失败，终止 spawn（不静默降级）");
-		TerminateProcess(pi.hProcess, 1);
+		// 遗留 P2：确认终止成功；失败时保留进程句柄供后续清理（否则挂起孤儿进程无句柄可杀）。
+		if (!TerminateProcess(pi.hProcess, 1)) {
+			ERR_PRINT("[Sidecar] ProcessSupervisor: TerminateProcess 失败 err=" + itos(GetLastError()) + "（进程可能残留）");
+		}
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
 		if (h_in) CloseHandle(h_in);
-		if (h_out) CloseHandle(h_out);
-		if (h_err) CloseHandle(h_err);
+		if (h_out && own_out) CloseHandle(h_out);
+		if (h_err && own_err) CloseHandle(h_err);
 		return ERR_CANT_FORK;
 	}
-	ResumeThread(pi.hThread);
-	// 父侧 stdio 句柄关闭（子进程已继承副本——审查 P2 句柄泄漏）。
+	if (ResumeThread(pi.hThread) == (DWORD)-1) {
+		// 遗留 P2：恢复线程失败 → 进程永久挂起且 is_running 恒 true——终止并报错。
+		ERR_PRINT("[Sidecar] ProcessSupervisor: ResumeThread 失败 err=" + itos(GetLastError()) + "（终止挂起进程）");
+		TerminateProcess(pi.hProcess, 1);
+		CloseHandle(job);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		if (h_in) CloseHandle(h_in);
+		if (h_out && own_out) CloseHandle(h_out);
+		if (h_err && own_err) CloseHandle(h_err);
+		return ERR_CANT_FORK;
+	}
+	// 父侧 stdio 句柄关闭（子进程已继承副本——审查 P2 句柄泄漏；继承的父句柄不关）。
 	if (h_in) CloseHandle(h_in);
-	if (h_out) CloseHandle(h_out);
-	if (h_err) CloseHandle(h_err);
+	if (h_out && own_out) CloseHandle(h_out);
+	if (h_err && own_err) CloseHandle(h_err);
 
 	r_handle.pid = pi.dwProcessId;
 	r_handle.job = job;
@@ -357,13 +394,23 @@ void ProcessSupervisor::release(ProcessHandle &r_handle) {
 #ifndef _WIN32
 String ProcessSupervisor::_resolve_in_path(const String &p_name) {
 	// execve 不搜 PATH：按 PATH 逐目录找可执行文件（审查 P1）。
+	// 遗留 P2：PATH 可能含相对目录（如 "."、"bin"）——子进程 chdir 后相对路径失效，
+	// 统一以父进程 cwd 为基准转绝对路径（access 检查与 execve 执行口径一致）。
 	const char *env_path = std::getenv("PATH");
 	if (!env_path) {
 		return String();
 	}
+	char cwd_buf[4096];
+	const char *cwd = getcwd(cwd_buf, sizeof(cwd_buf));
 	const Vector<String> dirs = String::utf8(env_path).split(":");
 	for (const String &dir : dirs) {
-		const String candidate = dir.path_join(p_name);
+		String abs_dir = dir;
+		if (dir.is_empty()) {
+			abs_dir = cwd ? String::utf8(cwd) : String("."); // 空 PATH 项 = 当前目录
+		} else if (!dir.begins_with("/")) {
+			abs_dir = (cwd ? String::utf8(cwd) : String(".")) + "/" + dir;
+		}
+		const String candidate = abs_dir.path_join(p_name);
 		if (::access(candidate.utf8().get_data(), X_OK) == 0) {
 			return candidate;
 		}
@@ -373,6 +420,9 @@ String ProcessSupervisor::_resolve_in_path(const String &p_name) {
 #endif
 
 #ifdef _WIN32
+// 前向声明（定义在文件尾部 _open_log_handle 之后）。
+static HANDLE _inherit_std_handle(DWORD p_std);
+
 // wchar_t*（UTF-16，Windows）→ 内部 String（char32_t 码点），合并代理对。
 static String _from_wchar(const wchar_t *p_str) {
 	Vector<char32_t> buf;
@@ -432,5 +482,16 @@ void *ProcessSupervisor::_open_log_handle(const String &p_path) {
 			FILE_ATTRIBUTE_NORMAL,
 			nullptr);
 	return h == INVALID_HANDLE_VALUE ? nullptr : (void *)h;
+}
+
+// 遗留 P2：未指定流继承父进程句柄——GetStdHandle 的句柄默认不可继承，须 SetHandleInformation 设为可继承。
+// 返回的句柄属父进程（调用方不得 CloseHandle）。
+static HANDLE _inherit_std_handle(DWORD p_std) {
+	HANDLE h = GetStdHandle(p_std);
+	if (h != nullptr && h != INVALID_HANDLE_VALUE) {
+		SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+		return h;
+	}
+	return nullptr;
 }
 #endif

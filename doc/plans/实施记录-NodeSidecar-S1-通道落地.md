@@ -105,16 +105,18 @@ bad-hello（未认证首帧错误 token）: {"error":{"code":-32000,"data":{"cod
 
 **复审（16 项）**：12 项确认修复；新发现 P1 1 项（**依赖 optional 不强制检查**——`module_add_dependencies` 第三参 True 只进 optional 槽位，`methods.py` 仅检查 required；两处 config.py 改必需依赖）+ P2 4 项已修（`_flush_out` 扣减口径、CLOSING 竞态 invoke、重试耗尽测试弱覆盖、其余边界）。
 
-## 7. 遗留（P2，记录待后续，不阻断合入）
+## 7. 遗留（P2，已全部修复 2026-08-05，保留记录供追溯）
 
-1. 已认证 dead peer drop（非文本帧/读帧失败/队列超限）不触发 kill+退避重启
-2. 日志轮转 rename 失败忽略；轮转仅在 spawn 前（运行期无上限）
-3. `ResumeThread`/`TerminateProcess`（Job 失败路径）返回值未检查
-4. 重启 spawn 失败后 `next_spawn_ms_` 清零 → 剩余自动重试静默放弃
-5. 已 reap PID 的 `kill_tree` 竞态（Unix，PID 复用风险）
-6. 相对 PATH 项 + 子进程 cwd 解析不一致（Unix）
-7. Windows 单 stdio 指定时另一流被 NUL 而非继承（与 Unix 语义不一致）
-8. `stop()` 慢客户端（socket WOULDBLOCK）下 shutdown 泵送不完整
+1. ~~已认证 dead peer drop（非文本帧/读帧失败/队列超限）不触发 kill+退避重启~~ → 已修：`_poll_peers` dead 分支与连接关闭同等对待（kill + 退避重启）
+2. ~~日志轮转 rename 失败忽略~~ → 已修：检查返回值并报错（文件被占用时可见）
+3. ~~`ResumeThread`/`TerminateProcess` 返回值未检查~~ → 已修：恢复失败终止进程报错；终止失败保留句柄报告
+4. ~~重启 spawn 失败后静默放弃退避~~ → 已修：spawn 返回 bool，失败进入退避重试（实测 500ms/1s/2s 递增 ×3）
+5. ~~已 reap PID 的 kill_tree 竞态~~ → 已修：`_kill_sidecar` 先 is_running（已退出跳过 kill）
+6. ~~相对 PATH 项 + cwd 解析不一致~~ → 已修：`_resolve_in_path` 以父 cwd 为基准转绝对路径
+7. ~~Windows 单 stdio 指定时另一流被 NUL~~ → 已修：未指定流继承父句柄（`SetHandleInformation`，句柄所有权区分，不误关父句柄）
+8. ~~`stop()` 慢客户端 shutdown 泵送不完整~~ → 已修：2s 窗口内 poll 推进 wslay 内部发送队列
+
+**运行期日志轮转**（Windows 子进程句柄独占限制）：spawn 前轮转 + rename 失败可见；运行期轮转由发布形态（SEA 后 sidecar 内部 pino 轮转）接管。
 
 ## 8. 相关文档
 
