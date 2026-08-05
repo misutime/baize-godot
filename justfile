@@ -1,13 +1,22 @@
-# 引擎级 WebDock（Route B）开发/测试命令
+# 引擎级 WebDock（C++ 路线）开发/测试命令
 # 用法：just [recipe]，just 不带参数 = 列出配方
-# 分发模型：gdcef 扩展 + 页面产物随编辑器分发（bin/webview/），与打开的项目无关
+# 分发模型：CefViewCore 源码编入引擎；CEF 运行时 + helper（CefViewWing）+ 页面产物
+# 随编辑器分发。双平台：Windows x64 / macOS arm64。mac 上两种启动形态均可用：
+#   1. 终端裸可执行文件（bin/godot.macos.editor.dev.arm64，运行时在 bin/ 同级）
+#   2. .app bundle（启动台/双击；运行时 + UI 在 bundle 内 Contents/Frameworks +
+#      Contents/Resources/webview/ui，CEF mac 标准布局）
+#
+# 构建（2026-08-03 起自动化）：task dev / just dev 内部已由 build.py 内置 stage-webview
+# 前后钩子——构建前确保预构建产物（首次自动下载 SDK），构建后暂存 bin/ 与 mac bundle。
+# 无需手动先跑 stage-webview。UI 变更后补 task ui-build（下次构建自动入 bundle）。
 
-set shell := ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 
-# 常用路径
-exe       := "bin" / "godot.windows.editor.dev.x86_64.console.exe"
-project   := "D:\\misutime\\104_game\\refers\\cef-b0-test"
-gdcef_dir := "D:\\misutime\\104_game\\refers\\godot-cef"
+# 常用路径(双平台:just 的 os() 运行时判定;未支持平台显式报错,不静默当 Windows)
+# mac:dev 构建产物 bin/godot.macos.editor.dev.arm64(Apple Silicon);
+#     项目路径为仓库相对 ../refers/cef-b0-test(与本仓库 refers/ 布局一致,按实际位置调整)
+exe     := if os() == "macos" { "bin" / "godot.macos.editor.dev.arm64" } else if os() == "windows" { "bin" / "godot.windows.editor.dev.x86_64.console.exe" } else { error("unsupported platform for dev-run: " + os()) }
+project := if os() == "macos" { "../refers/cef-b0-test" } else if os() == "windows" { "D:\\misutime\\104_game\\refers\\cef-b0-test" } else { error("unsupported platform for dev-run: " + os()) }
 
 # 列出所有配方
 default:
@@ -17,23 +26,13 @@ default:
 dev:
     task dev
 
-# 构建 gdcef 扩展（Rust，绕过 mise；需要 nightly + CEF_PATH）
-gdcef-build:
-    cd {{gdcef_dir}}; $env:CEF_PATH = "$env:USERPROFILE\.local\share\cef"; $env:PATH = "$env:PATH;$env:CEF_PATH"; cargo +nightly-2026-07-28 xtask bundle --release
-
-# 暂存 gdcef 产物到编辑器分发目录 bin/webview/（统一走 task stage-webview，单一入口）
+# 预构建 CEF 产物并暂存到分发目录（统一走 task stage-webview，单一入口）
+# 首次/换 CEF 版本：构建 libcef_dll_wrapper + CefViewWing + CEF 运行时 → bin/ + bin/webview/ui/
+# 产物已就绪：跳过构建，仅暂存（秒级）
 webview-stage:
     task stage-webview
 
-# 未暂存态：预期打印 "[WebView] CEF extension not staged ... run just webview-stage"
-b0-inert:
-    & "{{exe}}" --path {{project}} --editor
-
-# 加载态：编辑器自动从 bin/webview/ 加载扩展并显示 WebDock
-# 预期日志：Loading CEF extension -> Initialize godot-rust -> loaded OK -> WebDock registered
-b0-load:
-    & "{{exe}}" --path {{project}} --editor
-
-# 无头类检查：确认 CefTexture 已注册（需先 webview-stage）
-b0-check:
-    & "{{exe}}" --headless --path {{project}} --script res://check.gd
+# 编辑器加载态：自动初始化 CEF 并显示 WebDock
+# 预期日志：CEF initialized -> WebPanel browser created -> WebDock registered -> page loaded (200)
+dev-run:
+    "{{exe}}" --path {{project}} --editor

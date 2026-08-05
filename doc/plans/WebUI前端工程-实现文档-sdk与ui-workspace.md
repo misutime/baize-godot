@@ -1,0 +1,163 @@
+# WebUI 前端工程——实现文档（sdk + ui workspace）
+
+> **状态**：2026-08-03 编写（工作项 2 完成）。衔接《WebUI架构-桥协议与前端SDK.md》（协议 §3 + SDK 设计 §4）。
+> **范围**：`web/` workspace 脚手架 + `@baize/ui-sdk` 全量实现 + `@baize/ui` React 壳（属性面板）。
+> **技术栈定案**：React 19 + Vite 8（用户裁决，2026-08-03）；其余按实现推荐落地。
+
+---
+
+## 1. 技术栈（2026-08 实测版本）
+
+| 层 | 选型 | 实测版本 | 说明 |
+|---|---|---|---|
+| 包管理 | pnpm workspace | 11.17.0 | 单 lockfile；esbuild 构建脚本白名单（pnpm 10+ 默认阻止） |
+| 语言 | TypeScript | 5.9.3 | strict + verbatimModuleSyntax |
+| 构建 | Vite 8（Rolldown 内核） | 8.2.0 | 2026-03 起 Rolldown+Oxc 为默认，替代 esbuild+Rollup（[vite.dev](https://vite.dev)） |
+| UI 框架 | React | 19.2.8 | 2026-07 最新稳定；React Compiler v1.0 生态（[react.dev](https://react.dev)） |
+| 测试 | Vitest | 3.2.7 | node 环境 + 假桥注入（无 DOM 依赖） |
+| lint/format | Biome | 2.5.6 | 绿地默认：单 Rust 二进制，preset:recommended + assist 导入整理 |
+| 运行时 | Node | 24.14.0 | 当前活跃 LTS |
+
+**决策依据**：编辑器内嵌面板（离线 `file://` 加载、体积敏感）→ SDK 零运行时依赖、产物 base:'./' 相对路径；
+两包规模 → 不引入 Turborepo/Nx（Vite 8 本身快）；无远端数据 → 不引入 TanStack Query。
+
+## 2. 工程结构
+
+```text
+web/
+├── package.json            workspace 根（scripts 委派 build/test/lint/format）
+├── pnpm-workspace.yaml     packages: sdk, ui；onlyBuiltDependencies: esbuild
+├── biome.json              2.5.x schema；formatter(space 2)/linter(preset)/assist
+├── .gitignore              node_modules/ dist/ *.tsbuildinfo
+├── pnpm-lock.yaml
+├── sdk/  @baize/ui-sdk     （零运行时依赖；react 为 optional peer）
+│   ├── src/transport.ts    CefViewClient 桥传输层
+│   ├── src/registry.ts     协议注册表（defineMethod/defineEvent）
+│   ├── src/bridge.ts       协议 §3.3 方法/事件实例
+│   ├── src/index.ts        主入口：scene/editor 类型化 API 对象
+│   ├── src/react.ts        hooks（子路径 ./react）
+│   ├── src/*.test.ts       单测（假桥）
+│   └── vite.config.ts      lib mode 双入口（index + react），ESM + sourcemap
+└── ui/  @baize/ui          （React 壳，工作项 3 填充）
+    ├── vite.config.ts      base:'./'（file:// 相对加载）+ @vitejs/plugin-react
+    ├── index.html
+    └── src/{main.tsx, App.tsx, index.css}
+```
+
+## 3. SDK 分层与协议映射
+
+### 3.1 transport（`transport.ts`）——传输层，组件不直接触碰
+
+- **调用约定**（与 C++ 侧 `webview_core::invokeMethodNotify` 对齐，1a 实测验证）：
+  `CefViewClient.invoke(method, JSON.stringify({ req_id, ...params }))`
+- **应答配对**：首次 invoke 惰性订阅 `method_result` 下行 → 按 `req_id`（SDK 生成字符串；
+  规避 C++ 侧 JS 数字 → double 解析陷阱）配对 → Promise resolve/reject
+- **悬空防护**（协议 §3.2）：超时（默认 10s 可配）reject `{code:"timeout"}`；迟到的应答
+  按未知 req_id 丢弃
+- **错误透传**：`{ok:false, error:{code,message}}` → reject `BridgeError`；桥注入缺失
+  （`window.CefViewClient` 形态不符）**显式抛错**，不静默回退（AGENTS.md 工程规则）
+- **事件订阅**：`onEvent(type, listener)` 解析 JSON 载荷（非 JSON 原字符串透传），返回退订函数
+
+### 3.2 registry（`registry.ts`）——类型 ↔ 协议字符串单点声明
+
+```ts
+defineMethod<{ name: string }, number>("scene.create_node")  // → 类型化调用函数
+defineEvent<{ node_paths: string[] }>("editor.selection_changed") // → 订阅函数
+```
+
+### 3.3 bridge（`bridge.ts`）——协议 §3.3 全量实例
+
+方法：`getNodeCount` / `createNode` / `getNodePosition` / `setNodePosition` / `undo` / `redo`
+事件：`onSelectionChanged` / `onPositionChanged` / `onUndoStackChanged`
+
+### 3.4 hooks（`react.ts`，子路径 `@baize/ui-sdk/react`）
+
+- `useEditorEvent(subscribe, handler)`：订阅自动清理 + 最新闭包（重渲染后 handler 始终最新）
+- `useBridgeCall(call)`：loading/error 封装，in-flight 防重复调用，错误上抛不吞
+
+## 4. 关键机制与决策
+
+- **零依赖体积**：SDK 构建产物 `index.js` gzip 1.13kB（Vite 8 lib mode + `external:["react"]`）；
+  react 为 optional peerDependency，主包不绑框架
+- **base:'./'**：ui 产物资源路径为 `./assets/...`（已实测），`file://` 下由 WebDock OSR 直接加载
+- **测试方法**：vitest node 环境 + `_setBridgeClientForTest` 注入假桥（记录 invoke + 手动触发
+  method_result/事件），13 用例覆盖协议字符串格式、配对、超时、错误、注入缺失
+- **踩坑留档**：npm 包名 `biome` 是他人旧包（0.3.3）——正解 `@biomejs/biome`；CSS 不能用 `//`
+  注释（lightningcss 报 Invalid empty selector）；Biome 2.x 弃用 `recommended` 改 `preset`、
+  导入整理移入 `assist`；pnpm 10+ 需 `onlyBuiltDependencies` 放行 esbuild
+
+## 5. 命令
+
+```text
+cd web
+pnpm install                 # 安装（lockfile 冻结）
+pnpm -r run test             # sdk vitest（13 用例）
+pnpm -r run typecheck        # 两包 tsc --noEmit
+pnpm -r run build            # sdk（vite lib + tsc d.ts）+ ui（vite）
+pnpm exec biome check .      # lint + 格式（--write 自动修复）
+```
+
+## 6. 验证记录（2026-08-03，Win 实机）
+
+- sdk 单测 13/13 通过；两包 typecheck 通过；biome check 0 错误
+- sdk 构建：`dist/index.js` 2.51kB（gzip 1.13kB）+ `dist/react.js` 0.70kB + d.ts（已排除测试文件）
+- ui 构建：`dist/index.html` + assets（JS gzip 60.36kB，React 基础体积）
+- 产物路径实测 `./assets/...`（base:'./' 生效）
+
+## 7. 验证记录（2026-08-03，Win 实机）
+
+- sdk 单测 13/13 通过；两包 typecheck 通过；biome check 0 错误
+- sdk 构建：`dist/index.js` 2.51kB（gzip 1.13kB）+ `dist/react.js` 0.70kB + d.ts（已排除测试文件）
+- ui 构建：`dist/index.html` + assets（JS gzip 60.36kB，React 基础体积）
+- 产物路径实测 `./assets/...`（base:'./' 生效）
+
+## 8. React 壳接入（工作项 3，2026-08-03）
+
+- **属性面板**：选中节点路径 + X/Y/Z 输入（失焦/回车提交 `scene.setNodePosition`，undo 入栈）；
+  视口拖动经 `node_position_changed` 实时跟随（输入框聚焦时不覆盖）；撤销/重做按钮
+  （`undo_stack_changed` 状态驱动禁用）；场景节点数（`scene.getNodeCount`）
+- **样式**：Tailwind CSS v4.3（`@tailwindcss/vite` 插件，零配置）
+- **加载**：dock 入口 `bridge.html` → `index.html`（`editor_web_dock.cpp`）；
+  `misc/scripts/stage_ui.py` 为单一 UI 暂存点（`web/ui/dist` → `bin/webview/ui/`，原子替换），
+  stage-webview 复用；旧 stub bridge.html 退役删除
+- **宿主日志**：`[WebView] invoke: ...`（webview_manager，产品级，与 query 同级）；
+  consoleMessage 正式保留（页面 JS 错误 → 宿主 stderr）
+- **file:// CORS 根因与修复**：CEF 151 默认 file:// 跨源被拦截（module script + crossorigin
+  CSS，console 证据：file 不在允许协议列表）→ `AppDelegate::onBeforeCommandLineProcessing`
+  加 `allow-file-access-from-files`（用户裁决：编辑器内嵌场景放宽；影响面仅本 CEF 实例
+  file:// 页面，WebDock 只加载自家产物）
+- **验证（Win 实机）**：dock 加载 index.html 200 → React 壳自动 `scene.getNodeCount`
+  invoke 到达宿主（全链路通）、CORS 拦截 0、无 JS 错误
+
+## 9. 遗留与下一步
+
+- **MVP 验收 2/3/4 交互验证**（手动）：选中 Node3D 显示 X；改 X 节点移动 + Ctrl+Z 撤销；
+  3D 视口拖动数字实时跟随——链路已通（事件源/输入转发/桥均实测），UI 交互待实机点验
+- **体积优化**（可选）：ui JS ~60KB gzip 为 React 基础体积，面板复杂后可考虑分包/lazy
+- 协议扩展：`inspector.set_prop` 等后续方法（架构文档 §5 后续项）
+
+## 10. 字体体系（2026-08-03 补记：统一来源 + 思源 + 字号缩放）
+
+**目标**：WebDock 与原生 dock 长期共存，视觉几乎一致——字形/字号/缩放三方面对齐。
+
+| 维度 | 实现 | 来源/跟随 |
+|---|---|---|
+| 字形 | Noto Sans CJK SC（思源黑体，SIL OFL）Regular+Bold | **单一来源 = 编辑器**：editor_fonts.cpp 加载默认字体后经 `WebBridge::set_resolved_fonts` 写入运行时静态存储（非持久化——防机器绝对路径写入 editor_settings-*.tres）；WebDock 经 get_ui_font/get_ui_font_bold 拉取实际生效路径（main_font 设置优先，空则 resolved），@font-face 注入（file:// 组件编码），**页面无硬编码字体路径** |
+| 字号 | html font-size = main_font_size × display_scale（默认 14×1.5=21px@4K）；body 1rem，Tailwind 全 rem 跟随 | main_font_size（get_ui_font_size + ui_font_size_changed 事件，运行时生效）；display_scale（get_ui_scale，重启生效） |
+| 缩放 | display_scale：Auto→DPI/96、1..6→(mode+2)×0.25、越界→custom（对齐原生 editor_node 语义） | EditorSettings |
+
+**分发**：字体源 `web/ui/public/fonts/`（git 跟踪）→ Vite public 机制自动进 dist/fonts →
+stage_ui 拷贝 dist 整体到 `bin/webview/ui/fonts/`（编辑器运行时加载 + WebDock 页面共享同一文件）。
+换字体 = 换文件 + 重启，无需重编引擎。
+
+**内置字体优化**：思源为主字体后 DroidSansFallback 仅在 Inter 回退分支加载（防回退路径
+中文/韩文缺字）；DroidSansJapanese 保留（日文字形）；Inter/JetBrainsMono 数组未引用时
+编译期剔除。
+
+**诊断**（产品级，宿主 stderr 可查）：WebDock 加载后输出 `[webdock-font]` 日志——
+bodyFamily（CSS 层应用确认）+ regular/bold 实际路径 + `fonts.load()` 加载确认
+（loaded=true）；加载失败显式 console.error。原生 dock 实际字体 = get_ui_font 返回值
+（桥，来源单一）。
+
+**审查历程**：字体系列 8 个提交经两轮 reviewer 审查（早期 5 个 + 中期 3 个），共 11 个
+发现全部修复（P1×2：font-family 被 body 覆盖致注入字体未渲染、req_id/输入同步等）。

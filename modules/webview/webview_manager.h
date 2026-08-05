@@ -30,17 +30,68 @@
 
 #pragma once
 
-#include "core/string/ustring.h"
+#include "webview_core.h"
 
-// 引擎级 webview 管理单例（Route B）。
-// 职责：从编辑器分发目录（<exe_dir>/webview/）自动加载 gdcef 扩展。
-// 页面/扩展均随编辑器分发，与打开的项目无关。
+#include "core/string/ustring.h"
+#include "core/templates/hash_map.h"
+
+#include <cstdint>
+
+class Object;
+class WebPanel;
+
+// 引擎级 webview 管理单例（C++ 路线）。
+// 职责：持有 WebViewCore（C++ 核心，封装 CEF）生命周期、每帧 pump（单例驱动：
+// init_core 成功后挂 SceneTree::process_frame，与面板数量解耦，最后面板退出后
+// 异步关闭送达前仍持续泵送）、面板注册表（browser_id → WebPanel）与核心回调分发
+// （on_load_status / on_query / on_invoke_method）。
+// 不再加载 gdcef 扩展：CEF 由核心层直接初始化（init_core 惰性，失败为终态）。
 class WebViewManager {
 	static WebViewManager *singleton;
 
+	WebViewCore core_; // C++ 核心（非 Godot 对象，值成员，随单例生命周期）
+	bool core_initialized_ = false; // init 尝试过一次即置位（失败为终态，不重试）
+	HashMap<int32_t, WebPanel *> panels_;
+	int32_t next_browser_id_ = 0;
+	Object *pump_driver_ = nullptr; // SceneTree::process_frame 连接目标（每帧 pump；具体类型在 .cpp 匿名命名空间）
+	bool last_mouse_down_ = false; // 左键上一帧按下状态（按下沿检测，焦点修复）
+
+	void start_frame_pump(); // init_core 成功后挂载（幂等）
+	void stop_frame_pump(); // free_singleton 时卸载（幂等）
+
 public:
-	static WebViewManager *get_singleton();
+	static WebViewManager *get_singleton(); // 惰性创建（外部调用）
+	static WebViewManager *peek_singleton(); // 可空读取（静态回调用，不创建，防 teardown 后复活）
 	static void free_singleton();
 
-	void load_cef_extension();
+	void init_core(); // 惰性：首次 create_browser 前调用（幂等；失败为终态，不重试）
+	void shutdown_core(); // 幂等；free_singleton 内部先调用（关闭全部浏览器 + CefShutdown）
+	void pump(); // 每帧一次，由 pump_driver_（SceneTree::process_frame）驱动（核心层内部节流）
+
+	void register_panel(WebPanel *p_panel);
+	void unregister_panel(int32_t p_id);
+
+	int create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h, void *p_parent_handle);
+	void resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, int32_t p_w, int32_t p_h);
+	// 显示/隐藏浏览器原生子窗口（面板可见性同步，窗口模式）。
+	void set_browser_visible(int32_t p_id, bool p_visible);
+	// 获取浏览器原生子窗口句柄（Windows: HWND；不可用返回 0）。
+	int64_t get_browser_native_handle(int32_t p_id);
+	// 焦点双轨修复（Windows，pump 每帧调用一次）：检测鼠标左键按下沿，命中测试
+	// WindowFromPoint 是否属于**任意**面板的 CEF 子窗口——不在任何 webui 内才把
+	// 键盘焦点归还主窗口（多面板下避免互相抢焦点，见实现注释）。
+	void poll_focus_return();
+	void destroy_browser(int32_t p_id);
+	void navigate_browser(int32_t p_id, const String &p_url);
+
+	// JS 查询应答（on_query 回调给出的 p_query_id）。M2 接入 IPC 后由 WebPanel::send_message 使用。
+	bool respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const String &p_response, int p_error);
+
+	// 事件下行（协议层）：payload 为事件 payload JSON（经 WebViewCore::emit_event → TriggerEvent）。
+	void emit_event(int32_t p_id, const String &p_event_name, const String &p_payload_json);
+
+	// WebViewCore 回调（主线程，pump 内同步触发）→ 静态分发到面板注册表。
+	static void _on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url);
+	static void _on_query(int32_t p_id, const std::string &p_query, int64_t p_query_id);
+	static void _on_invoke_method(int32_t p_id, const std::string &p_method, const std::vector<std::string> &p_args);
 };

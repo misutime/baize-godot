@@ -121,6 +121,20 @@
 
 **MVP1 验收清单**：WebDock 出现/拖拽/关闭 ✅；页面渲染可交互 ✅；扩展自动加载与项目无关 ✅。
 
+---
+
+## 决策：转向 4A 引擎原生 Rust 集成（2026-08-02）
+
+**裁决**：用户拍板走 **4A 路线**——不修改 refers/godot-cef 源码；新建 Rust 工程（vendor CEF 通用层），重写 Godot 连接层为自有 C ABI，Rust 核心以 staticlib 融入引擎模块，**剥离 gdext**。
+
+**触发动因**（B-Host 四接缝）：① tool 语义（占位对象 workaround）；② 页面 scheme（file:// 受限）；③ **gdext 版本缝**（api-4-5 vs 4.8-dev，无官方 api-4-8，引擎升级要等跟进）；④ 类型缝（字符串 API）。4A 结构性消除 ①③④，② 引擎原生解决。
+
+**关键实测依据**：cef_app（1689 LOC）与 software_render（206 LOC）**0 文件 import godot**——CEF 通用层可原样 vendor；gdcef（16062 LOC，35/47 godot 耦合）为唯一重写对象。
+
+**方向说明**：4A = 《RouteB-方案.md》§7 演进路径（B-RustA）的具体化定案；M1 渲染/桥/分发沿用已验证的 WebPanel/WebDock/分发模型，仅驱动层从 Object API 改 C ABI。权威文档：《CEF集成-4A引擎原生Rust-方案.md》。
+
+**边界纪律**：C ABI 只承载浏览器语义（lifecycle/paint/message/input/ime），禁止 Godot 对象模型穿越（防退化 mini-gdext）。
+
 ### 下一步（MVP2）
 
 双向桥：`EditorSelection.selection_changed` 信号 + `_process` 帧轮询 diff → 推 `selection_changed`/`position_changed`；收 `set_prop` → `EditorUndoRedoManager` 入栈 → `set_position`。验收：选 Node3D 显示 X；改数字节点动可撤销；3D 拖动数字跟随。

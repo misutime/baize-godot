@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* 深蓝基调与旧 stub 页（#223）一致，保持 WebDock 视觉连续。 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* 根字号兜底 14px（审查 P2）：JS 拉取 main_font_size×scale 失败时 1rem 保持 14px
+   基线（浏览器默认 16px 会放大面板）。JS 成功后覆盖此值。 */
+html {
+  font-size: 14px;
+}
+
+body {
+  background: #223;
+  color: #cfc;
+  /* 1rem 跟随 html font-size（JS 设为 main_font_size × display_scale）：
+     全部文字 = 主字号，与原生 dock 一致。固定 px 不随缩放（4K 下会偏小）。 */
+  font-size: 1rem;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}

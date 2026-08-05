@@ -1,6 +1,6 @@
 # Godot 编辑器 UI 重构（TS 路线）——Route B 方案：引擎级 WebDock（MVP 版）
 
-> **定位**：本文件是《Godot编辑器UI重构方案-TS-CEF嵌入与NodeSidecar-设计.md》的引擎级内嵌实施方案（2026-08-02 编写，**以 MVP 方案与架构为准**，与本文件早期草稿冲突处已按 MVP 修订）。**用户裁决**：编辑器 UI 采用 **Route B——引擎层面内嵌**（web dock 随 fork 编辑器分发），不走项目级 EditorPlugin 路线。E0 已验证的底层能力（OSR 渲染/IME/桥/4.8-dev 兼容）全部迁移到本方案。
+> **定位**：本文件是《Godot编辑器UI重构方案-TS-CEF嵌入与NodeSidecar-设计.md》的引擎级内嵌**产品/功能蓝图**（2026-08-02 编写）。**与《CEF集成-4A引擎原生Rust-方案.md》的分工**：本文件回答"编辑器里那块网页面板做什么"（WebDock 功能/验收）；4A 文档回答"CEF 引擎怎么进 Godot"（技术底座）。4A 是本文件渲染/桥能力的实现底座；本文件的 MVP 目标与验收不随 4A 变化。
 >
 > **证据标注**：API 与仓库事实标注来源；推断标 `[INFERENCE]`。引用《设计》= TS-CEF 方案设计文档。
 
@@ -20,7 +20,7 @@
 
 | # | 决策 | 结论 | 理由（锚定 MVP） |
 |---|---|---|---|
-| 1 | 引擎模块形态 | **B-Host：`modules/webview/` C++ 模块托管已验证的 gdcef 扩展** | MVP 无 GPU 需求、无 gdext 版本滞后痛点 → 无演进触发条件；托管起步最快到"引擎级 web dock"，godot-cef 保持上游跟踪 |
+| 1 | 引擎模块形态 | **引擎级内嵌（随 fork 编辑器分发）**；CEF 集成形态见《4A 方案》（crates/webview-core + C ABI，取代 B-Host 托管） | 编辑器 UI 必须随编辑器分发（本文件核心目标）；集成形态细节不阻塞本文件的功能规划 |
 | 2 | WebDock 开启策略 | **默认开**，仅 `TOOLS_ENABLED`（编辑器构建）激活 | MVP 价值 = 编辑器里可见可用；默认关则无法验收 |
 | 3 | 面板封装 | **薄 C++ 封装 `WebPanel : Control` + 统一桥协议** | 桥逻辑（选中/属性双向 + undo）必须在引擎侧集中一处，未来每个面板复用 |
 | 4 | 页面分发 | **exe 相对目录 `webview/ui/` + `file://` 加载 + Vite `base:'./'`** | `res://` 是项目域装不了编辑器自带页面；MVP 无需自定义 scheme [INFERENCE] |
@@ -45,7 +45,7 @@ fork 引擎 (baize-godot)
 | 层 | 职责 | 语言/来源 |
 |---|---|---|
 | 引擎模块 | 扩展加载、WebPanel 封装、dock 接入、桥协议 | C++（薄壳，本 fork 维护） |
-| CEF 核心 | 浏览器/OSR/IPC/IME 全逻辑（含通信原语） | **Rust，godot-cef 原样**（不 fork，上游跟踪） |
+| CEF 核心 | 浏览器/OSR/IPC/IME 全逻辑（含通信原语） | **Rust，`crates/webview-core`**（详见《4A 方案》——vendor CEF 通用层 + C ABI，非 godot-cef 扩展形态） |
 | 页面层 | React UI（Position X 输入） | TS，ui/ 工程（Vite，`base:'./'`） |
 
 **WebPanel 统一 API**（对应《设计》§3.3）：
@@ -157,6 +157,8 @@ MVP3（React 壳）   : ui/ 工程（Vite base:'./'）→ 产物进 <exe>/../web
 
 ## 7. 演进路径（B-Host → B-RustA）
 
+> **2026-08-02 更新：本节约已定案为 4A 方案**——《CEF集成-4A引擎原生Rust-方案.md》为权威文档（复用 CEF 通用层 + C ABI + 剥离 gdext）。下方表格保留作历史参考。
+
 | 阶段 | 形态 | 动机 | 代价 |
 |---|---|---|---|
 | **MVP 起步（当前）** | C++ 模块托管 gdcef 扩展 | 最快到引擎级 web dock；上游跟踪保持 | 依赖 GDExtension 机制（内部细节，产品侧不可见） |
@@ -189,8 +191,8 @@ MVP3（React 壳）   : ui/ 工程（Vite base:'./'）→ 产物进 <exe>/../web
 
 | 既有裁决 | 修订 |
 |---|---|
-| 计划文档 §9：webview 保持 GDExtension 形态 | **修订**：webview = 引擎模块（`modules/webview/`）托管 gdcef 扩展；GDExtension 是 CEF 载体，非最终形态（编辑器 UI 必须随编辑器分发） |
-| 《设计》§3.3：融合方式（暂定保持 GDExtension） | **修订**：Route B——C++ 薄壳 + 托管扩展（MVP）；Rust 核心 staticlib 融合为演进路径（§7） |
+| 计划文档 §9：webview 保持 GDExtension 形态 | **修订**：webview = 引擎模块（`modules/webview/`）C++ 壳 + `crates/webview-core` Rust 核心（**4A 定案**，见《CEF集成-4A引擎原生Rust-方案.md》）；GDExtension 形态废弃 |
+| 《设计》§3.3：融合方式（暂定保持 GDExtension） | **修订**：4A——C++ 薄壳 + C ABI + Rust 核心 staticlib（取代"托管扩展"与"演进路径"表述） |
 | §9 其余（新原生组件 GDExtension+Rust、核心不替换） | **不变**——游戏内嵌/工具场景继续纯 GDExtension；引擎核心不替换原则不受影响 |
 
 ## 11. 待核实项

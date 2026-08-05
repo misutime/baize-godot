@@ -44,9 +44,13 @@ class WebDockPlugin : public EditorPlugin {
 
 	WebPanel *web_panel = nullptr;
 	EditorDock *web_dock = nullptr;
+	// 事件源下行目标是否已注册到 WebBridge（面板 browser_id 就绪后置位，防重复注册）。
+	bool event_target_registered_ = false;
 
 protected:
 	void _notification(int p_what);
+	/// 页面加载完成（WebPanel::load_finished）：下发事件源初始状态快照。
+	void _on_panel_load_finished();
 
 public:
 	// 延迟注册入口（MessageQueue 第一帧执行；此时 EditorNode 已由 Main::start 创建）。

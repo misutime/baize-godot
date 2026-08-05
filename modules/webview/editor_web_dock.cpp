@@ -32,20 +32,29 @@
 
 #ifdef TOOLS_ENABLED
 
-#include "editor/editor_node.h"
+#include "web_bridge.h"
+#include "webview_runtime_path.h"
 
+#include "editor/editor_node.h"
+#include "editor/themes/editor_fonts.h" // editor_print_font_load_info: 补打默认字体信息
+
+#include "core/object/callable_mp.h"
 #include "core/os/os.h"
 
-// 编辑器自带页面：<exe_dir>/webview/ui/，经 file:// 加载——与打开的项目无关。
+// 编辑器自带页面：<ui_root>/webview/ui/，经 file:// 加载——与打开的项目无关。
+// 入口为 React 壳构建产物（task ui-build → web/ui/dist → bin/webview/ui/）。
+// UI 根解析（.app bundle 启动时在 bundle 内 Contents/Resources）见 webview_runtime_path.h。
 static String get_bundled_ui_url() {
-	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
-	const String file_path = exe_dir.path_join("webview").path_join("ui").path_join("bridge.html");
+	const String file_path = webview_ui_root_dir().path_join("webview").path_join("ui").path_join("index.html");
 	return "file:///" + file_path.replace("\\", "/");
 }
 
 void WebDockPlugin::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
+			// 补打默认字体加载信息：editor_register_fonts 的立即输出早于输出面板接管
+			// （GUI 版丢失），此处主窗口已就绪——输出面板可见。
+			editor_print_font_load_info();
 			web_panel = memnew(WebPanel);
 			web_panel->set_name(SNAME("WebDock"));
 			// MarginContainer 内必须展开填充，否则收缩为 0x0 → CEF 纹理无尺寸不渲染。
@@ -61,6 +70,11 @@ void WebDockPlugin::_notification(int p_what) {
 
 			web_panel->set_url(get_bundled_ui_url());
 			add_dock(web_dock);
+			// 事件源：连接 EditorSelection::selection_changed + 开启帧轮询节拍。
+			WebBridge::init_event_sources();
+			// 页面加载完成（订阅就绪）→ 下发初始状态快照（选中/位置/undo）。
+			web_panel->connect("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished));
+			set_process(true);
 			print_line("[WebView] WebDock registered (LEFT_UL), url=" + get_bundled_ui_url());
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
@@ -73,10 +87,32 @@ void WebDockPlugin::_notification(int p_what) {
 				web_dock = nullptr;
 				web_panel = nullptr;
 			}
+			// 注销事件源：停止下行（面板/browser 即将销毁）+ 断开信号连接。
+			if (event_target_registered_) {
+				WebBridge::set_event_browser_id(-1);
+				event_target_registered_ = false;
+			}
+			WebBridge::deinit_event_sources();
+			if (web_panel && web_panel->is_connected("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished))) {
+				web_panel->disconnect("load_finished", callable_mp(this, &WebDockPlugin::_on_panel_load_finished));
+			}
+		} break;
+		case NOTIFICATION_PROCESS: {
+			// 事件源帧节拍 + browser_id 就绪注册（面板 NOTIFICATION_READY 后才分配 id）。
+			if (web_panel && !event_target_registered_ && web_panel->get_browser_id() >= 0) {
+				WebBridge::set_event_browser_id(web_panel->get_browser_id());
+				event_target_registered_ = true;
+			}
+			WebBridge::poll_editor_state();
 		} break;
 		default:
 			break;
 	}
+}
+
+void WebDockPlugin::_on_panel_load_finished() {
+	// 页面 JS 已完成订阅；下发完整初始状态（选中/位置/undo）。
+	WebBridge::emit_initial_state();
 }
 
 void WebDockPlugin::register_dock() {
