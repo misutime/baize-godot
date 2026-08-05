@@ -37,6 +37,14 @@
 #include <string>
 #include <vector>
 
+// OnAcceleratedPaint 共享纹理的像素字节序(映射 CEF cef_color_type_t,见
+// cef_types_color.h:CEF_COLOR_TYPE_RGBA_8888 / BGRA_8888)。宿主据此决定目标
+// 纹理与 Metal 打开的像素格式——两者必须一致,否则字节被错误解释(R/B 互换)。
+enum class AcceleratedPaintFormat : uint8_t {
+	BGRA8, // CEF_COLOR_TYPE_BGRA_8888
+	RGBA8, // CEF_COLOR_TYPE_RGBA_8888
+};
+
 // C++ 核心层:封装 CefViewCore(CefViewBrowserApp / CefViewBrowserClient)为引擎模块可用的
 // 生命周期 / 消息泵 / 浏览器 / OSR / JS 桥 API。这是 C++ 路线的基础切片,WebPanel /
 // WebViewManager / SCsub 都依赖本 API 面。
@@ -68,8 +76,9 @@ public:
 		// id: 浏览器 id;handle: GPU 共享纹理句柄(shared_texture_enabled=1,mac: IOSurfaceRef
 		// 按 uint64 透传)。句柄每帧变化、仅回调期间有效,宿主必须在该回调内打开并复制到
 		// 自有纹理(CEF 文档:不能缓存、不能在回调外访问,见 cef_render_handler.h
-		// OnAcceleratedPaint);w / h: 纹理像素尺寸(CEF coded_size)。
-		std::function<void(int32_t id, uint64_t handle, uint32_t w, uint32_t h)> on_accelerated_paint;
+		// OnAcceleratedPaint);w / h: 纹理像素尺寸(CEF coded_size);format: 纹理字节序
+		// (CEF info.format,宿主按此决定像素格式,不得硬编码)。
+		std::function<void(int32_t id, uint64_t handle, uint32_t w, uint32_t h, AcceleratedPaintFormat format)> on_accelerated_paint;
 		// id: 浏览器 id;status: HTTP 状态码(加载错误为 -1);url: 加载的 URL。
 		std::function<void(int32_t id, int32_t status, const std::string &url)> on_load_status;
 		// id: 浏览器 id;query: JS 侧 window.cefViewQuery 请求体;query_id: 应答句柄

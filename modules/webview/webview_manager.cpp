@@ -33,7 +33,6 @@
 #include "web_bridge.h"
 #include "web_panel.h"
 
-#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/object/object.h"
 #include "core/os/os.h"
@@ -52,9 +51,12 @@ namespace {
 // 交付加速帧而消费端丢弃(面板空白)。两个硬性前提,任一不满足即走软件路径:
 // 1. 渲染器为 Metal(RD 上下文驱动是 RenderingContextDriverMetal)——Vulkan/MoltenVK
 //    下 IOSurface 导入路径不可用(set_accelerated_paint 静默返回);
-// 2. 主线程 == 渲染线程(thread_model=Safe)——Separate 模式下主线程回调内的
-//    RD::texture_copy / free_rid 被 ERR_RENDER_THREAD_GUARD 拒绝(目标空白 + 每帧
-//    泄漏导入的源纹理),GPU OSR 的“回调内同步拷贝”契约无法满足。
+// 2. 渲染非独立线程(OS::is_separate_thread_rendering_enabled()==false)——Separate
+//    模式下主线程回调内的 RD::texture_create_from_extension / free_rid 被
+//    ERR_RENDER_THREAD_GUARD 拒绝(目标空白 + 导入纹理不释放);Safe/多线程模式下
+//    RD 主线程可用,回调内同步拷贝契约成立。注意必须用"生效"的线程模式而非项目
+//    设置:--render-thread separate 命令行会覆盖 thread_model 设置(main.cpp 存于
+//    OS::_separate_thread_render,引擎实际按其创建 RenderingServer)。
 // WEBVIEW_OSR_SOFTWARE=1 的显式覆盖在核心层 create_browser 内叠加。
 static bool gpu_osr_capable() {
 #if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
@@ -65,8 +67,10 @@ static bool gpu_osr_capable() {
 	if (dynamic_cast<RenderingContextDriverMetal *>(rd->get_context_driver()) == nullptr) {
 		return false;
 	}
-	const int thread_model = GLOBAL_GET("rendering/driver/threads/thread_model");
-	return thread_model != OS::RENDER_SEPARATE_THREAD;
+	if (OS::get_singleton()->is_separate_thread_rendering_enabled()) {
+		return false;
+	}
+	return true;
 #else
 	return false;
 #endif
@@ -321,7 +325,7 @@ void WebViewManager::_on_focus_editable_changed(int32_t p_id, bool p_focus_on_ed
 	}
 }
 
-void WebViewManager::_on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_w, uint32_t p_h) {
+void WebViewManager::_on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_w, uint32_t p_h, AcceleratedPaintFormat p_format) {
 	// 静态回调（GPU 纹理直通，mac IOSurface）：peek 不创建——单例为 null
 	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。
 	WebViewManager *mgr = peek_singleton();
@@ -330,7 +334,7 @@ void WebViewManager::_on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint
 	}
 	WebPanel **slot = mgr->panels_.getptr(p_id);
 	if (slot && *slot) {
-		(*slot)->set_accelerated_paint(p_handle, p_w, p_h); // 句柄仅回调期间有效，宿主在回调内复制
+		(*slot)->set_accelerated_paint(p_handle, p_w, p_h, p_format); // 句柄仅回调期间有效，宿主在回调内复制
 	}
 }
 

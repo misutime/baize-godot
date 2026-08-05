@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "webview_core.h" // AcceleratedPaintFormat(回调签名与像素格式选择)
+
 #include "core/input/input_event.h"
 #include "scene/gui/control.h"
 #include "scene/gui/texture_rect.h"
@@ -37,6 +39,10 @@
 #include "core/io/image.h"
 #include "scene/resources/image_texture.h"
 #include "scene/resources/texture_rd.h"
+
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+#include <Metal/Metal.hpp> // gpu_metal_texture / gpu_metal_queue 成员类型
+#endif
 
 #include <cstdint>
 
@@ -63,14 +69,21 @@ class WebPanel : public Control {
 	uint32_t paint_width = 0;
 	uint32_t paint_height = 0;
 	// GPU OSR（shared_texture_enabled=1，mac）纹理路径：CEF OnAcceleratedPaint 交付
-	// IOSurface → 回调内经 Metal 复制到自有 RD 纹理（gpu_texture_rid，Godot 队列上
-	// 执行，天然与面板绘制同队列 FIFO）→ Texture2DRD 包装供 _draw 直接绘制，无 CPU
-	// 读回。软件路径（set_paint ImageTexture）保留为回退：WEBVIEW_OSR_SOFTWARE=1 /
+	// IOSurface → 回调内同步 Metal blit（commit + waitUntilCompleted，满足 CEF
+	// “仅回调内有效”契约）到自有 Metal 纹理（gpu_metal_texture，尺寸/字节序变化时
+	// 重建）→ 经 texture_create_from_extension 导入 RD（gpu_texture_rid，所有权归 RD，
+	// free_rid 时 release）→ Texture2DRD 包装供 _draw 直接绘制，无 CPU 读回。
+	// 软件路径（set_paint ImageTexture）保留为回退：WEBVIEW_OSR_SOFTWARE=1 /
 	// 非 mac 平台。gpu_path_active 表示最近一帧来自 GPU 路径（_draw 优先）。
-	RID gpu_texture_rid; // 自有目标纹理（RD 创建，尺寸变化时重建；CEF 帧复制目标）
+	RID gpu_texture_rid; // 导入的自有 Metal 纹理（RD 侧 RID，尺寸/格式变化时重建）
 	Ref<Texture2DRD> gpu_texture; // 包装 gpu_texture_rid（RS 侧纹理，供 _draw）
 	bool gpu_path_active = false; // 最近一帧由 GPU 路径交付
-	Size2i gpu_size = Size2i(-1, -1); // gpu_texture_rid 的尺寸（尺寸变化时重建）
+	Size2i gpu_size = Size2i(-1, -1); // gpu_metal_texture 的尺寸（变化时重建）
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+	MTL::Texture *gpu_metal_texture = nullptr; // 自有目标纹理（所有权归 RD RID，仅借指针）
+	MTL::CommandQueue *gpu_metal_queue = nullptr; // 回调内同步 blit 用队列（模块自有，释放于 _free_gpu_texture）
+	AcceleratedPaintFormat gpu_format = AcceleratedPaintFormat::BGRA8; // 当前目标纹理字节序
+#endif
 	bool gpu_osr_logged_ = false; // GPU 首帧/尺寸变化日志（收敛证据）
 	Size2i last_paint_log_size_ = Size2i(-1, -1);
 	// IME 组合状态:组合中(ime_composing)抑制 CHAR 转发防双插;结束提交 ime_composing_text。
@@ -118,11 +131,13 @@ public:
 	void set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
 
 	/// 由 WebViewManager 的加速 paint 回调调用（GPU 纹理直通，主线程；handle 为
-	/// mac IOSurfaceRef 按 uint64 透传）。句柄仅回调期间有效——本函数内完成
-	/// 打开 + 复制到自有纹理；非 mac 平台为无操作（保持软件路径）。
-	void set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h);
+	/// mac IOSurfaceRef 按 uint64 透传）。句柄仅回调期间有效——本函数在回调内完成
+	/// 打开 + 同步 Metal blit 到自有纹理（waitUntilCompleted 后才返回）；format 为
+	/// CEF 声明的字节序（目标纹理与打开格式必须与其一致）。非 mac 平台为无操作。
+	void set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h, AcceleratedPaintFormat p_format);
 
-	/// 释放 GPU 纹理路径资源（gpu_texture 包装 → 先解包再 free RD RID；幂等）。
+	/// 释放 GPU 纹理路径资源（gpu_texture 包装 → 先解包再 free RD RID → 释放 blit
+	/// 队列；幂等，可安全重复调用）。
 	void _free_gpu_texture();
 
 	/// 面板尺寸变化或首次布局后调用（创建/调整浏览器）。

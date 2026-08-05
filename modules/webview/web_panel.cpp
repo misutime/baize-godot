@@ -43,8 +43,9 @@
 #include "scene/main/window.h"
 #include "servers/display/display_server.h"
 
-// GPU OSR（mac）：CEF OnAcceleratedPaint 交付 IOSurface → Metal 打开 → RD 导入 →
-// 同队列拷贝到自有纹理。RenderingDevice 接口已具备跨 API 纹理导入
+// GPU OSR（mac）：CEF OnAcceleratedPaint 交付 IOSurface → Metal 打开 → 回调内同步
+// blit（commit + waitUntilCompleted）到自有 Metal 纹理 → texture_create_from_extension
+// 导入 RD 供直接采样。RenderingDevice 接口已具备跨 API 纹理导入
 // （texture_create_from_extension，见 texture_storage.cpp:1415 注释），无需引擎改动。
 #if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
 #include "drivers/metal/rendering_context_driver_metal.h"
@@ -592,13 +593,16 @@ void WebPanel::set_paint(const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
 	queue_redraw(); // 纹理更新 → 重绘（_draw 直接绘制，无子控件 set_texture）
 }
 
-// GPU OSR（mac）：CEF OnAcceleratedPaint 交付的 IOSurface 句柄 → 自有 RD 纹理。
-// 时序契约（CEF cef_render_handler.h）：句柄每帧来自缓冲池、仅本回调内有效、不得
-// 缓存——本函数在回调内完成“打开 → 复制 → 释放源”，复制经 Godot 队列执行
-// （RD::texture_copy 进 draw_graph），与后续面板绘制同队列 FIFO，顺序天然保证。
-// 跨进程同步：CEF 在 GPU 帧就绪后才回调（cefclient mac 同款时序），无需额外 fence。
-// 非 mac 平台 / 非 Metal 渲染器：无操作（保持软件路径，见 webview_core create_browser）。
-void WebPanel::set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h) {
+// GPU OSR（mac）：CEF OnAcceleratedPaint 交付的 IOSurface 句柄 → 回调内同步
+// Metal blit 到自有纹理（commit + waitUntilCompleted）。时序契约（CEF
+// cef_render_handler.h）：句柄每帧来自缓冲池、仅本回调内有效、不得缓存——CEF
+// 在回调返回后即把 IOSurface 归还缓冲池（可能被下一帧复用/覆写），故拷贝必须
+// 在本回调内完成：本函数在回调内 blit 并等待 GPU 完成，才允许 CEF 回收。
+// 自有目标纹理（gpu_metal_texture，BGRA8/RGBA8 按 CEF info.format 决定）经
+// texture_create_from_extension 导入 RD 供 _draw 直接采样，无 CPU 读回、无
+// RD 延迟队列依赖。非 mac 平台 / 非 Metal 渲染器：无操作（保持软件路径，见
+// webview_core create_browser）。
+void WebPanel::set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p_h, AcceleratedPaintFormat p_format) {
 #if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
 	if (p_handle == 0 || p_w == 0 || p_h == 0) {
 		return;
@@ -615,29 +619,61 @@ void WebPanel::set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p
 	if (metal_ctx == nullptr || metal_ctx->get_metal_device() == nullptr) {
 		return;
 	}
+	MTL::Device *device = metal_ctx->get_metal_device();
 
-	// 尺寸变化：重建目标纹理。格式 BGRA8（与 IOSurface 字节序一致；Metal 硬件采样
-	// 自动映射 RGBA，显示与软件路径逐字节一致）。先解包 RS 纹理再 free RD RID。
+	// 字节序（CEF info.format，不得硬编码）：源 IOSurface 与目标纹理必须同一格式，
+	// 否则 Metal blit 按字节拷贝会得到 R/B 互换的帧。
+	const bool is_bgra = p_format == AcceleratedPaintFormat::BGRA8;
+	const MTL::PixelFormat mtl_format = is_bgra ? MTL::PixelFormatBGRA8Unorm : MTL::PixelFormatRGBA8Unorm;
+	const RenderingDevice::DataFormat rd_format = is_bgra ? RenderingDevice::DATA_FORMAT_B8G8R8A8_UNORM : RenderingDevice::DATA_FORMAT_R8G8B8A8_UNORM;
+
+	// 尺寸或字节序变化：重建自有 Metal 纹理并重新导入 RD。先解包 RS 纹理再 free RD RID。
 	const Size2i new_size(static_cast<int>(p_w), static_cast<int>(p_h));
-	if (!gpu_texture_rid.is_valid() || gpu_size != new_size) {
+	if (gpu_metal_texture == nullptr || gpu_size != new_size || gpu_format != p_format) {
 		_free_gpu_texture();
-		RenderingDevice::TextureFormat tf;
-		tf.format = RenderingDevice::DATA_FORMAT_B8G8R8A8_UNORM;
-		tf.texture_type = RenderingDevice::TEXTURE_TYPE_2D;
-		tf.width = p_w;
-		tf.height = p_h;
-		tf.depth = 1;
-		tf.array_layers = 1;
-		tf.mipmaps = 1;
-		tf.usage_bits = RenderingDevice::TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice::TEXTURE_USAGE_CAN_COPY_TO_BIT;
-		gpu_texture_rid = rd->texture_create(tf, RenderingDevice::TextureView());
-		if (!gpu_texture_rid.is_valid()) {
+		if (gpu_metal_queue == nullptr) {
+			gpu_metal_queue = device->newCommandQueue();
+			if (gpu_metal_queue == nullptr) {
+				ERR_PRINT("[WebView] GPU OSR: failed to create Metal command queue");
+				return;
+			}
+		}
+		MTL::TextureDescriptor *desc = MTL::TextureDescriptor::alloc()->init();
+		desc->setTextureType(MTL::TextureType2D);
+		desc->setPixelFormat(mtl_format);
+		desc->setWidth(p_w);
+		desc->setHeight(p_h);
+		desc->setMipmapLevelCount(1);
+		desc->setArrayLength(1);
+		desc->setStorageMode(MTL::StorageModePrivate); // 仅 GPU 采样，无需 CPU 访问
+		desc->setUsage(MTL::TextureUsageShaderRead);
+		MTL::Texture *tex = device->newTexture(desc);
+		desc->release();
+		if (tex == nullptr) {
 			ERR_PRINT("[WebView] GPU OSR: failed to create target texture " + itos(p_w) + "x" + itos(p_h));
+			return;
+		}
+		gpu_metal_texture = tex;
+		gpu_format = p_format;
+		// 导入 RD（格式匹配时不建 view，RD 直接接管引用，free_rid 时 release）。
+		gpu_texture_rid = rd->texture_create_from_extension(
+				RenderingDevice::TEXTURE_TYPE_2D,
+				rd_format,
+				RenderingDevice::TEXTURE_SAMPLES_1,
+				RenderingDevice::TEXTURE_USAGE_SAMPLING_BIT,
+				reinterpret_cast<uint64_t>(tex),
+				p_w, p_h, 1, 1, 1);
+		if (!gpu_texture_rid.is_valid()) {
+			tex->release(); // 导入失败：释放模块侧引用（未移交 RD）
+			gpu_metal_texture = nullptr;
 			return;
 		}
 		gpu_texture.instantiate();
 		gpu_texture->set_texture_rd_rid(gpu_texture_rid); // 单线程渲染模式即时，多线程走渲染线程
 		gpu_size = new_size;
+	}
+	if (gpu_metal_texture == nullptr || !gpu_texture_rid.is_valid() || gpu_metal_queue == nullptr) {
+		return;
 	}
 
 	// 回调内：从 IOSurface 打开源纹理（每帧新句柄，不得缓存/不得回调外访问）。
@@ -645,40 +681,43 @@ void WebPanel::set_accelerated_paint(uint64_t p_handle, uint32_t p_w, uint32_t p
 	// release 会过度释放）。
 	MTL::TextureDescriptor *desc = MTL::TextureDescriptor::alloc()->init();
 	desc->setTextureType(MTL::TextureType2D);
-	desc->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+	desc->setPixelFormat(mtl_format);
 	desc->setWidth(p_w);
 	desc->setHeight(p_h);
 	desc->setMipmapLevelCount(1);
 	desc->setArrayLength(1);
 	desc->setStorageMode(MTL::StorageModeShared);
 	desc->setUsage(MTL::TextureUsageShaderRead);
-	MTL::Texture *src = metal_ctx->get_metal_device()->newTexture(desc, static_cast<IOSurfaceRef>(reinterpret_cast<void *>(p_handle)), 0);
+	MTL::Texture *src = device->newTexture(desc, static_cast<IOSurfaceRef>(reinterpret_cast<void *>(p_handle)), 0);
 	desc->release();
 	if (src == nullptr) {
 		ERR_PRINT("[WebView] GPU OSR: newTexture(IOSurface) failed");
 		return;
 	}
-	// 导入 RD（句柄格式匹配时不建 view，RD 直接接管引用，free_rid 时 release）。
-	const RID src_rid = rd->texture_create_from_extension(
-			RenderingDevice::TEXTURE_TYPE_2D,
-			RenderingDevice::DATA_FORMAT_B8G8R8A8_UNORM,
-			RenderingDevice::TEXTURE_SAMPLES_1,
-			RenderingDevice::TEXTURE_USAGE_CAN_COPY_FROM_BIT,
-			reinterpret_cast<uint64_t>(src),
-			p_w, p_h, 1, 1, 1);
-	if (!src_rid.is_valid()) {
-		src->release(); // 导入失败：释放模块侧引用（未移交 RD）
-		return;
-	}
-	// 拷贝（Godot 队列，与绘制同帧 FIFO）后释放源：src 所有权已移交 RD。
-	rd->texture_copy(src_rid, gpu_texture_rid, Vector3(0, 0, 0), Vector3(0, 0, 0), Vector3(p_w, p_h, 1), 0, 0, 0, 0);
-	rd->free_rid(src_rid);
+
+	// 同步拷贝（关键：CEF 回调返回即归还 IOSurface 缓冲池，blit 必须在本回调内完成）。
+	// 模块自有命令队列上 commit + waitUntilCompleted——等待 GPU 读完成后再返回，
+	// 不依赖 RD 帧末提交（draw_graph 延迟到帧末执行，届时源表面可能已被 CEF 复用）。
+	// 跨队列说明：blit 在本队列写入 gpu_metal_texture，而 RD 在其主队列（device_queue，
+	// 无公开 API 可取——get_driver_resource(COMMAND_QUEUE) 对 Metal 返回合成 ID 非指针）
+	// 于帧末采样同一纹理；两者均为默认 hazard tracking（Tracked，驱动 base_hazard_tracking），
+	// Metal 自动串行化跨队列冲突。残余窗口仅当 GPU 落后一帧以上（上一帧采样仍在执行）时
+	// 可能短暂读到半新帧——自愈、单帧、无持久影响；若实机观察到撕裂再引入 ping-pong。
+	MTL::CommandBuffer *cb = gpu_metal_queue->commandBuffer();
+	cb->retain(); // commandBuffer() 返回 autoreleased 对象，显式持有防依赖回调所在 pool
+	MTL::BlitCommandEncoder *enc = cb->blitCommandEncoder();
+	enc->copyFromTexture(src, 0, 0, MTL::Origin::Make(0, 0, 0), MTL::Size::Make(p_w, p_h, 1), gpu_metal_texture, 0, 0, MTL::Origin::Make(0, 0, 0));
+	enc->endEncoding();
+	cb->commit();
+	cb->waitUntilCompleted();
+	cb->release();
+	src->release(); // 源句柄仅回调内有效，GPU 读完成后即释放
 
 	last_paint_size_ = new_size; // 收敛/显示基线（与软件路径共用）
 	gpu_path_active = true;
 	if (!gpu_osr_logged_ || last_paint_size_ != last_paint_log_size_) {
 		// 首帧/尺寸变化日志：resize 收敛证据（面板目标尺寸与纹理尺寸对齐）。
-		print_line("[WebView] GPU OSR frame: " + itos(p_w) + "x" + itos(p_h));
+		print_line("[WebView] GPU OSR frame: " + itos(p_w) + "x" + itos(p_h) + (is_bgra ? " BGRA" : " RGBA"));
 		gpu_osr_logged_ = true;
 		last_paint_log_size_ = last_paint_size_;
 	}
@@ -693,10 +732,17 @@ void WebPanel::_free_gpu_texture() {
 	if (gpu_texture_rid.is_valid()) {
 		RenderingDevice *rd = RenderingDevice::get_singleton();
 		if (rd != nullptr) {
-			rd->free_rid(gpu_texture_rid);
+			rd->free_rid(gpu_texture_rid); // 延迟释放：RD 经 frames 队列 dispose 时 release 底层 MTL 纹理
 		}
 		gpu_texture_rid = RID();
 	}
+#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
+	gpu_metal_texture = nullptr; // 所有权归 RD RID（free_rid 释放），此处仅清借指针
+	if (gpu_metal_queue != nullptr) {
+		gpu_metal_queue->release(); // 模块自有对象，必须显式释放
+		gpu_metal_queue = nullptr;
+	}
+#endif
 	gpu_size = Size2i(-1, -1);
 	gpu_path_active = false;
 }

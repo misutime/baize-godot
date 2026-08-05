@@ -878,7 +878,10 @@ struct WebViewCore::Impl {
 				if (w <= 0 || h <= 0) {
 					return;
 				}
-				self_->handle_accelerated_paint(id_, reinterpret_cast<uint64_t>(handle), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+				// 字节序随帧透传(不得硬编码):CEF 声明 RGBA/BGRA 两种交付,目标纹理与
+				// Metal 打开格式必须与其一致(见 AcceleratedPaintFormat)。
+				const AcceleratedPaintFormat fmt = (p_info.format == CEF_COLOR_TYPE_BGRA_8888) ? AcceleratedPaintFormat::BGRA8 : AcceleratedPaintFormat::RGBA8;
+				self_->handle_accelerated_paint(id_, reinterpret_cast<uint64_t>(handle), static_cast<uint32_t>(w), static_cast<uint32_t>(h), fmt);
 #else
 				// 非 mac 平台暂未实现共享纹理消费端(保持软件路径);收到即忽略。
 #endif
@@ -903,9 +906,9 @@ struct WebViewCore::Impl {
 	// OnAcceleratedPaint → 宿主回调(mac: IOSurfaceRef)。句柄仅回调期间有效、每帧来自
 	// 缓冲池(可能变化),宿主必须在回调内打开并复制到自有纹理(CEF 契约,见
 	// cef_render_handler.h OnAcceleratedPaint 文档)。
-	void handle_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_width, uint32_t p_height) {
+	void handle_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_width, uint32_t p_height, AcceleratedPaintFormat p_format) {
 		if (callbacks.on_accelerated_paint) {
-			callbacks.on_accelerated_paint(p_id, p_handle, p_width, p_height);
+			callbacks.on_accelerated_paint(p_id, p_handle, p_width, p_height, p_format);
 		}
 	}
 
