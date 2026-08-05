@@ -105,6 +105,7 @@ class SidecarServer : public Object {
 
 	// 启动路径。
 	String _resolve_node() const; // BAIZE_NODE > PATH node
+	String _resolve_sidecar_entry() const; // BAIZE_SIDECAR_ENTRY > 开发期自动发现（<exe_dir>/../web/runtime/dist/index.js）
 	bool _spawn_sidecar(); // listen 后：生成 token → ProcessSupervisor::spawn（env 注入）；成功 true，失败 false（调用方退避重试）
 	void _schedule_restart(); // 断开 → 退避重启（计数/上限/稳定重置）
 	void _kill_sidecar(); // kill_tree（已退出进程跳过）+ release

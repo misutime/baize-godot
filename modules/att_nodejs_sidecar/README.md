@@ -31,7 +31,8 @@
 
 `BAIZE_SIDECAR=1|dev`（默认 1；dev = 外部自管，需显式 `BAIZE_SIDECAR_TOKEN`）、
 `BAIZE_GODOT_WS_URL`（port 0 实际端口派生）、`BAIZE_GODOT_TOKEN`（spawn 生成）、
-`BAIZE_PROJECT_PATH`、`BAIZE_SIDECAR_ENTRY`（sidecar 入口，缺失明确报错）、`BAIZE_NODE`（>PATH）。
+`BAIZE_PROJECT_PATH`、`BAIZE_NODE`（>PATH）。**`BAIZE_SIDECAR_ENTRY` 可选**：开发期自动发现
+`<exe_dir>/../web/runtime/dist/index.js`（零配置；exe 在 bin/，仓库根 = bin/..）；仅发布期 SEA/自定义入口需显式设置。入口缺失 = 一次性报错（引导 `pnpm build`），不进入退避重试。
 
 ## 协议（JSON-RPC 2.0 严格子集，方案 §5）
 

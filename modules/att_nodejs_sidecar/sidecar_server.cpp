@@ -117,9 +117,18 @@ void SidecarServer::start() {
 
 	if (mode == "dev") {
 		print_line("[Sidecar] dev 模式：监听 ws://127.0.0.1:" + itos(listen_port_) + "，等待外部 sidecar 连接（BAIZE_SIDECAR_TOKEN 已由环境提供）");
-	} else if (!_spawn_sidecar()) {
-		// 恒启用：首次 spawn 失败也进入退避重试（上限 3 次），不静默放弃（遗留 P2 修复）。
-		_schedule_restart();
+	} else {
+		const String entry = _resolve_sidecar_entry();
+		if (!FileAccess::exists(entry)) {
+			// 恒启用 + 入口不可用（开发期未 build / 发布期未配置）：一次性报错，**不进入退避重试**
+			// （配置/环境错误重试不会成功，只制造日志噪声——2026-08-05 修复）；WS 监听保持。
+			ERR_PRINT("[Sidecar] sidecar 入口不存在: " + entry);
+			ERR_PRINT("[Sidecar] 开发期请先构建：cd web/runtime && pnpm build（生成 dist/index.js）；或设 BAIZE_SIDECAR_ENTRY 指向自定义入口（发布期 SEA）");
+			ERR_PRINT("[Sidecar] 未 spawn；WS 监听保持（ws://127.0.0.1:" + itos(listen_port_) + "），可手动连接");
+		} else if (!_spawn_sidecar()) {
+			// 进程级失败（node 不存在/端口/文件占用等临时故障）：进入退避重试（上限 3 次），不静默放弃（遗留 P2 修复）。
+			_schedule_restart();
+		}
 	}
 }
 
@@ -210,16 +219,30 @@ String SidecarServer::_resolve_node() const {
 	return String("node"); // PATH 解析；找不到由 ProcessSupervisor spawn 报错
 }
 
-bool SidecarServer::_spawn_sidecar() {
+String SidecarServer::_resolve_sidecar_entry() const {
+	// 入口解析（2026-08-05 设计修正——开发期零配置自动发现）：
+	// 1. BAIZE_SIDECAR_ENTRY 显式覆盖（发布期 SEA / 自定义入口）；
+	// 2. 开发期自动发现：<exe_dir>/../web/runtime/dist/index.js（仓库内固定入口，
+	//    exe 在 bin/ 下，仓库根 = bin/..）——无需开发者配置环境变量。
 	const char *env_entry = std::getenv("BAIZE_SIDECAR_ENTRY");
-	if (!env_entry || String(env_entry).is_empty()) {
-		ERR_PRINT("[Sidecar] BAIZE_SIDECAR=1 需要 BAIZE_SIDECAR_ENTRY 指向 sidecar 入口脚本/SEA 可执行（开发期如 D:/misutime/104_game/baize-godot/web/runtime/dist/index.js）");
-		ERR_PRINT("[Sidecar] 未 spawn；WS 监听保持（ws://127.0.0.1:" + itos(listen_port_) + "），可手动连接");
+	if (env_entry && String(env_entry).is_empty() == false) {
+		return String(env_entry);
+	}
+	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+	return exe_dir.path_join("..").path_join("web").path_join("runtime").path_join("dist").path_join("index.js");
+}
+
+bool SidecarServer::_spawn_sidecar() {
+	const String entry = _resolve_sidecar_entry();
+	if (!FileAccess::exists(entry)) {
+		// 防御分支（start() 已预检；poll 重试路径也可能到达——入口被删除等运行时变更）。
+		ERR_PRINT("[Sidecar] sidecar 入口不存在: " + entry);
+		ERR_PRINT("[Sidecar] 开发期请先构建：cd web/runtime && pnpm build；或设 BAIZE_SIDECAR_ENTRY 指向自定义入口");
 		return false;
 	}
 	ProcessSupervisor::SpawnOptions opts;
 	opts.path = _resolve_node();
-	opts.args.push_back(String(env_entry));
+	opts.args.push_back(entry);
 	// 项目路径：BAIZE_PROJECT_PATH（spawn 用 env 传递，sidecar 不直接探 FS）。
 	const char *env_project = std::getenv("BAIZE_PROJECT_PATH");
 	const String project_path = env_project ? String(env_project) : String();
@@ -252,14 +275,14 @@ bool SidecarServer::_spawn_sidecar() {
 	Error err = ProcessSupervisor::spawn(opts, handle);
 	if (err != OK) {
 		// 恒启用决策（2026-08-05）：无 Node 是环境配置错误——明确报错 + 安装指引，不静默、不降级。
-		ERR_PRINT("[Sidecar] spawn sidecar 失败：" + opts.path + " " + String(env_entry) + "（错误 " + itos(err) + "）");
+		ERR_PRINT("[Sidecar] spawn sidecar 失败：" + opts.path + " " + entry + "（错误 " + itos(err) + "）");
 		ERR_PRINT("[Sidecar] 请确认：① 已安装 Node.js（https://nodejs.org，SEA 发布前开发期必需）；② BAIZE_SIDECAR_ENTRY 指向 sidecar 入口（如 D:/.../web/runtime/dist/index.js）；③ 或设 BAIZE_NODE 指定 node 可执行文件路径。");
 		return false;
 	}
 	sidecar_proc_ = handle;
 	session_start_ms_ = handle.spawn_ms; // health uptime 基准 = 子进程启动时刻
 	spawned_ = true;
-	print_line("[Sidecar] sidecar spawned: " + opts.path + " " + String(env_entry) + " → ws://127.0.0.1:" + itos(listen_port_));
+	print_line("[Sidecar] sidecar spawned: " + opts.path + " " + entry + " → ws://127.0.0.1:" + itos(listen_port_));
 	return true;
 }
 

@@ -260,7 +260,7 @@ SDK 内部
 
 - C++：`modules/att_nodejs_sidecar/sidecar_server.{h,cpp}`（WS server + 帧泵 + 令牌握手 + **自做严格 JSON-RPC 2.0 解析/分派**（§5.3 裁决，不依赖引擎内置 `JSONRPC` 类）→ editor_ops 的 Registry + 连接上限）；`register_types.cpp` 接线；
 - spawn 管理：编辑器启动钩子（沿用 `ai_bridge` 的 MessageQueue 第一帧模式）→ **ProcessSupervisor**（env 传 godot token/url/项目路径，§4.4）；断开检测 + 自动重启（退避 + 上限）；退出编排（§4.4）；
-- env：`BAIZE_SIDECAR=1|dev`（默认 1；`0` 已弃用——sidecar 恒启用，2026-08-05 决策）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生，spawn 时下发）、`BAIZE_GODOT_TOKEN`（spawn 时自动生成）、`BAIZE_PROJECT_PATH`、`BAIZE_NODE`、`BAIZE_SIDECAR_TOKEN`（仅 dev 模式：父环境显式提供，缺失拒绝 dev 模式——审查修订 P1-5）；
+- env：`BAIZE_SIDECAR=1|dev`（默认 1；`0` 已弃用——sidecar 恒启用，2026-08-05 决策）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生，spawn 时下发）、`BAIZE_GODOT_TOKEN`（spawn 时自动生成）、`BAIZE_PROJECT_PATH`、`BAIZE_NODE`、`BAIZE_SIDECAR_TOKEN`（仅 dev 模式：父环境显式提供，缺失拒绝 dev 模式——审查修订 P1-5）；**`BAIZE_SIDECAR_ENTRY` 可选**（2026-08-05 设计修正：开发期自动发现 `<exe_dir>/../web/runtime/dist/index.js`，零配置；ENV 仅覆盖发布期 SEA/自定义入口）；
 - 方法面：`sidecar.hello/health/echo` + Registry 全量方法透传（`scene.get_node_count` / `scene.create_node` / `editor.get_state` / `editor.undo` 等）；
 - 日志：sidecar stdout/stderr → Godot 日志文件（`user://logs/sidecar.log`，**有界 + token redaction，S1 起**）+ 编辑器退出时收尾（防残留句柄）。
 
