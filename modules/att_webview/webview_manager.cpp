@@ -190,8 +190,16 @@ void WebViewManager::poll_focus_return() {
 		}
 		const int64_t mh = DisplayServer::get_singleton()->window_get_native_handle(DisplayServerEnums::WINDOW_HANDLE, win->get_window_id());
 		if (mh != 0) {
-			::SetFocus(reinterpret_cast<HWND>(mh));
-			print_line("[WebView] focus-return: Godot 侧鼠标按下 → SetFocus(main) hwnd=" + itos(mh));
+			// 修复（2026-08-05 大 bug）：仅当键盘焦点仍在主窗口体系内（CEF 子窗口/主窗口自身）
+			// 才归还。编辑器退出确认框（popup_window 模态）是独立顶层窗口——其按钮点击也触发
+			// Godot 侧按下沿，若不判断直接 SetFocus(main)，焦点被抢走导致确认框按钮全部无响应、
+			// 编辑器无法关闭（实测）。GetAncestor(GA_ROOT) 区分：CEF 子窗口根 = 主窗口；模态框根 = 自身。
+			const HWND main_hwnd = reinterpret_cast<HWND>(mh);
+			const HWND focus = ::GetFocus();
+			if (focus != nullptr && ::GetAncestor(focus, GA_ROOT) == main_hwnd) {
+				::SetFocus(main_hwnd);
+				print_line("[WebView] focus-return: Godot 侧鼠标按下 → SetFocus(main) hwnd=" + itos(mh));
+			}
 		}
 		break;
 	}
