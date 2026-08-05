@@ -18,6 +18,24 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  packages/sdk:
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vite:
+        specifier: ^8.0.0
+        version: 8.2.0(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
+
   runtime:
     dependencies:
       '@baize/rpc':
@@ -46,29 +64,11 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
 
-  sdk:
-    devDependencies:
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.18
-      react:
-        specifier: ^19.0.0
-        version: 19.2.8
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vite:
-        specifier: ^8.0.0
-        version: 8.2.0(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.5)
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
-
   ui:
     dependencies:
       '@baize/ui-sdk':
         specifier: workspace:*
-        version: link:../sdk
+        version: link:../packages/sdk
       react:
         specifier: ^19.2.0
         version: 19.2.8
@@ -1291,6 +1291,7 @@ packages:
   nanoid@3.3.16:
     resolution: {integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
 
   node-releases@2.0.51:
     resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}

@@ -26,18 +26,20 @@
 ```text
 web/
 ├── package.json            workspace 根（scripts 委派 build/test/lint/format）
-├── pnpm-workspace.yaml     packages: sdk, ui；onlyBuiltDependencies: esbuild
+├── pnpm-workspace.yaml     packages: ui, packages/*, runtime；allowBuilds: esbuild
 ├── biome.json              2.5.x schema；formatter(space 2)/linter(preset)/assist
 ├── .gitignore              node_modules/ dist/ *.tsbuildinfo
 ├── pnpm-lock.yaml
-├── sdk/  @baize/ui-sdk     （零运行时依赖；react 为 optional peer）
-│   ├── src/transport.ts    CefViewClient 桥传输层
-│   ├── src/registry.ts     协议注册表（defineMethod/defineEvent）
-│   ├── src/bridge.ts       协议 §3.3 方法/事件实例
-│   ├── src/index.ts        主入口：scene/editor 类型化 API 对象
-│   ├── src/react.ts        hooks（子路径 ./react）
-│   ├── src/*.test.ts       单测（假桥）
-│   └── vite.config.ts      lib mode 双入口（index + react），ESM + sourcemap
+├── packages/
+│   ├── sdk/  @baize/ui-sdk （零运行时依赖；react 为 optional peer）
+│   │   ├── src/transport.ts  CefViewClient 桥传输层
+│   │   ├── src/registry.ts   协议注册表（defineMethod/defineEvent）
+│   │   ├── src/bridge.ts     协议 §3.3 方法/事件实例
+│   │   ├── src/index.ts      主入口：scene/editor 类型化 API 对象
+│   │   ├── src/react.ts      hooks（子路径 ./react）
+│   │   ├── src/*.test.ts     单测（假桥）
+│   │   └── vite.config.ts    lib mode 双入口（index + react），ESM + sourcemap
+│   └── rpc/  @baize/rpc     三端共享 JSON-RPC 2.0 消息类型（纯类型包）
 └── ui/  @baize/ui          （React 壳，工作项 3 填充）
     ├── vite.config.ts      base:'./'（file:// 相对加载）+ @vitejs/plugin-react
     ├── index.html

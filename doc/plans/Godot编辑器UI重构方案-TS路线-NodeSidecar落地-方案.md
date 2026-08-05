@@ -88,8 +88,8 @@ web/                                ← 现有 TS workspace（pnpm；sdk + ui）
 
 **决策理由**：
 - 单一 pnpm lockfile + 单一 biome/tsconfig 体系；根级第二个 workspace 会引入第二套 node_modules/lockfile，且 `node_modules` 可能污染引擎 SCsub 源码扫描（`web/` 已隔离）；
-- 与《设计》未来 monorepo 的映射：`ui/`=web/ui、`runtime/`=web/runtime、`packages/rpc/`=web/packages/rpc——目录名平移，路径加深一级；
-- `@baize/rpc` 是纯类型包（零运行时依赖），sdk 与 runtime 共同消费；CEF 侧（`web/sdk`）与 C++ 侧（`modules/att_webview`/`modules/att_editor_ops`/`modules/att_nodejs_sidecar`）消息类型对齐（类型漂移 CI 列为后续，《设计》§5.3）。
+- 与《设计》未来 monorepo 的映射：`ui/`=web/ui、`runtime/`=web/runtime、`packages/rpc/`=web/packages/rpc、`packages/sdk/`=web/packages/sdk——目录名平移，路径加深一级；
+- `@baize/rpc` 是纯类型包（零运行时依赖），sdk 与 runtime 共同消费；CEF 侧（`web/packages/sdk`）与 C++ 侧（`modules/att_webview`/`modules/att_editor_ops`/`modules/att_nodejs_sidecar`）消息类型对齐（类型漂移 CI 列为后续，《设计》§5.3）。
 
 ---
 

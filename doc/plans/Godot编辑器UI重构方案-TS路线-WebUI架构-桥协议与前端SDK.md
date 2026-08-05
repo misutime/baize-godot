@@ -12,7 +12,7 @@
 | # | 决策点 | 结论 |
 |---|---|---|
 | 1 | 传输主通道 | **CefViewCore 的 `window.CefViewClient` 桥对象**（`invoke` 方法调用 + `addEventListener` 事件订阅 + C++ 侧 `TriggerEvent` 事件下行）。`cefViewQuery`（CefMessageRouter）**仅因已实现而保留作备用**，后续不应在它身上投入精力，除非出现确实非它不可的场景 |
-| 2 | 前端工程目录 | 仓库根新建 **`web/`** workspace（monorepo）：`web/sdk`（TS SDK 包）+ `web/ui`（React+Vite 应用包）。类比 `crates/` 放 Rust 模块的顶层分区 |
+|| 2 | 前端工程目录 | 仓库根新建 **`web/`** workspace（monorepo）：`web/packages/sdk`（TS SDK 包）+ `web/ui`（React+Vite 应用包）。类比 `crates/` 放 Rust 模块的顶层分区 |
 | 3 | 协议规范 | **JSON-RPC 风格**：方法/事件用点号命名空间（`scene.create_node`、`editor.selection_changed`），返回统一 `{ ok, result }` / `{ ok:false, error:{code,message} }`；载体 = `invoke(方法名, ...args)` + `TriggerEvent`（非 JSON 字符串） |
 | 4 | SDK 形态 | **类型化 API 对象**（`bridge.scene.getNodeCount()`），内部映射到字符串协议；前端组件**永不直接碰** `window.CefViewClient` |
 
@@ -136,7 +136,7 @@ sequenceDiagram
 
 ---
 
-## 4. SDK 设计（`web/sdk`）
+## 4. SDK 设计（`web/packages/sdk`）
 
 ### 4.1 分层
 

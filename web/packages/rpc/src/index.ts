@@ -7,7 +7,7 @@
  * - batch 请求显式拒绝（-32600）；
  * - 错误码：未知方法 -32601、参数校验 -32602、业务失败 -32000，内部字符串码放 error.data.code。
  *
- * 消费方：Node sidecar（web/runtime）、CEF sdk（web/sdk，S2 接入）、C++ sidecar_server（手写对齐，S1）。
+ * 消费方：Node sidecar（web/runtime）、CEF sdk（web/packages/sdk，S2 接入）、C++ sidecar_server（手写对齐，S1）。
  */
 
 /** JSON-RPC 2.0 request（id 一律 string）。 */

@@ -1,5 +1,4 @@
 packages:
-  - sdk
   - ui
   - packages/*
   - runtime
