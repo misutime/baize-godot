@@ -135,6 +135,14 @@ modules/att_webview/
 - 文件/页面：Godot 文本默认 UTF-8；HTML 必须带 `<meta charset="utf-8">`
 - 日志：中文日志可直接写（String 构造已 UTF-8）；显示依赖终端代码页——Godot 输出面板/UTF-8 终端正常，GBK 控制台需 `chcp 65001`（显示层，非数据问题）
 
+## 13. web/ TS 工程：tsconfig 规范（2026-08-05）
+
+- **禁止使用 `baseUrl`**：TS 5.0 起已弃用（`ignoreDeprecations` 仅静默到 6.0），TS 7.0 将移除。
+  2026-08-05 已移除 `web/ui/tsconfig.json` 的 `baseUrl`（其余 sdk/runtime/rpc 及 *.build.json 均无，不需改）。
+- **`paths` 自 TS 4.1 起不依赖 `baseUrl`**：无 `baseUrl` 时路径映射相对 tsconfig.json 所在目录解析，
+  与旧 `baseUrl: "."` 写法等价。新增 tsconfig 或添加 paths 别名时直接写相对条目，不要加 `baseUrl`。
+- 验证命令：`web/ui` 下 `npm run typecheck`（即 `tsc --noEmit`）；升级 TypeScript 后注意此类弃用告警。
+
 ## 10. 文档索引
 
 - 方案总览：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++生态复核与从零选型.md`

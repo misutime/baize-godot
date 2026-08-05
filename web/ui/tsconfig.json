@@ -12,7 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "useDefineForClassFields": true,
-    "baseUrl": ".",
     "paths": {
       "@baize/ui-sdk": ["../sdk/src/index.ts"],
       "@baize/ui-sdk/react": ["../sdk/src/react.ts"]
