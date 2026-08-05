@@ -37,7 +37,9 @@
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
+#include "editor/settings/editor_settings.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "scene/3d/node_3d.h"
 #include "scene/gui/base_button.h"
 #include "scene/gui/button.h"
 #include "scene/gui/control.h"
@@ -704,6 +706,145 @@ Dictionary Ops::create_node(const String &p_name) {
 	result["path"] = String(root->get_path_to(node));
 	result["name"] = String(node->get_name());
 	return _ok(result);
+}
+
+// ---- 场景位置（get/set_node_position，能力合流迁移自 WebBridge）----
+
+// 场景相对路径 → Node3D 解析（守卫：绝对路径/../subname 拒绝、Node3D cast、归属校验）。
+static Node3D *_resolve_node3d(const String &p_path, Dictionary &r_err) {
+	// 校验顺序：先路径合法性，再取场景根（评审 P2——无场景+坏路径应报 invalid_params 而非 no_scene，
+	// 与旧 WebBridge 一致；.. 逃逸统一拒绝为 invalid_params，安全优先）。
+	if (!_is_valid_scene_path(p_path)) {
+		// 评审 P1：保持 WebBridge 契约——非法路径（空/绝对/../subname）是参数错误，码 invalid_params
+		// （协议文档只声明 invalid_params/invalid_node/no_scene；sidecar 映射 invalid_params → -32602）。
+		r_err = _err("invalid_params", "node_path 必须为场景内相对路径（禁止绝对路径/..）: " + p_path);
+		return nullptr;
+	}
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		r_err = _err("no_scene", "当前没有打开的编辑场景");
+		return nullptr;
+	}
+	Node *target = root->get_node_or_null(NodePath(p_path));
+	// 归属校验：必须是编辑场景根自身或其子孙（get_node_or_null 接受 ".." 父级遍历可逃逸）。
+	Node3D *node = Object::cast_to<Node3D>(target);
+	if (!node || (target != root && !root->is_ancestor_of(target))) {
+		r_err = _err("invalid_node", "找不到节点或节点不是 Node3D: " + p_path);
+		return nullptr;
+	}
+	return node;
+}
+
+Dictionary Ops::get_node_position(const String &p_path) {
+	Dictionary err;
+	Node3D *node = _resolve_node3d(p_path, err);
+	if (!node) {
+		return err;
+	}
+	const Vector3 pos = node->get_position();
+	Dictionary result;
+	result["x"] = pos.x;
+	result["y"] = pos.y;
+	result["z"] = pos.z;
+	return _ok(result);
+}
+
+Dictionary Ops::set_node_position(const String &p_path, const Dictionary &p_position) {
+	// position {x,y,z}：JSON 整数字面量解析为 INT、带小数点为 FLOAT，两者都接受；
+	// 有限性校验：JSON 溢出数字（如 1e400）→ +inf，拒绝写入场景（审查 P2）。
+	const Variant x = p_position.get("x", Variant());
+	const Variant y = p_position.get("y", Variant());
+	const Variant z = p_position.get("z", Variant());
+	if ((x.get_type() != Variant::FLOAT && x.get_type() != Variant::INT) ||
+			(y.get_type() != Variant::FLOAT && y.get_type() != Variant::INT) ||
+			(z.get_type() != Variant::FLOAT && z.get_type() != Variant::INT)) {
+		return _err("invalid_params", "position 必须为 {x,y,z} 有限数字");
+	}
+	const double fx = x;
+	const double fy = y;
+	const double fz = z;
+	if (!Math::is_finite(fx) || !Math::is_finite(fy) || !Math::is_finite(fz)) {
+		return _err("invalid_params", "position 必须为 {x,y,z} 有限数字");
+	}
+	Dictionary err;
+	Node3D *node = _resolve_node3d(p_path, err);
+	if (!node) {
+		return err;
+	}
+	const Vector3 old_pos = node->get_position();
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	eurm->create_action("Set Position");
+	eurm->add_do_method(node, "set_position", Vector3(fx, fy, fz));
+	eurm->add_undo_method(node, "set_position", old_pos);
+	eurm->commit_action();
+	return _ok(Dictionary());
+}
+
+// ---- 编辑器 UI 主题状态（get_ui_*，能力合流迁移自 WebBridge）----
+
+Dictionary Ops::get_ui_font_size() {
+	// 编辑器主字体大小（main_font_size，默认 14）。WebDock 基线 14px 与该默认一致——
+	// 页面按返回值设 html font-size 整体缩放（Tailwind 字号全 rem）。
+	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
+	return _ok(size);
+}
+
+Dictionary Ops::get_ui_scale() {
+	// 编辑器界面生效缩放（display_scale）：0=Auto，1..6=75%..200%，7=Custom。
+	// WebDock 与原生 dock 视觉对齐的关键：CEF 独立渲染不应用 Godot 界面缩放。
+	EditorSettings *es = EditorSettings::get_singleton();
+	const int mode = es->get_setting("interface/editor/appearance/display_scale");
+	float scale;
+	if (mode == 0) {
+		scale = es->get_auto_display_scale();
+	} else if (mode >= 1 && mode <= 6) {
+		scale = (mode + 2) * 0.25f;
+	} else {
+		// 越界/7=Custom：对齐原生 editor_node 语义（非 1..6 一律 custom_display_scale，审查 P2）。
+		scale = es->get_setting("interface/editor/appearance/custom_display_scale");
+	}
+	return _ok(scale);
+}
+
+Dictionary Ops::get_ui_font() {
+	// 实际生效的主字体文件路径：main_font 优先；未设置（默认思源）用 resolved_main_font_
+	// （editor_fonts 写入的解析路径）；内置回退为空（WebDock 回退系统字体）。
+	EditorSettings *es = EditorSettings::get_singleton();
+	String resolved = es->get_setting("interface/editor/fonts/main_font");
+	if (resolved.is_empty()) {
+		resolved = resolved_main_font_;
+	}
+	return _ok(resolved);
+}
+
+Dictionary Ops::get_ui_font_bold() {
+	// 实际生效粗体路径：main_font_bold → main_font（无独立粗体时用主字体）→ resolved_main_font_bold_。
+	EditorSettings *es = EditorSettings::get_singleton();
+	String resolved = es->get_setting("interface/editor/fonts/main_font_bold");
+	if (resolved.is_empty()) {
+		resolved = es->get_setting("interface/editor/fonts/main_font");
+	}
+	if (resolved.is_empty()) {
+		resolved = resolved_main_font_bold_;
+	}
+	return _ok(resolved);
+}
+
+String Ops::resolved_main_font_ = String();
+String Ops::resolved_main_font_bold_ = String();
+
+void Ops::set_resolved_fonts(const String &p_regular, const String &p_bold) {
+	resolved_main_font_ = p_regular;
+	resolved_main_font_bold_ = p_bold;
+}
+
+String Ops::get_resolved_main_font() {
+	return resolved_main_font_;
+}
+
+String Ops::get_resolved_main_font_bold() {
+	return resolved_main_font_bold_;
 }
 
 Dictionary Ops::_activate_input_fallback(Control *p_ctrl) {

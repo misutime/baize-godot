@@ -70,6 +70,23 @@ public:
 	/// scene.create_node：创建 Node3D 子节点（undo 可撤销），返回 instance_id。
 	static Dictionary create_node(const String &p_name);
 
+	/// scene.get_node_position / scene.set_node_position：读取/设置 Node3D 位置（set undo 入栈）。
+	static Dictionary get_node_position(const String &p_path);
+	static Dictionary set_node_position(const String &p_path, const Dictionary &p_position);
+	/// editor.get_ui_*：编辑器 UI 主题状态（读能力——WebDock 渲染对齐与外部排查共用）。
+	static Dictionary get_ui_font_size();
+	static Dictionary get_ui_scale();
+	static Dictionary get_ui_font();
+	static Dictionary get_ui_font_bold();
+	/// 编辑器默认字体解析路径运行时存储（editor_fonts 写入；字体来源单一 = 编辑器，非持久化）。
+	static void set_resolved_fonts(const String &p_regular, const String &p_bold);
+	static String get_resolved_main_font(); // 默认字体实际路径（WebDock 事件推送等读取）
+	static String get_resolved_main_font_bold();
+
 	/// ui.activate 的通用回退：InputEvent 投递到 Control 中心（引擎算坐标）。
 	static Dictionary _activate_input_fallback(Control *p_ctrl);
+
+private:
+	static String resolved_main_font_; // 默认字体实际路径（editor_fonts 写入）
+	static String resolved_main_font_bold_; // 默认粗体实际路径（editor_fonts 写入）
 };

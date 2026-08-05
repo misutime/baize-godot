@@ -37,7 +37,7 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/builtin_fonts.gen.h"
 #include "editor/themes/editor_scale.h"
-#include "modules/att_webview/web_bridge.h" // 默认字体解析路径运行时存储（WebBridge::set_resolved_fonts）
+#include "modules/att_editor_ops/ops.h" // 默认字体解析路径运行时存储（Ops::set_resolved_fonts）
 #include "modules/att_webview/webview_runtime_path.h" // 运行时根目录（.app bundle 启动时 exe_dir 在 bundle 内）
 #include "scene/resources/font.h"
 #include "scene/scene_string_names.h"
@@ -187,7 +187,7 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 
 // 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
 // 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失/不可读回退内置 Inter。
-// 实际生效路径经 WebBridge::set_resolved_fonts 写入运行时存储（非持久化——防机器
+// 实际生效路径经 Ops::set_resolved_fonts 写入运行时存储（非持久化——防机器
 // 绝对路径写入 editor_settings-*.tres），WebDock 桥读取，字体来源单一（此处决策）。
 	const String bundled_main_font = webview_ui_root_dir()
 										  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
@@ -311,7 +311,7 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 		default_font_bold_msdf = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 	}
 	// 解析路径写入运行时存储（Regular 回退时 bold 一并清空——防陈旧路径残留，审查 E3）。
-	WebBridge::set_resolved_fonts(resolved_main_font, resolved_bold_font);
+	Ops::set_resolved_fonts(resolved_main_font, resolved_bold_font);
 
 	TypedArray<Font> fallbacks_bold;
 	Ref<FontFile> arabic_font_bold = load_internal_font(_font_Vazirmatn_Bold, _font_Vazirmatn_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks_bold);

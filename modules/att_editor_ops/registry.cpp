@@ -37,6 +37,17 @@
 Vector<Registry::Method> Registry::s_methods;
 bool Registry::s_registered = false;
 
+// 错误构造（与 ops.cpp 同款；handler 使用于下方，定义须在 handler 之前）。
+static Dictionary _err(const String &p_code, const String &p_message) {
+	Dictionary d;
+	d["ok"] = false;
+	Dictionary e;
+	e["code"] = p_code;
+	e["message"] = p_message;
+	d["error"] = e;
+	return d;
+}
+
 // ---- 参数解包 handler（Ops 适配层）----
 
 static Dictionary _h_ui_get_tree(const Dictionary &p_args) {
@@ -83,6 +94,42 @@ static Dictionary _h_scene_create_node(const Dictionary &p_args) {
 	return Ops::create_node(p_args.get("name", "").operator String());
 }
 
+static Dictionary _h_scene_get_node_position(const Dictionary &p_args) {
+	// 评审 P2：node_path 必须为字符串（validate_args 只查 required 存在性，不查类型——
+	// 隐式 operator String 会把数字 123 转 "123"，可能命中名为 123 的节点）。
+	const Variant path_var = p_args.get("node_path", Variant());
+	if (path_var.get_type() != Variant::STRING) {
+		return _err("invalid_params", "node_path 必须为字符串");
+	}
+	return Ops::get_node_position(path_var.operator String());
+}
+
+static Dictionary _h_scene_set_node_position(const Dictionary &p_args) {
+	const Variant path_var = p_args.get("node_path", Variant());
+	if (path_var.get_type() != Variant::STRING) {
+		return _err("invalid_params", "node_path 必须为字符串");
+	}
+	return Ops::set_node_position(
+			path_var.operator String(),
+			p_args.get("position", Dictionary()).operator Dictionary());
+}
+
+static Dictionary _h_editor_get_ui_font_size(const Dictionary &p_args) {
+	return Ops::get_ui_font_size();
+}
+
+static Dictionary _h_editor_get_ui_scale(const Dictionary &p_args) {
+	return Ops::get_ui_scale();
+}
+
+static Dictionary _h_editor_get_ui_font(const Dictionary &p_args) {
+	return Ops::get_ui_font();
+}
+
+static Dictionary _h_editor_get_ui_font_bold(const Dictionary &p_args) {
+	return Ops::get_ui_font_bold();
+}
+
 // ---- 工具元数据 ----
 
 static Dictionary _schema(const Dictionary &p_props, const Vector<String> &p_required) {
@@ -102,6 +149,13 @@ static Dictionary _schema(const Dictionary &p_props, const Vector<String> &p_req
 static Dictionary _str_param(const String &p_desc) {
 	Dictionary d;
 	d["type"] = "string";
+	d["description"] = p_desc;
+	return d;
+}
+
+static Dictionary _num_param(const String &p_desc) {
+	Dictionary d;
+	d["type"] = "number";
 	d["description"] = p_desc;
 	return d;
 }
@@ -136,6 +190,21 @@ void Registry::_register_all() {
 	register_method("scene.get_node_count", "场景节点数（含根）", _schema({}, {}), _h_scene_get_node_count);
 	const Dictionary name_param = _str_param("新节点名（非法字符被净化；返回最终 path）");
 	register_method("scene.create_node", "创建 Node3D 子节点（undo 可撤销），返回 { instance_id, path, name }", _schema({ { "name", name_param } }, { "name" }), _h_scene_create_node);
+
+	// 能力合流（2026-08-05，迁移自 WebBridge）：场景位置读写 + 编辑器 UI 主题状态（读）。
+	const Dictionary node_path_param = _str_param("场景相对路径（\".\" = 根；禁止绝对路径/..）");
+	register_method("scene.get_node_position", "读取 Node3D 位置 {x,y,z}", _schema({ { "node_path", node_path_param } }, { "node_path" }), _h_scene_get_node_position);
+	// position 为 {x,y,z} 对象（评审 P2：注册 object schema 而非字符串，避免 schema 驱动调用者生成错误载荷）。
+	Dictionary position_props;
+	position_props["x"] = _num_param("X 坐标（有限数字）");
+	position_props["y"] = _num_param("Y 坐标（有限数字）");
+	position_props["z"] = _num_param("Z 坐标（有限数字）");
+	const Dictionary position_param = _schema(position_props, { "x", "y", "z" });
+	register_method("scene.set_node_position", "设置 Node3D 位置（undo 入栈，与人工一致）", _schema({ { "node_path", node_path_param }, { "position", position_param } }, { "node_path", "position" }), _h_scene_set_node_position);
+	register_method("editor.get_ui_font_size", "编辑器主字体大小（main_font_size，默认 14）", _schema({}, {}), _h_editor_get_ui_font_size);
+	register_method("editor.get_ui_scale", "编辑器界面生效缩放（display_scale 实际值）", _schema({}, {}), _h_editor_get_ui_scale);
+	register_method("editor.get_ui_font", "编辑器实际生效主字体路径（main_font → 默认解析路径）", _schema({}, {}), _h_editor_get_ui_font);
+	register_method("editor.get_ui_font_bold", "编辑器实际生效粗体字体路径（main_font_bold → main_font → 默认解析路径）", _schema({}, {}), _h_editor_get_ui_font_bold);
 }
 
 void Registry::ensure_registered() {

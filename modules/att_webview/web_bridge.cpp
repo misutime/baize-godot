@@ -4,6 +4,7 @@
 
 #include "webview_manager.h"
 
+#include "modules/att_editor_ops/ops.h"
 #include "modules/att_editor_ops/registry.h"
 
 #include "core/io/json.h"
@@ -78,189 +79,30 @@ void WebBridge::_method_scene_create_node(int32_t p_browser_id, const String &p_
 }
 
 void WebBridge::_method_scene_get_node_position(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id, node_path }。返回 Node3D 位置 {x,y,z}。
-	// node_path 为场景相对路径(与 selection_changed 的 node_paths 语义一致,"."=场景根)。
-	String req_id;
-	String node_path;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		const Dictionary args = parsed.operator Dictionary();
-		req_id = args.get("req_id", "").operator String();
-		const Variant path_var = args.get("node_path", Variant());
-		if (path_var.get_type() == Variant::STRING) {
-			node_path = path_var.operator String();
-		}
-	}
-	Node3D *node = _resolve_node3d(p_browser_id, req_id, node_path);
-	if (!node) {
-		return; // 错误应答已由 _resolve_node3d 发出
-	}
-	const Vector3 pos = node->get_position();
-	Dictionary result;
-	result["x"] = pos.x;
-	result["y"] = pos.y;
-	result["z"] = pos.z;
-	_respond(p_browser_id, req_id, true, result);
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "scene.get_node_position", p_args_json);
 }
-
 void WebBridge::_method_scene_set_node_position(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id, node_path, position: {x,y,z} }。设置 Node3D 位置(undo 可撤销)。
-	// position 与协议 §3.3 node_position_changed 载荷同构;
-	// undo 入 EditorUndoRedoManager,与 scene.create_node 同一撤销栈。
-	String req_id;
-	String node_path;
-	Vector3 new_pos;
-	bool has_position = false;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		const Dictionary args = parsed.operator Dictionary();
-		req_id = args.get("req_id", "").operator String();
-		const Variant path_var = args.get("node_path", Variant());
-		if (path_var.get_type() == Variant::STRING) {
-			node_path = path_var.operator String();
-		}
-		const Variant pos_var = args.get("position", Variant());
-		if (pos_var.get_type() == Variant::DICTIONARY) {
-			const Dictionary pos = pos_var.operator Dictionary();
-			// JSON 整数字面量解析为 INT、带小数点为 FLOAT,两者都接受。
-			const Variant x = pos.get("x", Variant());
-			const Variant y = pos.get("y", Variant());
-			const Variant z = pos.get("z", Variant());
-			if ((x.get_type() == Variant::FLOAT || x.get_type() == Variant::INT) &&
-					(y.get_type() == Variant::FLOAT || y.get_type() == Variant::INT) &&
-					(z.get_type() == Variant::FLOAT || z.get_type() == Variant::INT)) {
-				// 有限性校验:JSON 溢出数字(如 1e400)经 String::to_float 得 +inf,
-				// 直接入栈会把非有限变换写进场景节点(审查 P2)。
-				const double fx = x;
-				const double fy = y;
-				const double fz = z;
-				if (Math::is_finite(fx) && Math::is_finite(fy) && Math::is_finite(fz)) {
-					new_pos = Vector3(fx, fy, fz);
-					has_position = true;
-				}
-			}
-		}
-	}
-	if (!has_position) {
-		_respond(p_browser_id, req_id, false, Variant(), "invalid_params", "position 必须为 {x,y,z} 有限数字");
-		return;
-	}
-	Node3D *node = _resolve_node3d(p_browser_id, req_id, node_path);
-	if (!node) {
-		return; // 错误应答已由 _resolve_node3d 发出
-	}
-	const Vector3 old_pos = node->get_position();
-	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
-	eurm->create_action("WebUI Set Position");
-	eurm->add_do_method(node, "set_position", new_pos);
-	eurm->add_undo_method(node, "set_position", old_pos);
-	eurm->commit_action();
-	_respond(p_browser_id, req_id, true, Dictionary());
-}
-
-Node3D *WebBridge::_resolve_node3d(int32_t p_browser_id, const String &p_req_id, const String &p_node_path) {
-	// 场景相对路径 → Node3D 的公共解析(错误应答集中处理)。
-	if (p_node_path.is_empty()) {
-		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_params", "node_path 必须为非空字符串");
-		return nullptr;
-	}
-	const NodePath path(p_node_path);
-	// 协议约定 node_path 为编辑场景相对路径:拒绝绝对路径(以 / 开头,
-	// get_node_or_null 会从 SceneTree 根解析,可指向编辑器内部节点)。
-	if (path.is_absolute()) {
-		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_params", "node_path 必须为场景相对路径(不得以 / 开头)");
-		return nullptr;
-	}
-	EditorInterface *ei = EditorInterface::get_singleton();
-	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
-	if (!root) {
-		_respond(p_browser_id, p_req_id, false, Variant(), "no_scene", "当前没有打开的编辑场景");
-		return nullptr;
-	}
-	Node3D *node = Object::cast_to<Node3D>(root->get_node_or_null(path));
-	// 归属校验:解析结果必须是编辑场景根自身或其子孙。get_node_or_null 接受
-	// ".." 父级遍历,可逃逸到编辑场景根之外(编辑器内部节点)——拒绝,
-	// 否则 setter 会把对内部节点的修改记录成场景编辑。
-	if (!node || (node != root && !root->is_ancestor_of(node))) {
-		_respond(p_browser_id, p_req_id, false, Variant(), "invalid_node", "找不到节点或节点不是 Node3D: " + p_node_path);
-		return nullptr;
-	}
-	return node;
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "scene.set_node_position", p_args_json);
 }
 
 void WebBridge::_method_editor_get_ui_font_size(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回编辑器主字体大小(EditorSettings interface/editor/fonts/main_font_size,默认 14)。
-	// WebDock 基线 14px 与该默认一致——页面按返回值设 html font-size 即可整体缩放(Tailwind 字号全 rem)。
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	const int size = EditorSettings::get_singleton()->get_setting("interface/editor/fonts/main_font_size");
-	_respond(p_browser_id, req_id, true, size);
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "editor.get_ui_font_size", p_args_json);
 }
-
 void WebBridge::_method_editor_get_ui_scale(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回编辑器界面生效缩放(EditorSettings display_scale)。
-	// WebDock 与原生 dock 视觉对齐的关键:CEF 独立渲染,不应用 Godot 的界面缩放
-	// (4K/Auto 下 150%+,原生 14px 实际渲染 21px+,WebDock 仍 14px——文字偏小)。
-	// 页面按 main_font_size × display_scale 设 html font-size 整体对齐。
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	EditorSettings *es = EditorSettings::get_singleton();
-	const int mode = es->get_setting("interface/editor/appearance/display_scale"); // 0=Auto,1..6=75%..200%,7=Custom
-	float scale;
-	if (mode == 0) {
-		scale = es->get_auto_display_scale(); // Windows: screen_get_dpi/96
-	} else if (mode >= 1 && mode <= 6) {
-		scale = (mode + 2) * 0.25f; // 1→0.75, 2→1.0, ..., 6→2.0
-	} else {
-		// 越界/7=Custom：对齐原生 editor_node 语义（非 1..6 一律用 custom_display_scale，
-		// 审查 P2——原 (mode+2)*0.25 对损坏值（如 8）会算出 2.5 与原生不一致）。
-		scale = es->get_setting("interface/editor/appearance/custom_display_scale");
-	}
-	_respond(p_browser_id, req_id, true, scale);
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "editor.get_ui_scale", p_args_json);
 }
-
 void WebBridge::_method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回编辑器**实际生效**的主字体文件路径（字体来源单一 = 编辑器）：
-	// 用户设置 main_font 优先；未设置（默认思源）时返回 editor_fonts 写入的
-	// main_font_resolved（外部分发路径）；内置回退时为空（WebDock 回退系统字体）。
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	EditorSettings *es = EditorSettings::get_singleton();
-	String resolved = es->get_setting("interface/editor/fonts/main_font");
-	if (resolved.is_empty()) {
-		resolved = resolved_main_font_; // 默认字体实际路径（editor_fonts 写入）
-	}
-	_respond(p_browser_id, req_id, true, resolved);
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "editor.get_ui_font", p_args_json);
 }
-
 void WebBridge::_method_editor_get_ui_font_bold(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回编辑器实际生效的粗体字体路径（与 editor_fonts.cpp 决策一致）：
-	// main_font_bold → main_font（无独立粗体时用主字体，CSS/embolden 合成）→ bold_resolved。
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	EditorSettings *es = EditorSettings::get_singleton();
-	String resolved = es->get_setting("interface/editor/fonts/main_font_bold");
-	if (resolved.is_empty()) {
-		resolved = es->get_setting("interface/editor/fonts/main_font");
-	}
-	if (resolved.is_empty()) {
-		resolved = resolved_main_font_bold_; // 默认粗体实际路径（editor_fonts 写入）
-	}
-	_respond(p_browser_id, req_id, true, resolved);
+	// 能力合流（2026-08-05，迁移至 att_editor_ops）：委托 Registry，协议适配在 _dispatch_semantic。
+	_dispatch_semantic(p_browser_id, "editor.get_ui_font_bold", p_args_json);
 }
-
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
 	// 委托 Registry（能力面唯一事实源）；Ops::undo 与旧实现同为
 	// EditorUndoRedoManager::undo()，错误码 nothing_to_undo 保持一致。
@@ -346,13 +188,7 @@ bool WebBridge::last_can_redo_ = true;
 String WebBridge::last_scene_key_; // 空 = 首帧必发一次当前场景状态
 int WebBridge::last_ui_font_size_ = -1; // 哨兵：首帧比较必发当前值（连接时即设基线，实际不发）
 String WebBridge::last_ui_font_; // main_font 路径基线
-String WebBridge::resolved_main_font_; // 运行时解析字体路径（editor_fonts 写入，不持久化）
-String WebBridge::resolved_main_font_bold_;
 
-void WebBridge::set_resolved_fonts(const String &p_regular, const String &p_bold) {
-	resolved_main_font_ = p_regular;
-	resolved_main_font_bold_ = p_bold;
-}
 
 void WebBridge::set_event_browser_id(int32_t p_browser_id) {
 	event_browser_id_ = p_browser_id;
@@ -458,7 +294,7 @@ void WebBridge::_on_editor_settings_changed() {
 		last_ui_font_ = font;
 		Dictionary body;
 		// 实际生效路径（与 get_ui_font 一致：设置优先，空则 resolved 默认字体）。
-		body["path"] = font.is_empty() ? resolved_main_font_ : font;
+		body["path"] = font.is_empty() ? Ops::get_resolved_main_font() : font;
 		emit_event(event_browser_id_, "editor.ui_font_changed", JSON::stringify(body));
 	}
 }

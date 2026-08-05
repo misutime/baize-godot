@@ -32,10 +32,6 @@ public:
 	/// 触发事件下行到指定浏览器（协议层封装；p_payload_json 为事件 payload JSON）。
 	static void emit_event(int32_t p_browser_id, const String &p_event_name, const String &p_payload_json);
 
-	/// 写入默认字体解析路径（运行时存储，非持久化）。editor_fonts.cpp 加载默认字体后调用，
-	/// WebDock 桥（get_ui_font/get_ui_font_bold）读取——字体来源单一 = 编辑器。
-	static void set_resolved_fonts(const String &p_regular, const String &p_bold);
-
 	// ---- 事件源（MVP2 后半；机制见《WebUI架构-桥协议与前端SDK.md》§6）----
 
 	/// 注册事件下行目标浏览器（-1 = 注销）。WebDock 面板浏览器就绪后由 WebDockPlugin
@@ -73,10 +69,6 @@ private:
 	static void _method_editor_get_ui_font(int32_t p_browser_id, const String &p_args_json);
 	static void _method_editor_get_ui_font_bold(int32_t p_browser_id, const String &p_args_json);
 
-	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
-	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。
-	static Node3D *_resolve_node3d(int32_t p_browser_id, const String &p_req_id, const String &p_node_path);
-
 	/// 语义方法统一委托：Registry find + validate_args + handler（editor_ops
 	/// 能力面唯一事实源，消除双份漂移）。find 失败 → method_not_found；校验失败 → invalid_params；
 	/// handler 返回 { ok, result } / { ok:false, error:{code,message} }，按既有契约转发。
@@ -108,12 +100,6 @@ private:
 	/// 故用轮询 diff（与 node_position_changed/undo_stack_changed 同机制）。
 	static void _poll_scene_state();
 
-	// ---- 字体解析路径（运行时存储，非持久化）----
-	// editor_fonts.cpp 加载默认字体后写入实际生效路径；WebDock 桥读取。不用
-	// EditorSettings::set_manually——那会持久化机器绝对路径到 editor_settings-*.tres
-	// （审查 E2）。静态成员 = 进程级运行时值，不写盘、无 settings_changed 循环。
-	static String resolved_main_font_;
-	static String resolved_main_font_bold_;
 	/// 刷新选中 Node3D 位置跟踪；p_emit_initial_for_new 时对新选中节点立即发初始位置。
 	static void _refresh_tracked_positions(bool p_emit_initial_for_new);
 	static void _emit_node_position_changed(ObjectID p_node_id, const Vector3 &p_position);
