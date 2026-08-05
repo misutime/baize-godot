@@ -1,0 +1,30 @@
+{
+  "name": "@baize/sidecar",
+  "version": "0.1.0",
+  "description": "Node sidecar：编辑器进程外服务宿主（Agent/LSP/资产工具链）。S0 骨架：JSON-RPC 2.0 编解码/分派/req_id 配对 + echo 服务 + 测试专用本地 WS server",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc --noEmit && tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@baize/rpc": "workspace:*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.0",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}
