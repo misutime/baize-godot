@@ -76,6 +76,7 @@ resize(W) → WasResized → ResizeRootLayer（更新 compositor size=W, hold=tr
 - **但当前约束（软件 OSR，不改 GPU）下根因 3 只能缓解不能根治**——CEF 合成器按需产帧是行为限制，宿主侧只能尾随重发加速收敛（≤250ms）。
 - 因此根因 1、2 的修复（1:1 裁剪防变形、不填充底色让问题可见）是**残余窗口（≤250ms 未收敛期）的必需兜底**，非多此一举。
 - **真正的根治路径**（二选一，均属大改，暂缓）：① GPU OSR（`shared_texture_enabled=1` + `OnAcceleratedPaint` + Metal/D3D 导入）；② **fork CEF 修改 hold 机制**（在 `ResizeRootLayer`/`ReleaseResizeHold` 逻辑中修复“hold 期间 compositor 尺寸不更新”的死锁——见 §2.3 源码证据，作为未来机会点，另行评估）。
+  **⚠️ 2026-08-05 修正**：此前的排序以“GPU OSR 可根治”为前提（mac 观察），现被源码推演否定——hold 释放检查在 `OnPaint`（render_widget_host_view_osr.cc:1640）与 `OnAcceleratedPaint`（:1677）逐行相同，**死锁路径无关**（见《技术详解-GPU-OSR与帧调度》§3.3）。正确排序：② fork CEF 为唯一根治手段，① GPU OSR 降为性能向（零 CPU 读回），不承诺解决死锁（§6 已按此更新）。
 
 ## 4. 最终保留的修复（当前代码）
 
@@ -101,6 +102,6 @@ resize(W) → WasResized → ResizeRootLayer（更新 compositor size=W, hold=tr
 
 - 实测通过：拖动无变形、无黑边、停止后 ≤1 秒收敛；启动/布局正常。
 - **遗留**：CEF 软件 OSR 的 resize 收敛有**固有延迟**（合成器按需产帧是 CEF 行为限制，宿主侧无法消除）——当前“无变形 + 露出底色信号 + ≤250ms 收敛”是宿主侧最优。
-- **根治候选（暂缓，待评估）**：
-  1. **GPU OSR**（`shared_texture_enabled=1` + `OnAcceleratedPaint` + Metal/D3D 导入）——合成器持续活跃、resize 可瞬时收敛（V2 路线）。
-  2. **fork CEF 修改 hold 机制**（见 §3.5）——从源头修复“hold 期间 compositor 尺寸不更新”的死锁；需评估 fork 维护成本。
+- **根治候选（暂缓，待评估；2026-08-05 修正）**：
+  1. **fork CEF 修改 hold 机制**（见 §3.5）——从源头修复“hold 期间 compositor 尺寸不更新”的死锁。**源码核实**：hold 释放检查在 `OnPaint`（render_widget_host_view_osr.cc:1640）与 `OnAcceleratedPaint`（:1677）逐行相同——**软件/GPU 两条交付路径都受影响**，fork 修改是共同的根治手段。
+  2. **GPU OSR**（`shared_texture_enabled=1` + `OnAcceleratedPaint` + Metal/D3D 导入）——~~合成器持续活跃、resize 可瞬时收敛~~（**错误推断**，见《技术详解-GPU-OSR与帧调度》§3.3）；降为**性能向**（零 CPU 读回），不承诺解决死锁。

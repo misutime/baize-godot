@@ -5,7 +5,7 @@
 > **前置阅读**：
 > - 《实施记录-WebDock-resize变形黑边与收敛死锁根因分析.md》（根因 3 完整死锁链）
 > - 《技术详解-GPU-OSR与帧调度-概念澄清与解决路径.md》（三概念：交付方式/帧源/损伤驱动；实测 vs 推断边界）
-> - 《实施计划-GPU-OSR纹理直通-根治resize死锁.md》（GPU 路径已实现并实测有效，§8 是本修改的"对照实验"参考）
+> - 《实施计划-GPU-OSR纹理直通-根治resize死锁.md》（GPU 路径已实现（mac），其“瞬时收敛”观察未证实——§4 对照实验以此为前提）
 
 ---
 
@@ -19,9 +19,9 @@ WebDock（CEF OSR 面板，软件读回 `shared_texture_enabled=0`）拖动分�
 
 1/2 已修复（宿主侧：直接 `_draw` + 1:1 裁剪；`c565c5d1b6`）。3 的宿主侧修复（节流 + 尾随重发 ≤250ms 收敛）**有效但非根治**——存在残余窗口。
 
-**为什么还要改 CEF**：死锁根因位于 **CEF 自身的 OSR hold 逻辑缺陷**（详见 §2）。宿主侧所有手段（节流、重发、GPU 直通）都是"绕过/刺激"，无法从机制上消除——且 GPU 路径有效的原因至今未深挖（§4），在 CEF 源码层面修改可以：
+**为什么还要改 CEF**：死锁根因位于 **CEF 自身的 OSR hold 逻辑缺陷**（详见 §2）。宿主侧所有手段（节流、重发、GPU 直通）都是"绕过/刺激"，无法从机制上消除——且 GPU 路径的"有效"观察未证实（§4），在 CEF 源码层面修改可以：
 - 软件路径也根治（不依赖 GPU 直通，Linux/异常场景受益）
-- 弄清"GPU 路径为什么有效"的机制，验证修改方案的正确性
+- 复验 GPU 路径在 Win 上的收敛行为（mac 观察未证实，见 §4）——源码推演 GPU 直通不提供结构性免死锁，方案 A/B 的动机不依赖该观察
 
 ---
 
@@ -58,23 +58,32 @@ if (hold_resize_) {
   if (pixel_size == expected) { ReleaseResizeHold(); }  // 1809-1819
 }
 
-// InvalidateInternal（1884-1892）：Invalidate 输出 host_display_client 的旧 pixel_size_
-OnPaint(bounds, host_display_client_->GetPixelSize(), ...);
+// InvalidateInternal（1884-1890）：video_consumer_ 存在时走 RequestRefreshFrame（请求捕获器
+// 输出一帧，内容为合成器当前尺寸）；仅回退时才走 host_display_client_ 的旧 pixel_size_（软件输出链）
+if (video_consumer_) {
+  video_consumer_->RequestRefreshFrame(bounds_in_pixels);
+} else if (host_display_client_) {
+  OnPaint(bounds, host_display_client_->GetPixelSize(), host_display_client_->GetPixelMemory());
+}
 
-// host_display_client_osr.cc（73-96）：pixel_size_ 只在 OnAllocatedSharedMemory（viz 分配共享内存）时更新
+// OnAcceleratedPaint（1646-1681）：hold 释放检查与 OnPaint 逐行相同（:1677-1678）——
+// 死锁路径无关：GPU 直通不提供结构性免死锁（2026-08-05 源码核实）
 ```
 
-### 2.2 死锁链（软件路径）
+### 2.2 死锁链（软件路径；2026-08-05 按当前源码更新交付机制）
 
 ```
 resize(W) → WasResized → ResizeRootLayer（compositor size=W, hold=true）
 → 页面静止时合成器按需不产帧（internal 帧源，damage-driven）
-→ viz 不分配 W 尺寸共享内存 → host_display_client.pixel_size_ 停留旧值（W0）
-→ Invalidate/合成器输出 W0 帧 → OnPaint(W0) ≠ expected(W)
-→ hold 永不释放 → 后续 resize 全部 pending → compositor size 永不更新 → 死锁
+→ video capturer（CefVideoConsumerOSR，两条交付路径共用）无新尺寸帧可捕获
+→ Invalidate → RequestRefreshFrame 输出合成器当前尺寸帧（旧尺寸 W0）
+→ OnPaint(W0) ≠ expected(W) → hold 永不释放
+→ 后续 resize 全部 pending → compositor size 永不更新 → 死锁
 ```
 
 **本质**：`ResizeRootLayer` 的"仅无 hold 时更新 compositor size"是死锁的**结构性原因**——一旦 hold 激活且合成器未及时产帧，尺寸更新就永久停止，形成循环依赖（更新尺寸→产帧→释放 hold→才允许再更新尺寸）。
+
+**关键（2026-08-05 源码核实）**：hold 释放检查在 `OnPaint`（render_widget_host_view_osr.cc:1640-1641）与 `OnAcceleratedPaint`（:1677-1678）**逐行相同**——**死锁路径无关**：GPU 直通路径在“静态页 + resize”下同样 hold 不释放（GPU 直通只改交付，不改帧调度；两条路径共用同一 `viz::ClientFrameSinkVideoCapturer`，video_consumer_osr.cc:37-57）。此前“GPU 路径瞬时收敛”为 mac 单机观察、机制未证实（见 §4）。
 
 ---
 
@@ -117,14 +126,15 @@ bool ResizeRootLayer() {
 
 ---
 
-## 4. 对照实验：GPU 路径为什么有效（修改前必读）
+## 4. 对照实验：GPU 路径为什么“看起来有效”（修改前必读，2026-08-05 修正）
 
-**GPU 直通（`shared_texture_enabled=1`，mac）已实测有效**（《实施计划-GPU-OSR纹理直通》§8）：7 次 resize 全部瞬时收敛、宿主尾随重发 0 触发。但**机制未深挖**，两个候选解释：
+**mac 观察（未证实）**：《实施计划-GPU-OSR纹理直通》§8 报告 GPU 直通路径 7 次 resize 全部瞬时收敛、宿主尾随重发 0 触发。**但源码推演不支持结构性差异，机制未深挖**：
 
-1. GPU 路径的 `Invalidate(PET_VIEW)` 触发合成器**真提交**（新尺寸 GPU 纹理随提交分配）——软件路径 Invalidate 输出旧 `pixel_size_` 才失效；
-2. GPU 路径下 viz 在 compositor size 变化时**自动重分配 GPU 纹理并提交**（不需要额外产帧请求）。
+1. **帧调度共用**：软件/GPU 两条交付路径共用同一 `viz::ClientFrameSinkVideoCapturer`（video_consumer_osr.cc:37-57），合成器提交什么就捕获什么——damage-driven 与静态页 0 帧对两条路径相同，不存在“GPU 路径合成器更活跃”。
+2. **hold 逻辑逐行相同**：`ResizeRootLayer`（render_widget_host_view_osr.cc:1791-1806）与 hold 释放检查（`OnPaint` :1640-1641 / `OnAcceleratedPaint` :1677-1678）在两条路径完全一致——`pixel_size == expected` 才释放。源码推演：GPU 路径在“静态页 + resize”下同样 hold 不释放。
+3. 差异仅存在于交付端：GPU 路径 `OnAcceleratedPaint` 交付 DXGI/IOSurface 句柄（video_consumer_osr.cc:174-177），软件路径交付 CPU 像素（:232-244）——**不影响帧调度**。
 
-**建议**：修改 CEF 前，先用 GPU 路径实测定位到底是哪条（在 `ResizeRootLayer`/`OnAcceleratedPaint` 加日志看提交触发点）——**这直接验证方案 A/B 的正确性**（若解释 2 成立，方案 A 必然有效；若解释 1 成立，方案 B 或 A+Invalidate 组合有效）。
+**结论**：mac 的瞬时收敛观察（若可复现）不能归因于交付路径本身；本计划 §3 方案 A/B 是软件/GPU 两条路径**共同**的根治手段，不依赖也不等待该观察的机制解释。修改 CEF 后须在 Win 软件路径实测（§5.2-1）；Win GPU 路径落地后可选加日志复验 mac 观察（`ResizeRootLayer`/`OnAcceleratedPaint` 提交触发点）。
 
 ---
 
@@ -142,7 +152,7 @@ bool ResizeRootLayer() {
 1. **软件路径**（`WEBVIEW_OSR_SOFTWARE=1`）：
    - 拖动分隔条连续快速 resize → 停止后**即时收敛**（无 250ms 窗口）——即"尾随重发分支 0 触发"（宿主侧尾随重发可临时插桩观察）。
    - 页面静止时 0 帧（damage-driven 保持，惰性不变）。
-2. **GPU 路径**（默认）：回归——仍即时收敛、颜色一致、无崩溃。
+2. **GPU 路径**（mac 已实现）：回归——正常渲染、颜色一致、无崩溃；收敛行为按实测记录（mac 的“瞬时收敛”观察未证实，不得作为预期，见 §4）。
 3. **回归面**：页面加载、JS 桥、IME、窗口 resize、dock 布局调整、退出干净（exit 0、无残留 helper）。
 4. **长期**：宿主侧尾随重发/1:1 裁剪是否可简化（死锁根治后为冗余，属独立行为变更，另行评审）。
 
@@ -160,8 +170,8 @@ bool ResizeRootLayer() {
 
 ## 7. 参考
 
-- **死锁源码**：`refers/cef/libcef/browser/osr/render_widget_host_view_osr.cc`（WasResized 1087、ResizeRootLayer 1791、OnPaint 1607、ReleaseResizeHold 1809、InvalidateInternal 1884、SetFrameRate 1695）、`host_display_client_osr.cc`（OnAllocatedSharedMemory 73、Draw 98）。
-- **根因文档**：`doc/plans/实施记录-WebDock-resize变形黑边与收敛死锁根因分析.md`（§2.3、§3.5）。
-- **概念澄清**：`doc/plans/技术详解-GPU-OSR与帧调度-概念澄清与解决路径.md`。
-- **GPU 对照**：`doc/plans/实施计划-GPU-OSR纹理直通-根治resize死锁.md`（§8 实测）。
+- **死锁源码**：`refers/cef/libcef/browser/osr/render_widget_host_view_osr.cc`（WasResized 1087、ResizeRootLayer 1791、OnPaint 1607、OnAcceleratedPaint 1646、ReleaseResizeHold 1809、InvalidateInternal 1884、SetFrameRate 1695）、`video_consumer_osr.cc`（CefVideoConsumerOSR 30、OnFrameCaptured 117、Windows 句柄 174-177、软件读回 232-244）、`host_display_client_osr.cc`（OnAllocatedSharedMemory 73、Draw 98）。
+- **根因文档**：`实施记录-WebDock-resize变形黑边与收敛死锁根因分析.md`（§2.3、§3.5）。
+- **概念澄清**：`技术详解-GPU-OSR与帧调度-概念澄清与解决路径.md`。
+- **GPU 对照**：`实施计划-GPU-OSR纹理直通-根治resize死锁.md`（§8 mac 观察，未证实，见 §4）。
 - **CEF 构建**：官方 BranchesAndBuilding wiki（depot_tools 流程）；本仓库 `misc/scripts/cef_dist.py`（SDK 下载/校验/哨兵）。

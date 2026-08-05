@@ -1,10 +1,11 @@
 # 实施计划：GPU OSR 纹理直通——根治 WebDock resize 死锁（交接文档）
 
 > **状态**：✅ 已实施并验证（2026-08-04，mac arm64 实机）。交付：`shared_texture_enabled=1` + `OnAcceleratedPaint`（IOSurface）+ Godot 侧 Metal→RD 纹理直通（**零引擎改动**——本 fork 已具备 `RD::texture_create_from_extension` 跨 API 导入，见 §3.2 Step 2 注记）。
-> **验证结论**：GPU OSR 路径正常渲染、颜色与软件路径逐字节一致、**7 次连续快速 resize 全部瞬时收敛且尾随重发分支 0 触发**（旧死锁缓解逻辑已惰性）、退出干净（exit 0、无残留 helper）。软件路径回退可用（`WEBVIEW_OSR_SOFTWARE=1`）。详见 §8。
-> **遗留**：Win D3D11→D3D12 导入路径（§3.3 矩阵）未实施——非 mac 平台保持软件路径；Step 4 的尾随重发/1:1 裁剪简化未做（验证显示其已惰性，移除属独立行为变更，另行评审）。
+> **验证结论**：GPU OSR 路径正常渲染、颜色与软件路径逐字节一致、**7 次连续快速 resize 全部瞬时收敛且尾随重发分支 0 触发**（mac 单机观察，详见 §8）、退出干净（exit 0、无残留 helper）。软件路径回退可用（`WEBVIEW_OSR_SOFTWARE=1`）。
+> **⚠️ 2026-08-05 修正**：“resize 瞬时收敛”是 **mac 单机观察、机制未证实**——源码（refers/cef）推演两条交付路径共用同一 video capturer（video_consumer_osr.cc:37-57）、hold 释放检查逐行相同（render_widget_host_view_osr.cc:1640/1677），**GPU 直通不提供结构性免死锁**（详见《技术详解-GPU-OSR与帧调度》§3.3）。**不得**将本观察作为 Win 路径或“丝滑”的依据；Win 落地后必须实测。本文档的确定收益只有**零 CPU 读回**（交付契约）；resize 死锁根治手段见《实施计划-CEF源码修改-根治resize收敛死锁.md》方案 A/B。
+> **遗留**：Win D3D11→D3D12 导入路径（§3.3 矩阵）未实施——非 mac 平台保持软件路径；Step 4 的尾随重发/1:1 裁剪简化未做（mac 观察显示其已惰性，但收敛未证实，移除属独立行为变更，另行评审）。
 >
-> **为什么 GPU OSR 能根治（实测口径，2026-08-04 修正）**：死锁根源是软件读回路径下“静态页面合成器按需不产帧 → viz 共享内存尺寸不更新 → hold 永不释放”。GPU 纹理直通路径（`OnAcceleratedPaint`）下，**resize 能及时触发合成器提交新尺寸帧**（实测：7 次连续快速 resize 全部瞬时收敛、尾随重发分支 0 触发）——根因 3 从机制上消失。**注意**：不是“合成器持续活跃”（Chromium 合成器无论 GPU/软件均按需提交，见《技术详解-GPU-OSR与帧调度》§2）；GPU 路径的差异在于帧提交语义（Invalidate 真提交 / viz 自动重分配，确切机制待进一步确认）。届时根因 1/2（黑边/变形）的兜底（1:1 裁剪）也基本不再触发。
+> **为什么 GPU OSR 能根治（实测口径，2026-08-04 修正；⚠️ 2026-08-05 再修正）**：~~死锁根源是软件读回路径下……GPU 纹理直通路径下 resize 能及时触发合成器提交新尺寸帧——根因 3 从机制上消失~~——**撤销“根治”定性**。源码推演（refers/cef CEF 151）：两条交付路径共用同一 `viz::ClientFrameSinkVideoCapturer`（video_consumer_osr.cc:37-57）；`hold_resize_` 逻辑与释放检查在 `OnPaint`（render_widget_host_view_osr.cc:1640）与 `OnAcceleratedPaint`（:1677）**逐行相同**——**GPU 直通不改变帧调度，也不结构性免除 hold 死锁**。mac 的“瞬时收敛”是单机观察（§8），机制未证实，Win 必须复验。本文档的确定收益只有：**零 CPU 读回**（交付方式改变，OnPaint 抑制——cef_render_handler.h:140-141）。resize 死锁的根治手段是《实施计划-CEF源码修改-根治resize收敛死锁.md》方案 A/B。
 
 ---
 
@@ -16,11 +17,12 @@
 - 根因 1/2（衍生）：纹理与面板不一致的后果（透明黑边、拉伸变形）。
 - 当前修复：1:1 裁剪（防变形）+ 节流/尾随重发（≤250ms 收敛）——**有残余窗口，非根治**。
 
-**本计划**：实现 GPU 纹理直通（`shared_texture_enabled=1`），从机制上消除死锁。
+**本计划（2026-08-05 修正范围）**：实现 GPU 纹理直通（`shared_texture_enabled=1`），消除 CPU 读回（性能向，确定收益）；**不承诺**消除 resize 死锁——源码推演 hold 死锁路径无关（见顶部修正与《技术详解-GPU-OSR与帧调度》§3.3）。
 
 > **错误说法修正记录（2026-08-04）**：
 > 1. ~~“GPU 路径合成器持续活跃，不再依赖按需产帧”~~——**错误**。Chromium 合成器无论 GPU/软件均为 damage-driven（按需提交），GPU OSR 只改像素交付方式、不改帧调度。**实测口径**：GPU 路径下 resize 能及时触发合成器提交新尺寸帧（§8 证据），确切机制（Invalidate 真提交 vs viz 自动重分配）待确认。详见《技术详解-GPU-OSR与帧调度-概念澄清与解决路径.md》。
 > 2. ~~“Godot 无跨 API 纹理导入 API，是最大成本点”~~——**错误**（规划时漏查）。本 fork 已具备 `RD::texture_create_from_extension`（`rendering_device.cpp:1844`，三驱动均已实现），**零引擎改动**（§2.3 实施时确认）。
+> 3. ~~“GPU 纹理直通路径下 resize 能及时触发合成器提交新尺寸帧——根因 3 从机制上消失”~~——**再修正（2026-08-05）**：此前的“实测口径”是 mac 单机观察、机制未证实。源码推演 GPU/软件路径共用 video capturer 与逐行相同的 hold 释放检查（render_widget_host_view_osr.cc:1640/1677），GPU 直通不提供结构性免死锁。resize 死锁根治依赖 CEF fork 修改（《实施计划-CEF源码修改》方案 A/B）。
 
 ---
 
@@ -121,9 +123,9 @@ CEF GPU 进程合成 → shared texture（mac: IOSurface / Win: D3D11 shared han
 
 ## 6. 参考资源
 
-- **本次问题根因**：`doc/plans/实施记录-WebDock-resize变形黑边与收敛死锁根因分析.md`（§2.3 死锁链、§3.5 根因主次、§6 根治候选①）。
-- **渲染链路现状**：`doc/plans/技术详解-CEF-OSR渲染机制与像素链路.md`（§7 性能模型、§6.2 GPU OSR 成本）。
-- **GPU 加速已验证**：`doc/plans/实施记录-C++路线-mac双平台适配与验证.md`（C-mac-2）、`doc/plans/验证计划-CEF-GPU加速-Win先行.md`。
+- **本次问题根因**：`实施记录-WebDock-resize变形黑边与收敛死锁根因分析.md`（§2.3 死锁链、§3.5 根因主次、§6 根治候选①）。
+- **渲染链路现状**：`技术详解-CEF-OSR渲染机制与像素链路.md`（§7 性能模型、§6.2 GPU OSR 成本）。
+- **GPU 加速已验证**：`../实施记录-C++路线-mac双平台适配与验证.md`（C-mac-2）、`验证计划-CEF-GPU加速-Win先行.md`。
 - **CEF 参考实现**：cefclient `tests/cefclient/browser/osr_render_handler_win_d3d11.cc`（D3D11 路径）、obs-browser `browser-client.cpp`（生产级 GPU 导入）、webview_cef（CEF 149 GPU/IME，Apache-2.0）。
 - **Godot 侧**：`drivers/metal`、`drivers/d3d12`、`servers/rendering/rendering_device.h`、`thirdparty/metal-cpp`（`MTLDevice.hpp:503`）、`platform/macos/embedded_gl_manager.mm`（IOSurface 参考）。
 
@@ -168,7 +170,7 @@ CEF GPU 进程（Metal 合成）→ IOSurface（GMB，BGRA8）→ OnAcceleratedP
 | 验收项 | 结果 | 证据 |
 |---|---|---|
 | §5.1 GPU 路径正常渲染 | ✅ | `GPU OSR frame: 320x240→320x1809`（首帧+布局展开）；页面 200；JS 桥 invoke 往返正常；截图 dock 区域 1046 unique colors（非空白）；颜色与软件路径一致（dock 区域 mean RGB 45.2,45.9,52.0 vs 软件 45.1,45.7,51.8，R/B 0.870 vs 0.869——无 R/B 互换） |
-| §5.2 resize 瞬时收敛 | ✅ | 7 次连续快速 resize（850/950/800/1050/880/920/900 高，400ms 间隔）每次立即产出新尺寸帧（1509/1709/1409/1807/1569/1649/1609）；**尾随重发分支 0 触发**（临时插桩计数，插桩已移除） |
+| §5.2 resize 瞬时收敛 | ✅（mac 单机观察，机制未证实） | 7 次连续快速 resize（850/950/800/1050/880/920/900 高，400ms 间隔）每次立即产出新尺寸帧（1509/1709/1409/1807/1569/1649/1609）；**尾随重发分支 0 触发**（临时插桩计数，插桩已移除）——源码推演 GPU 直通不提供结构性免死锁（顶部 2026-08-05 修正），Win 必须复验 |
 | §5.3 无崩溃 + 干净退出 | ✅ | 多轮运行无 `GPU process exited`/`FATAL`；Cmd+Q 退出 exit=0，8s 后 0 残留 helper |
 | §5.4 mac 双平台（Win 后置） | ✅ mac / ⏸ Win | Win 路径（D3D11 shared handle → `ID3D12Device::OpenSharedHandle`）未实施，非 mac 保持软件路径 |
 | §5.5 软件路径回退 | ✅ | `WEBVIEW_OSR_SOFTWARE=1` 运行：页面 200、无 GPU OSR 帧（OnPaint 软件路径） |
@@ -176,6 +178,6 @@ CEF GPU 进程（Metal 合成）→ IOSurface（GMB，BGRA8）→ OnAcceleratedP
 ### 8.4 观察与遗留
 
 - **窗口关闭（点红点）退出会残留 CEF helper**（Cmd+Q 干净）——疑似 mac 编辑器窗口关闭退出路径不完整，与本次改动无关（未改退出逻辑），待单独排查。
-- resize 节流（25ms）与尾随重发逻辑保留未动：GPU 路径下已惰性（验证 0 触发），但移除属独立行为变更（Step 4），待评审。
+- resize 节流（25ms）与尾随重发逻辑保留未动：mac 观察 GPU 路径下已惰性（尾随重发 0 触发，但收敛机制未证实），且 Win 软件路径仍依赖其兜底；移除属独立行为变更（Step 4），待评审。
 - Win 的 `cefViewQuery` 通路（验证计划 §3.4 附带发现）与本改动无关，未处理。
 - 性能：GPU 直通消除 CPU 读回（原每帧 BGRA→RGBA 逐像素 + memcpy）；拷贝为 GPU blit，开销可忽略。未做帧率 A/B 专项测量（编辑器 UI 主观流畅，无硬指标）。
