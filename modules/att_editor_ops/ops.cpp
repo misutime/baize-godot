@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  semantic_ops.cpp                                                      */
+/*  ops.cpp                                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,11 +28,11 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "semantic_ops.h"
+#include "ops.h"
 
 #ifdef TOOLS_ENABLED
 
-#include "editor_ui_tree.h"
+#include "ui_tree.h"
 
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
@@ -371,7 +371,7 @@ static bool _convert_prop_value(Variant::Type p_type, const Variant &p_value, Va
 	return false;
 }
 
-Dictionary SemanticOps::activate(const String &p_id) {
+Dictionary Ops::activate(const String &p_id) {
 	// TreeItem 语义目标："<树控件>/item"（根 item，叶子根场景节点也在此）或
 	// "<树控件>/item/<索引>:<文本>/…"。取最后一个 "/item" 段尝试；前缀必须能解析
 	// 为 Tree 控件，否则整体回退为普通控件激活（防误分类含 "item" 段的控件 ID）。
@@ -434,7 +434,7 @@ Dictionary SemanticOps::activate(const String &p_id) {
 	return _activate_input_fallback(ctrl);
 }
 
-Dictionary SemanticOps::set_text(const String &p_id, const String &p_value) {
+Dictionary Ops::set_text(const String &p_id, const String &p_value) {
 	Control *ctrl = EditorUiTree::find_control(p_id);
 	if (!ctrl) {
 		return _err("control_not_found", "语义 ID 未找到控件: " + p_id);
@@ -481,7 +481,7 @@ Dictionary SemanticOps::set_text(const String &p_id, const String &p_value) {
 	return _err("unsupported_role", "控件不支持 set_text: " + String(ctrl->get_class()));
 }
 
-Dictionary SemanticOps::focus(const String &p_id) {
+Dictionary Ops::focus(const String &p_id) {
 	Control *ctrl = EditorUiTree::find_control(p_id);
 	if (!ctrl) {
 		return _err("control_not_found", "语义 ID 未找到控件: " + p_id);
@@ -490,11 +490,11 @@ Dictionary SemanticOps::focus(const String &p_id) {
 	return _ok(Dictionary());
 }
 
-Dictionary SemanticOps::get_ui_tree() {
+Dictionary Ops::get_ui_tree() {
 	return _ok(EditorUiTree::export_tree());
 }
 
-Dictionary SemanticOps::select_node(const String &p_path) {
+Dictionary Ops::select_node(const String &p_path) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	if (!root) {
@@ -518,7 +518,7 @@ Dictionary SemanticOps::select_node(const String &p_path) {
 	return _ok(String(target->get_path()));
 }
 
-Dictionary SemanticOps::set_prop(const String &p_path, const String &p_prop, const Variant &p_value) {
+Dictionary Ops::set_prop(const String &p_path, const String &p_prop, const Variant &p_value) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	if (!root) {
@@ -621,7 +621,7 @@ Dictionary SemanticOps::set_prop(const String &p_path, const String &p_prop, con
 	return _ok(Dictionary());
 }
 
-Dictionary SemanticOps::get_state() {
+Dictionary Ops::get_state() {
 	Dictionary result;
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
@@ -642,7 +642,7 @@ Dictionary SemanticOps::get_state() {
 	return _ok(result);
 }
 
-Dictionary SemanticOps::undo() {
+Dictionary Ops::undo() {
 	const bool ok = EditorUndoRedoManager::get_singleton()->undo();
 	if (!ok) {
 		return _err("nothing_to_undo", "没有可撤销的操作");
@@ -650,7 +650,7 @@ Dictionary SemanticOps::undo() {
 	return _ok(Dictionary());
 }
 
-Dictionary SemanticOps::redo() {
+Dictionary Ops::redo() {
 	const bool ok = EditorUndoRedoManager::get_singleton()->redo();
 	if (!ok) {
 		return _err("nothing_to_redo", "没有可重做的操作");
@@ -658,7 +658,7 @@ Dictionary SemanticOps::redo() {
 	return _ok(Dictionary());
 }
 
-Dictionary SemanticOps::get_node_count() {
+Dictionary Ops::get_node_count() {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	if (!root) {
@@ -679,7 +679,7 @@ Dictionary SemanticOps::get_node_count() {
 	return _ok(count);
 }
 
-Dictionary SemanticOps::create_node(const String &p_name) {
+Dictionary Ops::create_node(const String &p_name) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	if (!root) {
@@ -706,7 +706,7 @@ Dictionary SemanticOps::create_node(const String &p_name) {
 	return _ok(result);
 }
 
-Dictionary SemanticOps::_activate_input_fallback(Control *p_ctrl) {
+Dictionary Ops::_activate_input_fallback(Control *p_ctrl) {
 	if (!p_ctrl->is_visible_in_tree()) {
 		return _err("not_visible", "控件不可见，无法激活: " + p_ctrl->get_name());
 	}

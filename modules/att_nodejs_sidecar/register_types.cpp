@@ -30,42 +30,32 @@
 
 #include "register_types.h"
 
-#include "editor_web_dock.h"
-#include "web_panel.h"
-#include "webview_manager.h"
-
-#if defined(__APPLE__)
-#include "cef_application_mac.h" // 注入 CEF mac 事件集成所需方法（须在 CEF 调用前）
-#endif
+#include "sidecar_server.h"
 
 #include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
 #include "core/object/message_queue.h"
 
-void initialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(WebPanel);
-#if defined(__APPLE__)
-		// mac：CEF 消息泵依赖 NSApplication 的 isHandlingSendEvent/setHandlingSendEvent
-		// （CrAppProtocol），GodotApplication 未实现——这里在首次 CEF 调用前注入。
-		webview_install_cef_application_protocol();
-#endif
-		// C++ 路线：不再加载 gdcef 扩展；单例持有 WebViewCore，CEF 在首次
-		// create_browser（WebPanel::sync_size）时经 init_core 惰性初始化。
-		WebViewManager::get_singleton();
-	}
+#ifdef TOOLS_ENABLED
+// EditorNode 在 Main::start() 创建（晚于模块初始化），SidecarServer 延迟到第一帧启动。
+static void sidecar_server_start_deferred() {
+	SidecarServer::get_singleton()->start();
+}
+#endif // TOOLS_ENABLED
+
+void initialize_att_nodejs_sidecar_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// EditorNode 在 Main::start() 创建（晚于模块初始化），deferred 到第一帧注册 dock。
-		// 插件作为 EditorNode 子节点，随编辑器退出自动释放（不单独 unregister）。
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(register_web_dock_deferred));
+		MessageQueue::get_singleton()->push_callable(callable_mp_static(sidecar_server_start_deferred));
 	}
-#endif
+#endif // TOOLS_ENABLED
 }
 
-void uninitialize_webview_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		// free_singleton 内部先 shutdown_core（关闭全部浏览器 + CefShutdown），再释放单例。
-		WebViewManager::free_singleton();
+void uninitialize_att_nodejs_sidecar_module(ModuleInitializationLevel p_level) {
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		// 退出编排（方案 §4.4 P1-6）：sidecar 先停（shutdown 通知 + 等 2s + kill 进程树），
+		// CEF 在 SCENE 级随后自然 shutdown（Main::cleanup 顺序：SceneTree→EDITOR→SCENE）。
+		SidecarServer::free_singleton();
 	}
+#endif // TOOLS_ENABLED
 }

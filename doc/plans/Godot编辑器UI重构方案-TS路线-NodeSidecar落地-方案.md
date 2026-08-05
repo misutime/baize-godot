@@ -1,6 +1,6 @@
 # Godot 编辑器 UI 重构（TS 路线）——Node Sidecar 落地计划
 
-> **状态**：落地计划（2026-08-04；2026-08-05 依 shifu 审查修订——双令牌/进程监督前置/线级合同/资源预算/退出顺序/退役 gate 等，修订点均标注「审查修订」）。衔接《TS-CEF嵌入与NodeSidecar-设计.md》（§1.2 工具链 / §4 三端两两直连 / §5.4 生命周期）、
+> **状态**：落地计划（2026-08-04；2026-08-05 依 shifu 审查修订 + 架构拆分——原 modules/ai 解体为 modules/att_editor_ops（能力面）+ modules/att_nodejs_sidecar（通道），ai_bridge 已删除，修订点标注「审查修订」/「架构」）。衔接《TS-CEF嵌入与NodeSidecar-设计.md》（§1.2 工具链 / §4 三端两两直连 / §5.4 生命周期）、
 > 《TS路线-WebUI架构-桥协议与前端SDK.md》（CEF↔Godot 通道已落地）、
 > 《实施记录-AI-FIRST-P1-P2-语义接口与MCP.md》（能力面注册表 + MCP 暴露层已落地）。
 > **本文回答**：Node sidecar 在 baize-godot 仓库怎么落地——目录、通道、协议、生命周期、分阶段验收。
@@ -16,23 +16,23 @@
 
 | 组件 | 位置 | 状态 |
 |---|---|---|
-| CEF 接入（窗口模式/非 OSR：CEF 原生子窗口渲染、像素零回传、输入/IME 原生直收） | `modules/webview/`（webview_core / web_panel / editor_web_dock / cef_application_mac） | ✅ MVP1 完成，MVP2 实机验收 4 条进行中（《桥协议》§6）；渲染 = 非 OSR 窗口模式（最终态，`webview_core.cpp:1028` `windowless_rendering_enabled=0`、`:1149` `SetAsChild`） |
-| CEF↔Godot 进程内桥（方法注册表 + req_id 配对 + 事件源 + 字体体系） | `modules/webview/web_bridge.{h,cpp}` | ✅ 方法 10 个、事件 6 个；事件源目前**单浏览器目标**（`set_event_browser_id`） |
+| CEF 接入（窗口模式/非 OSR：CEF 原生子窗口渲染、像素零回传、输入/IME 原生直收） | `modules/att_webview/`（webview_core / web_panel / editor_web_dock / cef_application_mac） | ✅ MVP1 完成，MVP2 实机验收 4 条进行中（《桥协议》§6）；渲染 = 非 OSR 窗口模式（最终态，`webview_core.cpp:1028` `windowless_rendering_enabled=0`、`:1149` `SetAsChild`） |
+| CEF↔Godot 进程内桥（方法注册表 + req_id 配对 + 事件源 + 字体体系） | `modules/att_webview/web_bridge.{h,cpp}` | ✅ 方法 10 个、事件 6 个；事件源目前**单浏览器目标**（`set_event_browser_id`） |
 | 前端 workspace（sdk + ui） | `web/`（@baize/ui-sdk + @baize/ui，React 19 + Vite 8 + Tailwind） | ✅ sdk 27 单测（静态计数：transport 11 + registry 16，以 CI 实跑为准；历史文档「13」已过期）；产物经 `misc/scripts/stage_ui.py` 进 `bin/webview/ui/` |
-| 语义能力面（注册表 + 语义操作 + 语义 UI 树） | `modules/ai/semantic_registry.{h,cpp}` + `semantic_ops` + `editor_ui_tree` | ✅ 唯一事实源：方法名/描述/schema/handler 集中注册 |
-| MCP 暴露层（HTTP server） | `modules/ai/ai_bridge.{h,cpp}` | ⚠️ **实验品，无实际使用**（用户确认 2026-08-04）：127.0.0.1:47653（`AI_BRIDGE_PORT`），可选 token 鉴权（`AI_BRIDGE_TOKEN` 未设时不强制），11 工具（ui.*/editor.*/scene.*）；定位 = 能力面活体参考实现，**S3 且 Node MCP 达成功能/鉴权等价后退役**（gate 见 §5.2/§9-5） |
+| 语义能力面（注册表 + 语义操作 + 语义 UI 树） | `modules/att_editor_ops/`（registry + ops + ui_tree，架构拆分 2026-08-05；2026-08-05 更名去 Semantic 前缀） | ✅ 唯一事实源：方法名/描述/schema/handler 集中注册；零依赖，被各通道消费 |
+| ~~MCP 暴露层（HTTP server）~~ | ~~`modules/ai/ai_bridge.{h,cpp}`~~ | **已删除（2026-08-05 架构决策）**：实验品无实际使用，随模块拆分放弃；排坑知识归档于《实施记录-AI-FIRST》；未来 MCP 宿主 = sidecar 内 Node MCP server（S3） |
 
 ### 1.2 缺口（sidecar 未落地）
 
 - **无 sidecar 进程**：仓库无 `runtime/`、无 Node sidecar 代码、无 spawn/生命周期管理（grep 全仓库 `sidecar` 仅设计文档提及）；
-- **无 NodeJS↔Godot 通道**：《设计》§4 裁决的 WebSocket/JSON-RPC 未实现；引擎能力目前只有两条暴露路径——CEF 进程内桥（`web_bridge`）与 MCP HTTP（`ai_bridge`），**无进程外双向通道**（MCP HTTP 无服务端推送，SSE 事件面暂缓）；
+- **无 NodeJS↔Godot 通道**：《设计》§4 裁决的 WebSocket/JSON-RPC 未实现；引擎能力目前只有两条暴露路径——CEF 进程内桥（`web_bridge`）与 ~~MCP HTTP（`ai_bridge`，已删）~~，**无进程外双向通道**（SSE 事件面暂缓）；
 - **无 CEF↔NodeJS 通道**：页面只能调 Godot，不能直连 sidecar 服务（Agent/LSP/工具链）；
-- **能力面未合流**：`web_bridge` 方法注册表与 `SemanticRegistry` 各自维护（`semantic_registry.h` 注释明示"WebBridge 委托列为后续"）。
+- **能力面未合流**：`web_bridge` 方法注册表与 `Registry` 各自维护（`registry.h` 注释明示"WebBridge 委托列为后续"）。
 
 ### 1.3 本文交付边界
 
 - **范围**：sidecar 工程落地（S0）→ NodeJS↔Godot 通道（S1）→ CEF↔NodeJS 直连 + 事件多目标化（S2）→ 首个真实服务（S3）→ 发布运维（S4）。S0-S2 构成"sidecar 三端直连落地"核心；S3 服务选型留用户裁决（§9）；
-- **不涉及**：不改 Godot 状态权威模型（场景树/属性/UndoRedo 仍在引擎）；不迁移全部 WebBridge 方法（S1 仅委托 4 个重叠方法到 SemanticRegistry，其余 S2 评估迁移或明确为 WebView host 能力，见 §5.2）；不涉及渲染方案——WebDock 渲染已定型为非 OSR 窗口模式（CEF 原生子窗口、像素零回传、输入/IME 原生直收），OSR 时代的 GPU 直通 / fork CEF 等计划已随路线演进废弃，归档于 `页面渲染选型-OSR与非OSR/`（§10）。
+- **不涉及**：不改 Godot 状态权威模型（场景树/属性/UndoRedo 仍在引擎）；不迁移全部 WebBridge 方法（S1 仅委托 4 个重叠方法到 Registry，其余 S2 评估迁移或明确为 WebView host 能力，见 §5.2）；不涉及渲染方案——WebDock 渲染已定型为非 OSR 窗口模式（CEF 原生子窗口、像素零回传、输入/IME 原生直收），OSR 时代的 GPU 直通 / fork CEF 等计划已随路线演进废弃，归档于 `页面渲染选型-OSR与非OSR/`（§10）。
 
 ---
 
@@ -65,7 +65,7 @@
 | 打包（发布形态） | **Node SEA 单文件** | **用户裁决（2026-08-04）：发布不要求用户有 Node 运行时**——每服务一个 SEA 自包含可执行（Node 20+ 官方 Single Executable Applications）：`ws`/`vscode-jsonrpc`/`pino`/`zod` bundle 进注入 JS，不依赖外部 node_modules；napi-rs native addon 与 SEA 组合成熟度落地实测（列为风险）；按 Windows x64 / macOS arm64/x64 分平台构建、签名/公证（S4）；开发期用本机 Node 24.x |
 | 测试/Lint | **Vitest + Biome** | 复用 `web/` workspace 既有配置 |
 | 通信（Node 侧） | **ws** + **vscode-jsonrpc** | ws（8.21.x，MIT）= WS 传输事实标准，client+server（sidecar 两个 WS 面）；vscode-jsonrpc（9.x，MIT，微软）= RPC over streams，LSP 同源——WS 与子进程 stdio 共用一套 MessageConnection；方法分派/业务分发自研薄层（§3.2 jsonrpc.ts） |
-| 校验 | **zod（仅 sidecar 自有服务）** | 引擎能力面参数 schema 唯一事实源 = C++ `SemanticRegistry`（JSON Schema），zod **不**另起一套（防双份 schema 漂移）；仅用于 Agent 会话等 sidecar 自有输入 |
+| 校验 | **zod（仅 sidecar 自有服务）** | 引擎能力面参数 schema 唯一事实源 = C++ `Registry`（JSON Schema），zod **不**另起一套（防双份 schema 漂移）；仅用于 Agent 会话等 sidecar 自有输入 |
 | 日志 | **pino** | JSON lines → stdout/stderr → Godot 日志（S1：`user://logs/sidecar.log`） |
 | Native 模块 | Rust + napi-rs（后续按需） | 《设计》§1.2；首阶段无 native 需求 |
 
@@ -89,7 +89,7 @@ web/                                ← 现有 TS workspace（pnpm；sdk + ui）
 **决策理由**：
 - 单一 pnpm lockfile + 单一 biome/tsconfig 体系；根级第二个 workspace 会引入第二套 node_modules/lockfile，且 `node_modules` 可能污染引擎 SCsub 源码扫描（`web/` 已隔离）；
 - 与《设计》未来 monorepo 的映射：`ui/`=web/ui、`runtime/`=web/runtime、`packages/rpc/`=web/packages/rpc——目录名平移，路径加深一级；
-- `@baize/rpc` 是纯类型包（零运行时依赖），sdk 与 runtime 共同消费；CEF 侧（`web/sdk`）与 C++ 侧（`modules/webview`/`modules/ai`）消息类型对齐（类型漂移 CI 列为后续，《设计》§5.3）。
+- `@baize/rpc` 是纯类型包（零运行时依赖），sdk 与 runtime 共同消费；CEF 侧（`web/sdk`）与 C++ 侧（`modules/att_webview`/`modules/att_editor_ops`/`modules/att_nodejs_sidecar`）消息类型对齐（类型漂移 CI 列为后续，《设计》§5.3）。
 
 ---
 
@@ -101,10 +101,10 @@ web/                                ← 现有 TS workspace（pnpm；sdk + ui）
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Godot 编辑器进程                             │
 │  ┌────────────────────┐        ┌──────────────────────────────┐  │
-│  │ modules/ai         │        │ modules/webview             │  │
-│  │ SemanticRegistry   │        │ web_bridge（CEF 进程内桥）    │  │
-│  │ sidecar_server(新)  │        │  + 事件源（多目标化，S2）      │  │
-│  │ ai_bridge(MCP HTTP)│        └──────────────┬───────────────┘  │
+│  │ modules/att_editor_ops │        │ modules/att_webview             │  │
+│  │ Registry   │        │ web_bridge（CEF 进程内桥）    │  │
+│  │ modules/att_nodejs_sidecar│      │  + 事件源（多目标化，S2）      │  │
+│  │ sidecar_server     │        └──────────────┬───────────────┘  │
 │  └─────────┬──────────┘                       │ CEF 进程内         │
 │     WS server（port 0，新）                 │（已落地）          │
 └────────────┼──────────────────────────────────┼───────────────────┘
@@ -117,7 +117,7 @@ web/                                ← 现有 TS workspace（pnpm；sdk + ui）
     └───────────────────────────┘      └────────────────────┘
 ```
 
-> 注：`ai_bridge`（MCP HTTP）为实验品（用户确认 2026-08-04，无实际使用），S3 选 Agent 且 Node MCP 达成功能/鉴权等价后退役（gate 见 §5.2/§9-5）——终态不含它。
+> 注：`ai_bridge`（MCP HTTP）已于 2026-08-05 架构拆分时删除（实验品无实际使用）；未来 MCP 宿主 = sidecar 内 Node MCP server（S3）。
 
 ### 4.2 角色与通道
 
@@ -141,7 +141,7 @@ CEF = 表现层。连接建立后数据面直连（VS Code main-process 模式�
 4. CEF 页面经 WebBridge 新方法 sidecar.get_info 取 { url, token }（仅 main frame 可调）→ sdk 建立直连
 ```
 
-- **双令牌理由（审查修订）**：CEF 页面与 sidecar 信任级别不同——`godot_sidecar_token` 仅授予被 Godot spawn 的 sidecar（可调 SemanticRegistry 全量方法）；`cef_service_token` 仅允许访问 sidecar `services.*`，**不能连接 Godot WS**。原单令牌设计会形成“页面 → sidecar → Godot 全能力面”的提权路径（原 P0-1，降级为 P1 加固项）；
+- **双令牌理由（审查修订）**：CEF 页面与 sidecar 信任级别不同——`godot_sidecar_token` 仅授予被 Godot spawn 的 sidecar（可调 Registry 全量方法）；`cef_service_token` 仅允许访问 sidecar `services.*`，**不能连接 Godot WS**。原单令牌设计会形成“页面 → sidecar → Godot 全能力面”的提权路径（原 P0-1，降级为 P1 加固项）；
 - **CEF 导航边界（审查修订）**：WebBridge 调用仅接受 bundled `file:///…/webview/ui/` 主 frame（main frame 校验，导航离开即撤销桥与 token）；CEF 面 WS 校验 `Origin` 与预期页面身份；iframe/错误 Origin/远程导航一律拿不到 `get_info`；
 - 令牌不落磁盘、不进日志；spawn 模式 port 0 无端口冲突，dev/外部调试模式才允许固定端口覆盖（此为明确策略，非 bind 失败后的静默回退）；bind 失败仍清晰报错（显示端口 + 来源 + 改法），**不静默回退、不自动换端口**。
 
@@ -169,11 +169,11 @@ CEF = 表现层。连接建立后数据面直连（VS Code main-process 模式�
 - response = 标准 `result` / `error{code,message}`（JSON-RPC 数值错误码，内部码入 `error.data`）；
 - **通知**（无 id）：事件下行（Godot→sidecar）与服务进度（sidecar→CEF）。
 
-**业务语义 = `{ ok, result }` / `{ ok:false, error:{code,message} }`**（与 WebBridge/SemanticRegistry 返回格式一致）——这是 handler 的返回值语义，**由 C++ sidecar_server 分派层做一次映射**：
+**业务语义 = `{ ok, result }` / `{ ok:false, error:{code,message} }`**（与 WebBridge/Registry 返回格式一致）——这是 handler 的返回值语义，**由 C++ sidecar_server 分派层做一次映射**：
 
 ```
-SemanticRegistry handler 返回 { ok:true,  result }  → JSON-RPC result = result
-SemanticRegistry handler 返回 { ok:false, error }   → JSON-RPC error = { code, message }（内部码入 data）
+Registry handler 返回 { ok:true,  result }  → JSON-RPC result = result
+Registry handler 返回 { ok:false, error }   → JSON-RPC error = { code, message }（内部码入 data）
 ```
 
 - 映射放 C++ 分派层的理由：**Godot 是语义权威，一次映射三端受益**——CEF 桥（method_result 事件）、sidecar WS、MCP 三端语义一致，Node 侧/前端不重复实现映射；
@@ -182,26 +182,26 @@ SemanticRegistry handler 返回 { ok:false, error }   → JSON-RPC error = { cod
 - **错误码映射（审查修订 P1-2）**：未知方法 -32601、参数校验 -32602、业务失败统一 -32000（JSON-RPC server error range），内部字符串码放 `error.data.code`——不得把字符串内部码直接塞进数值 `error.code`；
 - 消息类型：`RpcRequest/RpcResponse/RpcError/RpcNotification` + 方法/事件 payload 类型，全部在 `web/packages/rpc` 一处声明；sdk 与 runtime 从包导入；C++ 侧（sidecar_server）手写对齐，**协议一致性向量（同一 JSON fixture 同时跑 C++ 与 TS）为 S1 merge gate**（原“类型漂移校验 CI 后续”从 S4 立项提前，审查修订 P2-6）。
 
-### 5.2 能力面：SemanticRegistry 为唯一事实源
+### 5.2 能力面：Registry 为唯一事实源
 
-`sidecar_server`（C++，新，位于 `modules/ai/`）**不分发到 WebBridge**，而是直接查询 `SemanticRegistry`（方法元数据 + `validate_args` + handler）——与 `ai_bridge` 的 MCP 工具面同源：
+`sidecar_server`（C++，位于 `modules/att_nodejs_sidecar/`）**不分发到 WebBridge**，而是直接查询 `modules/att_editor_ops/` 的 `Registry`（方法元数据 + `validate_args` + handler）：
 
 | 消息 | 语义 | 分发 |
 |---|---|---|
-| `scene.*` / `editor.*` / `ui.*`（SemanticRegistry 方法） | 引擎能力调用 | `SemanticRegistry::find` + `validate_args` + handler（与 MCP tools/call 完全一致） |
+| `scene.*` / `editor.*` / `ui.*`（Registry 方法） | 引擎能力调用 | `Registry::find` + `validate_args` + handler（与 MCP tools/call 完全一致） |
 | `sidecar.hello` / `sidecar.health` | 握手/健康检查 | sidecar_server 自身 |
 | `sidecar.subscribe` / `unsubscribe`（事件名列表） | 事件订阅 | sidecar_server 维护订阅表（S2 事件多目标化后生效） |
 | `editor.selection_changed` 等（通知） | Godot→sidecar 事件下行 | 事件源 fan-out（S2） |
 
 - **事件订阅契约（审查修订）**：S2 定义订阅白名单（事件名列表，来源 = `@baize/rpc` 事件声明 + C++ 事件源注册表，双端一致）、每事件 payload schema、顺序/去重/coalesce 规则（状态型事件可合并，订阅者可过滤）；“不缓存权威状态”不等于不能维护连接级游标（重订阅快照语义 S2 细化）。
 
-**`ai_bridge` 定位与退役路径（gate 修订，审查修订 P2-5）**：`ai_bridge` 是实验品（用户确认 2026-08-04，无任何实际使用）——其价值是能力面的**活体参考实现**：验证 SemanticRegistry 语义 + 排坑清单（《AI-FIRST》§4 已归档，删代码不丢知识）。S1 的 WS 通道可用它交叉验证（同一能力面、两种传输、结果应一致）。**退役 gate**：仅当 S3 选 Agent 服务且 sidecar 内 Node MCP server（streamable HTTP）完成 tools/list、tools/call、鉴权与外部消费者迁移验收后，才删除 `ai_bridge`；删除清单**包含 `register_types.cpp`/config/build 接线**，不限于 `{h,cpp}`；若 S3 选 LSP/资产管线则保留到后续阶段。`modules/ai` 终态收敛为 SemanticRegistry + semantic_ops + editor_ui_tree + sidecar_server。不新增第二份能力实现：sidecar_server 直接查询 `SemanticRegistry`（与 ai_bridge 的 MCP 工具面同源，方法实现只写一份）。
+**`ai_bridge` 处置（架构拆分 2026-08-05）**：已删除（实验品，用户确认无实际使用，2026-08-04）。其价值（能力面活体参考实现 + 排坑清单《AI-FIRST》§4）已归档，删代码不丢知识。未来 MCP 宿主 = S3 sidecar 内 Node MCP server（streamable HTTP），gate 为 tools/list + tools/call + 鉴权 + 外部消费者迁移验收。不新增第二份能力实现：sidecar_server 直接查询 `Registry`（方法实现只写一份）。
 
-### 5.3 C++ 实现要点（`modules/ai/sidecar_server.{h,cpp}`）
+### 5.3 C++ 实现要点（`modules/att_nodejs_sidecar/sidecar_server.{h,cpp}`）
 
 - **传输**：复用 `modules/websocket`（引擎内置 wslay）：`TCPServer::listen` + `WebSocketPeer::accept_stream` + 每帧 `poll`——模式参照已在本 fork 编辑器验证的 `EditorDebuggerServerWebSocket`（`modules/websocket/editor/editor_debugger_server_websocket.cpp`），**不用** `ai_bridge` 的 NetSocket 手写路径（其排坑 #2/#3 是 HTTP 场景特有）；参照实现仅管理单个 pending peer（含 3s 握手超时），多 peer 管理/背压需自建；
 - **资源预算（审查修订 P1-4）**：`accept_stream` 前显式设置 inbound/outbound buffer（提高有界 message 上限——wslay 的 `max_recv_msg_length` 在握手时固定为 inbound size，默认 65535B，普通 WS 分片不能绕过重组后长度限制；语义树快照 ~780KB，buffer 以 4 MiB 起步实测）；outbound 单条超限会 `ERR_OUT_OF_MEMORY`（`modules/websocket/wsl_peer.cpp:776-778`），若超限仍发生则启用应用层 chunk 协议（transfer_id/index/count）；每 peer 认证 deadline 3s、连接数上限、每帧消息/字节预算、outbound high-water mark、慢客户端以 1009/策略码关闭；
-- **分派（审查修订 P1-2）**：**裁决 = sidecar_server 自做严格 JSON-RPC 2.0 解析/分派**（薄层，遵守规范语义：error 携带 data、string id、通知语义），方法 handler 桥接 `SemanticRegistry`。**不依赖**引擎内置 `JSONRPC` 类（`modules/jsonrpc`）——其 handler 返回值无条件进 `result`、`make_response_error` 不支持 `error.data`、response 路径只收数值 id，且非 virtual 扩展点（`modules/jsonrpc/jsonrpc.cpp:142-181,60-71,185-201`），无法完成 §5.1 要求的映射；备选 = 扩展 `modules/jsonrpc`（影响引擎内置模块，不取）。`{ok,result}` ↔ 标准 result/error 的**映射在 C++ 分派层一次完成**（§5.1），Node 侧/前端不重复实现；Godot 侧不引第三方 JSON-RPC 库；
+- **分派（审查修订 P1-2）**：**裁决 = sidecar_server 自做严格 JSON-RPC 2.0 解析/分派**（薄层，遵守规范语义：error 携带 data、string id、通知语义），方法 handler 桥接 `Registry`。**不依赖**引擎内置 `JSONRPC` 类（`modules/jsonrpc`）——其 handler 返回值无条件进 `result`、`make_response_error` 不支持 `error.data`、response 路径只收数值 id，且非 virtual 扩展点（`modules/jsonrpc/jsonrpc.cpp:142-181,60-71,185-201`），无法完成 §5.1 要求的映射；备选 = 扩展 `modules/jsonrpc`（影响引擎内置模块，不取）。`{ok,result}` ↔ 标准 result/error 的**映射在 C++ 分派层一次完成**（§5.1），Node 侧/前端不重复实现；Godot 侧不引第三方 JSON-RPC 库；
 - **线程**：全主线程（SceneTree 帧泵，与 WebBridge/AiBridge 同线程，register_types 复用 `modules/ai` 的 EDITOR 级延迟启动）；
 - **安全（审查修订 P0-1）**：仅绑 127.0.0.1；**双令牌校验**（`godot_sidecar_token` 校验 Godot 面首帧，`cef_service_token` 校验 CEF 面，两令牌互不通用，见 §4.3）；连接数/消息大小上限（见资源预算，替代原“按 WS 帧缓冲分片”表述）；
 - **排坑参照**：《AI-FIRST》§4 已踩坑清单——`Variant::is_null()` 不可信（用 `Dictionary::has()`）、`Main::cleanup` 清理顺序（帧泵判空 + `is_connected()`）、Vector 无 `push_front`、本 fork `Variant` 无 `convert()`；
@@ -258,10 +258,10 @@ SDK 内部
 
 ### S1：NodeJS↔Godot 通道（sidecar_server + spawn/生命周期 + 令牌）
 
-- C++：`modules/ai/sidecar_server.{h,cpp}`（WS server + 帧泵 + 令牌握手 + **自做严格 JSON-RPC 2.0 解析/分派**（§5.3 裁决，不依赖引擎内置 `JSONRPC` 类）→ SemanticRegistry + 连接上限）；`register_types.cpp` 接线；
+- C++：`modules/att_nodejs_sidecar/sidecar_server.{h,cpp}`（WS server + 帧泵 + 令牌握手 + **自做严格 JSON-RPC 2.0 解析/分派**（§5.3 裁决，不依赖引擎内置 `JSONRPC` 类）→ editor_ops 的 Registry + 连接上限）；`register_types.cpp` 接线；
 - spawn 管理：编辑器启动钩子（沿用 `ai_bridge` 的 MessageQueue 第一帧模式）→ **ProcessSupervisor**（env 传 godot token/url/项目路径，§4.4）；断开检测 + 自动重启（退避 + 上限）；退出编排（§4.4）；
 - env：`BAIZE_SIDECAR=1|dev`（默认 1；`0` 已弃用——sidecar 恒启用，2026-08-05 决策）、`BAIZE_GODOT_WS_URL`（port 0 实际端口派生，spawn 时下发）、`BAIZE_GODOT_TOKEN`（spawn 时自动生成）、`BAIZE_PROJECT_PATH`、`BAIZE_NODE`、`BAIZE_SIDECAR_TOKEN`（仅 dev 模式：父环境显式提供，缺失拒绝 dev 模式——审查修订 P1-5）；
-- 方法面：`sidecar.hello/health/echo` + SemanticRegistry 全量方法透传（`scene.get_node_count` / `scene.create_node` / `editor.get_state` / `editor.undo` 等）；
+- 方法面：`sidecar.hello/health/echo` + Registry 全量方法透传（`scene.get_node_count` / `scene.create_node` / `editor.get_state` / `editor.undo` 等）；
 - 日志：sidecar stdout/stderr → Godot 日志文件（`user://logs/sidecar.log`，**有界 + token redaction，S1 起**）+ 编辑器退出时收尾（防残留句柄）。
 
 **验收**（编辑器实机，审查修订）：
@@ -292,7 +292,7 @@ SDK 内部
 
 | 候选 | 内容 | 验收形态 | 依赖 |
 |---|---|---|---|
-| **Agent 服务（推荐）** | LLM 会话 + SemanticRegistry 工具集（场景树读写/属性/undo/截图），自愈闭环（《设计》§5.7） | 面板对话："建一个带脚本的玩家节点" → agent 经 sidecar 通道调 `scene.create_node`/`editor.set_prop` → 编辑器出现节点、undo 可撤 | LLM API key / 网络（环境依赖） |
+| **Agent 服务（推荐）** | LLM 会话 + Registry 工具集（场景树读写/属性/undo/截图），自愈闭环（《设计》§5.7） | 面板对话："建一个带脚本的玩家节点" → agent 经 sidecar 通道调 `scene.create_node`/`editor.set_prop` → 编辑器出现节点、undo 可撤 | LLM API key / 网络（环境依赖） |
 | LSP worker | tsgo/TypeScript 子进程 → Monaco 项目级检查 | Monaco 报项目级类型错误（超越内置 worker 的全量检查） | tsgo 可用性 |
 | 资产管线 | 批量导入/元数据处理（如 `tools/easy_bonemap` 工具链服务化） | 批量导入任务在 sidecar 并行执行 + 进度事件 | 场景定义 |
 
@@ -317,10 +317,10 @@ SDK 内部
 |---|---|
 | 绑定 | 两个新 WS server 均仅 127.0.0.1（Godot 面 + sidecar CEF 面）；spawn 模式 port 0 动态分配，dev 模式才允许固定端口覆盖（审查修订 P2-1） |
 | 鉴权 | **双令牌**（审查修订 P0-1）：`godot_sidecar_token` 经 spawn env 仅授予 sidecar（Godot 面首帧校验，认证 deadline 3s）；`cef_service_token` 经 `sidecar_ready` 事件 + WebBridge `sidecar.get_info` 分发，仅能访问 sidecar `services.*`，**不能连接 Godot WS**；握手失败断开 + 日志告警 |
-| 主体隔离 | 三种 principal 权限区分（审查修订）：sidecar（Godot 面全量 SemanticRegistry）/ CEF 页面（仅 `services.*`）/ 外部调试客户端（仅 dev 模式，显式开启） |
+| 主体隔离 | 三种 principal 权限区分（审查修订）：sidecar（Godot 面全量 Registry）/ CEF 页面（仅 `services.*`）/ 外部调试客户端（仅 dev 模式，显式开启） |
 | CEF 导航边界 | 桥调用仅接受 bundled `file://` 主 frame（main frame 校验）；导航离开撤销桥与 token；CEF 面 WS 校验 Origin；iframe/远程导航拒绝（审查修订） |
 | 日志 | token 不落日志/不写盘；env 仅 spawn 子进程可见；日志有界（大小上限 + 保留数）+ token 字段 redaction，**S1 起生效**（审查修订 P1-10） |
-| 越权 | sidecar 只经 SemanticRegistry 调用（能力面 = 有限面，不做全 API 反射，沿用《设计》§4 桥 API 面原则）；文件系统 = **项目根内受控只读 + 显式受控写**（路径 canonicalize、禁止越界/symlink escape），引擎权威状态写仍走 Godot/UndoRedo（审查修订 P1-8：LSP/npm/资产工具需直接访问项目文件，“绝不碰 FS”与职责冲突，S3 候选细化） |
+| 越权 | sidecar 只经 Registry 调用（能力面 = 有限面，不做全 API 反射，沿用《设计》§4 桥 API 面原则）；文件系统 = **项目根内受控只读 + 显式受控写**（路径 canonicalize、禁止越界/symlink escape），引擎权威状态写仍走 Godot/UndoRedo（审查修订 P1-8：LSP/npm/资产工具需直接访问项目文件，“绝不碰 FS”与职责冲突，S3 候选细化） |
 
 ### 8.2 风险
 
@@ -331,8 +331,8 @@ SDK 内部
 | 事件风暴/订阅膨胀 | 订阅全量事件高频推送 | 订阅白名单 + 增量 diff（沿用现有帧轮询 diff 语义）；每订阅者可过滤；状态型事件 coalesce（§5.2） |
 | sidecar 状态一致性 | 缓存引擎状态产生漂移 | 架构约束：不缓存权威状态，只发命令收事件（§2）；连接级游标不视为权威状态 |
 | 进程树退出残留 | Win/mac 子进程清理不净 | ProcessSupervisor（Job Object / 进程组）+ 退出编排 owner（§4.4）+ S1 起实机验证零残留 |
-| 双实例冲突 | dev 固定端口模式冲突 | spawn 模式 port 0 无冲突（审查修订 P2-1）；CEF cache 已按实例槽位隔离（`modules/webview/webview_core.cpp:986-1006`，原“修复在途”已过期）；dev 固定端口沿用 `AI_BRIDGE` 报错口径 |
-| 能力面双份漂移 | sidecar 通道若自建方法表 → 漂移 | sidecar_server 一律走 `SemanticRegistry`（同 ai_bridge），不新增注册路径；S1 委托 4 个重叠 WebBridge 方法；类型漂移校验 = S1 merge gate（审查修订 P1-7） |
+| 双实例冲突 | dev 固定端口模式冲突 | spawn 模式 port 0 无冲突（审查修订 P2-1）；CEF cache 已按实例槽位隔离（`modules/att_webview/webview_core.cpp:986-1006`，原“修复在途”已过期）；dev 固定端口沿用 `AI_BRIDGE` 报错口径 |
+| 能力面双份漂移 | sidecar 通道若自建方法表 → 漂移 | sidecar_server 一律走 `Registry`（同 ai_bridge），不新增注册路径；S1 委托 4 个重叠 WebBridge 方法；类型漂移校验 = S1 merge gate（审查修订 P1-7） |
 
 ---
 
@@ -344,7 +344,7 @@ SDK 内部
 | 2 | Node 分发策略 | 要求系统 Node / SEA 单文件打包 | **已裁决（2026-08-04）：发布 = SEA 单文件打包，用户零 Node 依赖；开发期用本机 Node 24.x（§3.1）** |
 | 3 | sidecar 启用策略 | 恒启用（地基组件）/ 可显式关闭 | **已裁决（2026-08-05）：恒启用**——sidecar 是 Agent/LSP/资产管线等编辑器功能的地基，不提供关闭路径；无 Node 时明确报错并引导安装（开发期），SEA 发布后无 Node 依赖；`BAIZE_SIDECAR=dev` 仅切换为外部自管（开发调试），非禁用 |
 | 4 | 目录形态 | `web/runtime`（并入现有 workspace）/ 根级 `runtime/` | **`web/runtime`**（单一 lockfile/toolchain，§3.2） |
-| 5 | AI MCP 宿主迁移 | S3 选 Agent 且 Node MCP 达成功能/鉴权等价后迁（含外部消费者盘点，harness 曾依赖 47653）/ 暂缓（保留） | **S3 同步迁（gate 化，审查修订 P2-5）**：退役 gate 见 §5.2——Node MCP 完成 tools/list + tools/call + 鉴权 + 外部消费者迁移验收后才删 `ai_bridge`（删除清单含 register_types/build 接线）；S3 选 LSP/资产则保留到后续 |
+| 5 | AI MCP 宿主迁移 | S3 选 Agent 且 Node MCP 达成功能/鉴权等价后迁 / 暂缓 | **已删除 `ai_bridge`（2026-08-05 架构拆分）**；未来 MCP 宿主 = sidecar 内 Node MCP server，gate 见 §5.2（tools/list + tools/call + 鉴权 + 外部消费者迁移验收） |
 | 6 | C++ 侧 JSON-RPC 解析实现 | sidecar_server 自做严格解析（薄层，推荐）/ 扩展引擎内置 `modules/jsonrpc` | **自做薄层**：内置类缺 error.data/string id 且非 virtual 扩展点，改动隔离在 sidecar_server、协议向量可测（§5.3，审查修订 P1-2） |
 
 ---
@@ -354,7 +354,7 @@ SDK 内部
 - 《TS-CEF嵌入与NodeSidecar-设计.md》（MiBlog）：§1.2 工具链裁决、§4 三端两两直连、§5.4 生命周期、§5.7 Agent 面板——本计划的上位裁决来源（**不在仓内，其内容无法仓内核实——证据缺口，审查标注**）
 - 《TS路线-WebUI架构-桥协议与前端SDK.md》（doc/plans）：CEF↔Godot 通道现状 + 协议语义（`{ok,result}`、req_id、点号命名空间）
 - 《WebUI前端工程-实现文档-sdk与ui-workspace.md》：web/ workspace 现状、Node 24.14 实测、stage_ui 机制
-- 《实施记录-AI-FIRST-P1-P2-语义接口与MCP.md》：SemanticRegistry/ai_bridge 实现、端口与鉴权模式、排坑清单（§4 编号直接引用）；ai_bridge 定位（实验品）与退役路径见 §1.1/§5.2
+- 《实施记录-AI-FIRST-P1-P2-语义接口与MCP.md》：Registry/ai_bridge 实现、端口与鉴权模式、排坑清单（§4 编号直接引用）；ai_bridge 定位（实验品）与退役路径见 §1.1/§5.2
 - 《页面渲染选型-OSR与非OSR/》（doc/plans 子目录）：WebDock 渲染路线选型与落地记录——最终态 = 非 OSR 窗口渲染（《实施记录-WebDock非OSR窗口模式-MVP落地.md》《技术详解-WebDock原生子窗口-非OSR可行性分析与取舍.md》）；OSR 相关技术详解/实施计划归档于此，本文按最终态口径描述，不重复渲染细节
-- 仓库事实：`modules/webview/web_bridge.h`（单目标事件源 `set_event_browser_id`）、`modules/ai/semantic_registry.h`（能力面注册表）、`modules/websocket/editor/editor_debugger_server_websocket.cpp`（WS server 参照，仅单 pending peer）、`modules/jsonrpc/jsonrpc.{h,cpp}`（内置 JSON-RPC 类限制：无 error.data/仅数值 id/非 virtual，§5.3）、`core/os/os.h:216-220` + `platform/windows/os_windows.cpp:1554-1620`（`create_process` 无 per-spawn env/stdio/进程树，§4.4）、`modules/webview/webview_core.cpp:986-1006`（CEF cache 实例槽位隔离已落地）、`doc/plans/实施记录-AI-FIRST-P1-P2-语义接口与MCP.md:126-150`（harness 曾依赖 47653——ai_bridge 退役前须盘点外部消费者）、`web/package.json`（workspace 现状：sdk/ui 用 Vite，无 tsx/tsdown）
+- 仓库事实：`modules/att_webview/web_bridge.h`（单目标事件源 `set_event_browser_id`）、`modules/att_editor_ops/registry.h`（能力注册表）、`modules/websocket/editor/editor_debugger_server_websocket.cpp`（WS server 参照，仅单 pending peer）、`modules/jsonrpc/jsonrpc.{h,cpp}`（内置 JSON-RPC 类限制：无 error.data/仅数值 id/非 virtual，§5.3）、`core/os/os.h:216-220` + `platform/windows/os_windows.cpp:1554-1620`（`create_process` 无 per-spawn env/stdio/进程树，§4.4）、`modules/att_webview/webview_core.cpp:986-1006`（CEF cache 实例槽位隔离已落地）、`doc/plans/实施记录-AI-FIRST-P1-P2-语义接口与MCP.md:126-150`（harness 曾依赖 47653——ai_bridge 退役前须盘点外部消费者）、`web/package.json`（workspace 现状：sdk/ui 用 Vite，无 tsx/tsdown）
 - 2026-08-05 shifu 只读审查为本次修订依据（未改代码）；审查发现已按 P0-1（降级 P1 加固）/ P1-1~P1-10 / P2-1~P2-7 / P3 逐条并入对应章节，修订点均标注「审查修订」。

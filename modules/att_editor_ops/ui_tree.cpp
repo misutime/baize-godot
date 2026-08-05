@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  editor_ui_tree.cpp                                                    */
+/*  ui_tree.cpp                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,7 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "editor_ui_tree.h"
+#include "ui_tree.h"
 
 #ifdef TOOLS_ENABLED
 

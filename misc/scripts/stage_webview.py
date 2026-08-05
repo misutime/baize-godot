@@ -19,7 +19,7 @@
   WING_RUNTIME = <BUILD_DIR>/output/Release/bin/(预构建产物:helper + CEF 运行时)
   WRAPPER_LIB  = <BUILD_DIR>/output/Release/lib/libcef_dll_wrapper.{lib|a}(SCsub 链接引用)
   UI 源      = web/ui/dist（React 壳，task ui-build 构建；editor_web_dock 加载 index.html）
-  CEF 版本     = modules/webview/SCsub 的 CEF_SDK_VERSION 常量(单点,勿在多处硬编码)
+  CEF 版本     = modules/att_webview/SCsub 的 CEF_SDK_VERSION 常量(单点,勿在多处硬编码)
   CEF SDK      = misc/scripts/cef_dist.py 缓存定位(默认 <repo>/bin/cef-dist/,CEF_DIST_ROOT 可覆盖,
                  缺失自动下载/手动放包,不再读 cef-dist 文本配置)
 
@@ -73,7 +73,7 @@ VERSION_MARKER = BUILD_DIR / "cef-version.txt"
 # UI 暂存统一走 stage_ui.py（React 壳 web/ui/dist → bin/webview/ui/），此处仅保留目标路径。
 WEBVIEW_DEST = BIN_DIR / "webview"
 UI_DEST = WEBVIEW_DEST / "ui"
-SCSUB = REPO_ROOT / "modules" / "webview" / "SCsub"
+SCSUB = REPO_ROOT / "modules" / "att_webview" / "SCsub"
 CEFVIEW_WING_NAME = "CefViewWing"
 
 # 应用产物(Windows:CefViewWing.exe 及其调试符号;mac:helper app bundle——CEF 按
@@ -121,7 +121,7 @@ CEF_RUNTIME_FILES = (
 
 
 def read_cef_constants() -> str:
-    """从 modules/webview/SCsub 读取 CEF_SDK_VERSION(构建/暂存共用单点常量)。
+    """从 modules/att_webview/SCsub 读取 CEF_SDK_VERSION(构建/暂存共用单点常量)。
 
     新缓存结构按版本目录组织(无 dist-name 层),只取 CEF_SDK_VERSION;
     SCsub 若保留 CEF_DIST_DIR_NAME(删除切片的依赖)则忽略。读取失败返回 "unknown"。

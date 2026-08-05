@@ -57,7 +57,7 @@ web/                          ← workspace root（pnpm）
 - hooks 放 sdk 子入口：sdk 核心不依赖 React（纯 TS），React 绑定独立导入
 
 **与现有代码衔接**：
-- `modules/webview/ui/bridge.html`（stub）保留为 MVP 阶段页面；React 壳完成后 `web/ui` 的
+- `modules/att_webview/ui/bridge.html`（stub）保留为 MVP 阶段页面；React 壳完成后 `web/ui` 的
   vite 构建产物（`base:'./'`）→ stage 拷到 `bin/webview/ui/`——运行时路径不变，
   `editor_web_dock` 加载逻辑零改动
 - 新增 `task ui-build`（vite build → 拷 dist），并入 stage 或独立 task
@@ -210,7 +210,7 @@ const unsub: () => void = editor.onSelectionChanged((e) => setSelection(e.node_p
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| MVP1（骨架+静态页） | modules/webview/（SCsub+register_types+webview_manager+web_panel+editor_web_dock），加载 bridge.html | ✅ 完成（C0.1-C0.3） |
+| MVP1（骨架+静态页） | modules/att_webview/（SCsub+register_types+webview_manager+web_panel+editor_web_dock），加载 bridge.html | ✅ 完成（C0.1-C0.3） |
 | MVP2（双向桥+undo） | 协议层 + 事件源 + 位置读写已完成（2026-08-03：方法注册表 + method_result 下行 + selection_changed 信号 + 帧轮询 diff→node_position_changed + undo_stack_changed + `get/set_node_position` undo 入栈，见实施记录 §10/§11）；**剩余：编辑器实机四条验收** | 进行中 |
 | MVP3（React 壳） | web/ 工程（sdk + ui，Vite base:'./'）→ 产物进 bin/webview/ui/ | 未开始 |
 

@@ -3,7 +3,7 @@
 入口：task ui-build（pnpm build 后调用）；stage-webview 复用同一函数（单一 UI 暂存点）。
 dist 缺失/无 index.html → 返回缺失项（调用方决定警告或报错），不静默。
 React 壳为 dock 唯一页面源（editor_web_dock 加载 webview/ui/index.html），
-旧 stub（modules/webview/ui/bridge.html）不再暂存。
+旧 stub（modules/att_webview/ui/bridge.html）不再暂存。
 """
 
 import os

@@ -4,7 +4,7 @@
 
 #include "webview_manager.h"
 
-#include "modules/ai/semantic_registry.h"
+#include "modules/att_editor_ops/registry.h"
 
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
@@ -68,12 +68,12 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 }
 
 void WebBridge::_method_scene_get_node_count(int32_t p_browser_id, const String &p_args_json) {
-	// 委托 SemanticRegistry（能力面唯一事实源，与 AiBridge MCP 工具面共享同一份实现）。
+	// 委托 Registry（editor_ops 能力面唯一事实源）。
 	_dispatch_semantic(p_browser_id, "scene.get_node_count", p_args_json);
 }
 
 void WebBridge::_method_scene_create_node(int32_t p_browser_id, const String &p_args_json) {
-	// 委托 SemanticRegistry（能力面唯一事实源）；返回形状适配在 _dispatch_semantic 内完成。
+	// 委托 Registry（能力面唯一事实源）；返回形状适配在 _dispatch_semantic 内完成。
 	_dispatch_semantic(p_browser_id, "scene.create_node", p_args_json);
 }
 
@@ -262,20 +262,20 @@ void WebBridge::_method_editor_get_ui_font_bold(int32_t p_browser_id, const Stri
 }
 
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
-	// 委托 SemanticRegistry（能力面唯一事实源）；SemanticOps::undo 与旧实现同为
+	// 委托 Registry（能力面唯一事实源）；Ops::undo 与旧实现同为
 	// EditorUndoRedoManager::undo()，错误码 nothing_to_undo 保持一致。
 	_dispatch_semantic(p_browser_id, "editor.undo", p_args_json);
 }
 
 void WebBridge::_method_editor_redo(int32_t p_browser_id, const String &p_args_json) {
-	// 委托 SemanticRegistry（能力面唯一事实源）；SemanticOps::redo 与旧实现同为
+	// 委托 Registry（能力面唯一事实源）；Ops::redo 与旧实现同为
 	// EditorUndoRedoManager::redo()，错误码 nothing_to_redo 保持一致。
 	_dispatch_semantic(p_browser_id, "editor.redo", p_args_json);
 }
 
 void WebBridge::_dispatch_semantic(int32_t p_browser_id, const String &p_method, const String &p_args_json) {
-	// 能力面合流（方案 §5.2 S1）：语义方法（scene.* / editor.*）统一委托 SemanticRegistry
-	// （能力面唯一事实源，与 AiBridge MCP 工具面共享同一份实现），WebBridge 仅保留协议适配层。
+	// 能力面合流（方案 §5.2 S1）：语义方法（scene.* / editor.*）统一委托 Registry
+	// （editor_ops 能力面唯一事实源），WebBridge 仅保留协议适配层。
 	// 参数: { req_id, ...方法参数 }。req_id 仅用于应答配对，其余字段原样交给注册表校验/执行
 	// （校验只查 required 存在性，handler 用 get() 取参——多余 key 无副作用）。
 	String req_id;
@@ -283,14 +283,14 @@ void WebBridge::_dispatch_semantic(int32_t p_browser_id, const String &p_method,
 	if (parsed.get_type() == Variant::DICTIONARY) {
 		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
 	}
-	const SemanticRegistry::Method *method = SemanticRegistry::find(p_method);
+	const Registry::Method *method = Registry::find(p_method);
 	if (!method) {
 		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 		return;
 	}
 	Dictionary args;
 	String verr;
-	if (!SemanticRegistry::validate_args(*method, parsed, args, verr)) {
+	if (!Registry::validate_args(*method, parsed, args, verr)) {
 		_respond(p_browser_id, req_id, false, Variant(), "invalid_params", verr);
 		return;
 	}

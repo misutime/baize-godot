@@ -1,5 +1,11 @@
 # 实施记录——AI FIRST P1/P2：语义 UI 树与语义操作 + MCP HTTP server
 
+> **退役批注（2026-08-05）**：本记录为历史归档。原 `modules/ai` 已按架构决策解体——
+> 能力面迁至 `modules/editor_ops`（2026-08-05 更名：`SemanticRegistry`/`SemanticOps`/`EditorUITree`
+> → `Registry`/`Ops`/`UITree`，去历史前缀），
+> `ai_bridge`（本记录的 MCP HTTP 实现）**已删除**（实验品，无实际使用；排坑知识保留在本记录 §4）。
+> MCP 未来宿主 = sidecar 内 Node MCP server（S3）。
+
 > **时间**：2026-08-03（Win 实机；worktree `baize-godot-ai-first`，分支 `feature/ai-first`）
 > **范围**：AI FIRST 方案的 P1（语义 UI 树 + 语义操作 + JSON-RPC 传输）与
 > P2（MCP HTTP server + 能力面共享）

@@ -39,7 +39,7 @@
 // S1 前置（审查修订 P1-1）：`OS::create_process` 无 per-spawn env/stdio/进程树能力
 // （core/os/os.h:216-220、platform/windows/os_windows.cpp:1554-1620），无法满足
 // sidecar spawn 合同（env 传 token/url、stdout/stderr 落日志、进程树清理）。
-// 本类补齐三件事，不改 OS 抽象、隔离在 modules/ai：
+// 本类补齐三件事，不改 OS 抽象、隔离在 modules/att_nodejs_sidecar：
 //   1. env 增量注入（相对父进程环境，不经全局环境、不经 argv——token 不落 argv/日志）；
 //   2. cwd 指定 + stdout/stderr 重定向到文件（sidecar 日志 user://logs/sidecar.log）；
 //   3. 进程树 ownership：Windows = Job Object（KILL_ON_JOB_CLOSE，关闭即杀整树），

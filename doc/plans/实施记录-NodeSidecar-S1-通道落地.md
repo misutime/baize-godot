@@ -25,14 +25,16 @@
 
 ## 2. 实现
 
-### 2.1 Godot 侧（`modules/ai/`，新 4 文件 + 改 2 文件）
+### 2.1 Godot 侧（`modules/att_nodejs_sidecar/` + `modules/att_editor_ops/`）
+
+> **架构拆分（2026-08-05）**：原 `modules/ai` 解体——能力面（Registry/Ops/UITree，2026-08-05 更名去 Semantic 前缀）→ `modules/att_editor_ops`（零依赖，被所有通道消费）；sidecar 通道（SidecarServer/ProcessSupervisor）→ `modules/att_nodejs_sidecar`（依赖 editor_ops + websocket）；`ai_bridge` 删除（实验品，MCP 未来宿主 = Node MCP server）。
 
 | 文件 | 职责 |
 |---|---|
 | `process_supervisor.{h,cpp}`（新） | **进程监督**（方案 §4.4 P1-1 前置）：per-spawn env 增量注入（不经 argv/全局环境）、cwd、stdout/stderr → `user://logs/sidecar.log`（>5MB 轮转 `.1`）、进程树 ownership——Windows = Job Object（`KILL_ON_JOB_CLOSE`，`CREATE_SUSPENDED` 挂起创建 + 绑定成功才恢复）+ 可继承 stdio 句柄；Unix = `fork` + `setsid` + `execve`（PATH 解析）+ `killpg` 杀组 + `waitpid` EINTR 重试 |
-| `sidecar_server.{h,cpp}`（新） | **WS server**（复用引擎 websocket 模块，参照 EditorDebuggerServerWebSocket）：`TCPServer::listen(127.0.0.1, port 0)` + `WebSocketPeer::accept_stream` + 每帧 poll；**严格 JSON-RPC 2.0 自解析**（方案 §5.3 裁决，不依赖引擎内置 `JSONRPC` 类——其缺 error.data/string id/非 virtual）；双令牌握手（`sidecar.hello` 每次校验，认证 deadline 3s）；SemanticRegistry 透传（find + validate_args + handler）；资源预算（4 MiB 有界 message、连接上限 4、慢客户端 1009、UTF-8 字节输出预算）；崩溃退避重启（0.5/1/2/4/8s ×3，稳定 5min 重置）；独立进程监测（`is_running` 每帧）；退出编排（shutdown 通知直发 + 等 2s + kill 进程树） |
-| `register_types.cpp`（改） | EDITOR 级 MessageQueue 第一帧启动 + uninitialize 退出编排（sidecar → ai_bridge → CEF，方案 §4.4 P1-6） |
-| `config.py`（改） | `module_add_dependencies("ai", ["websocket"])`——**必需依赖**（不传 optional，否则 disable websocket 时链接失败，复审 P1） |
+| `sidecar_server.{h,cpp}`（新） | **WS server**（复用引擎 websocket 模块，参照 EditorDebuggerServerWebSocket）：`TCPServer::listen(127.0.0.1, port 0)` + `WebSocketPeer::accept_stream` + 每帧 poll；**严格 JSON-RPC 2.0 自解析**（方案 §5.3 裁决，不依赖引擎内置 `JSONRPC` 类——其缺 error.data/string id/非 virtual）；双令牌握手（`sidecar.hello` 每次校验，认证 deadline 3s）；Registry 透传（find + validate_args + handler）；资源预算（4 MiB 有界 message、连接上限 4、慢客户端 1009、UTF-8 字节输出预算）；崩溃退避重启（0.5/1/2/4/8s ×3，稳定 5min 重置）；独立进程监测（`is_running` 每帧）；退出编排（shutdown 通知直发 + 等 2s + kill 进程树） |
+| `register_types.cpp`（新） | EDITOR 级 MessageQueue 第一帧启动 + uninitialize 退出编排（sidecar → CEF，方案 §4.4 P1-6）；`modules/att_editor_ops/register_types` 为空壳（能力面惰性注册） |
+| `config.py`（新） | `module_add_dependencies("nodejs_sidecar", ["editor_ops", "websocket"])`——必需依赖（不传 optional，复审 P1）；`modules/att_editor_ops/config.py` 零依赖 |
 
 **协议**（方案 §5.1 线级合同）：一帧一 document；request id 一律 string；batch 显式拒绝（-32600）；server 拒 response 输入；错误码 -32601/-32602/-32000，内部字符串码入 `error.data.code`（如 `no_scene`/`unauthorized`）。
 
@@ -47,12 +49,12 @@
 
 **测试**（`godot-client.test.ts`，7 用例）：握手成功/错误 token/断线重连（epoch 递增）/dispose/shutdown 监听/connecting 拒绝/重试耗尽（failAllPending spy ≥3 次）；mock Godot 协议形状与 C++ 一致（裸 result、-32000 + data.code）。
 
-### 2.3 WebBridge 能力面合流（`modules/webview/`）
+### 2.3 WebBridge 能力面合流（`modules/att_webview/`）
 
-`scene.get_node_count` / `scene.create_node` / `editor.undo` / `editor.redo` 委托 `SemanticRegistry`
+`scene.get_node_count` / `scene.create_node` / `editor.undo` / `editor.redo` 委托 `Registry`
 （find + validate_args + handler，与 AiBridge MCP 工具面共享同一份实现——方案 §5.2 P1-7）；
 `create_node` 返回 `{instance_id, path, name}` 适配为裸 instance_id（前端 SDK 契约）；
-`config.py` 声明 `module_add_dependencies("webview", ["ai"])`（必需依赖）。
+`config.py` 声明 `module_add_dependencies("webview", ["editor_ops"])`（必需依赖）。
 
 ## 3. 实机排坑（Windows，每个都有实测证据）
 
@@ -84,7 +86,7 @@ undo:       {"result":{}}
 health:     {"result":{"ok":true,"services":[],"uptime_ms":8177}}
 bad-hello（未认证首帧错误 token）: {"error":{"code":-32000,"data":{"code":"unauthorized"},"message":"token 校验失败"}}
 ```
-- SemanticRegistry 透传 + 错误映射（-32000 + data.code）与 S0 协议向量一致（验收 4 交叉验证）；
+- Registry 透传 + 错误映射（-32000 + data.code）与 S0 协议向量一致（验收 4 交叉验证）；
 - 错误 token 首帧现在能收到结构化错误（修复后），不再只是连接关闭；
 - `BAIZE_SIDECAR=dev` 无 spawn、`uptime_ms` 从 session 基准计算。
 

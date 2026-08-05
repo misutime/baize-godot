@@ -37,8 +37,8 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/builtin_fonts.gen.h"
 #include "editor/themes/editor_scale.h"
-#include "modules/webview/web_bridge.h" // 默认字体解析路径运行时存储（WebBridge::set_resolved_fonts）
-#include "modules/webview/webview_runtime_path.h" // 运行时根目录（.app bundle 启动时 exe_dir 在 bundle 内）
+#include "modules/att_webview/web_bridge.h" // 默认字体解析路径运行时存储（WebBridge::set_resolved_fonts）
+#include "modules/att_webview/webview_runtime_path.h" // 运行时根目录（.app bundle 启动时 exe_dir 在 bundle 内）
 #include "scene/resources/font.h"
 #include "scene/scene_string_names.h"
 

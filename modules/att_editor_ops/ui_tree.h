@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  semantic_ops.h                                                        */
+/*  ui_tree.h                                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,46 +30,45 @@
 
 #pragma once
 
+#include "core/string/string_name.h"
 #include "core/string/ustring.h"
 #include "core/variant/variant.h"
 
 class Control;
+class Node;
+class Tree;
+class TreeItem;
 
-// 语义操作层（AI FIRST P1，方案 §3）。
+// 编辑器 UI 树导出（editor_ops 能力面）。
 //
-// AI 的操作以「语义目标」驱动，不模拟鼠标：
-// - 引擎 API 直调：select_node / set_prop / undo / redo（走编辑器既有路径，undo 一致）；
-// - 控件语义动作：activate（Button→真实输入路径 ui_accept、TreeItem→选中）、
-//   set_text（LineEdit/TextEdit/SpinBox，只读控件拒绝）；
-// - 通用回退：InputEvent 投递到目标 Control（坐标由引擎从布局计算）。
+// 遍历 EditorNode 的 Control 树，导出 role/name/state/children 结构化快照：
+// AI 感知编辑器界面 = 读数据（Button.text / TreeItem 文本 / Tooltip），非 OCR/截图。
 //
-// 所有操作返回统一 { ok, result } / { ok:false, error:{code,message} }（与 WebBridge 协议一致）。
-class SemanticOps {
+// 语义 ID（会话内稳定）：Control = 逐段路径（每段优先 meta "ai_name"，否则节点名）；
+// TreeItem = "<树控件语义ID>/item[/<索引>:<文本>…]"（根 item 即 "…/item"）。
+// 同会话内稳定，跨会话以 role+name 定位（AI 每次会话重新拉快照）。
+class EditorUiTree {
 public:
-	/// ui.activate：点击/激活语义目标（Button→ui_accept 真实路径、TreeItem→选中、回退 InputEvent 投递）。
-	static Dictionary activate(const String &p_id);
-	/// ui.set_text：文本/数值输入（LineEdit / TextEdit / SpinBox）。
-	static Dictionary set_text(const String &p_id, const String &p_value);
-	/// ui.focus：聚焦控件。
-	static Dictionary focus(const String &p_id);
-	/// ui.get_tree：语义 UI 树快照（EditorUiTree）。
-	static Dictionary get_ui_tree();
+	/// 完整编辑器 UI 树快照（Dictionary → JSON：{ id, role, name, state, items?, children }）。
+	static Dictionary export_tree();
 
-	/// editor.select_node：选中场景节点（场景相对路径；"." = 根）。
-	static Dictionary select_node(const String &p_path);
-	/// editor.set_prop：设置场景节点属性（undo 入栈）。
-	static Dictionary set_prop(const String &p_path, const String &p_prop, const Variant &p_value);
-	/// editor.get_state：当前编辑器状态（场景/选中/undo 栈）。
-	static Dictionary get_state();
+	/// 按语义 ID 解析回 Control：逐段匹配 ai_name 优先、节点名其次，回退 NodePath。
+	/// 拒绝 ".." 穿越；失败返回 nullptr。
+	static Control *find_control(const String &p_id);
 
-	/// editor.undo / editor.redo：撤销/重做（编辑器 undo 栈，与人工一致）。
-	static Dictionary undo();
-	static Dictionary redo();
-	/// scene.get_node_count：场景节点数（含根）。
-	static Dictionary get_node_count();
-	/// scene.create_node：创建 Node3D 子节点（undo 可撤销），返回 instance_id。
-	static Dictionary create_node(const String &p_name);
+	/// 在 Tree 内按 item 路径（"…/item" 或 "…/item/0:name/1:sub"）查找 TreeItem。
+	static TreeItem *find_tree_item(Tree *p_tree, const String &p_item_path);
 
-	/// ui.activate 的通用回退：InputEvent 投递到 Control 中心（引擎算坐标）。
-	static Dictionary _activate_input_fallback(Control *p_ctrl);
+private:
+	static void _export_control(Node *p_node, Dictionary &r_node);
+	/// Control 语义 ID：逐段路径（ai_name 优先），段内净化分隔符。
+	static String _semantic_id(Control *p_control);
+	/// Control 类型 → 语义 role（button / text_field / tree / tree_item / select / ...）。
+	static String _role_for(Control *p_control);
+	/// 可访问名：meta "ai_name" > 控件文本（Button/Label 等）> Tooltip > 类名。
+	static String _name_for(Control *p_control);
+	/// 控件状态字典（enabled/visible/focused/selected/pressed/value/editable/secret）。
+	static Dictionary _state_for(Control *p_control);
+	/// 递归导出 Tree 的 TreeItem（TreeItem 非 Node，需特殊遍历）；根 item 地址 = base。
+	static void _export_tree_items(TreeItem *p_item, Array &r_items, const String &p_base_path, bool p_is_root);
 };

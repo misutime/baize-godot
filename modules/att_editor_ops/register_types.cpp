@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.h                                                      */
+/*  register_types.cpp                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,9 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "register_types.h"
 
-#include "modules/register_module_types.h"
+// 编辑器语义能力面（modules/editor_ops）：Registry 惰性注册（首次 find/methods 时
+// ensure_registered），Ops / UITree 无生命周期单例——模块无需启动/退出钩子，
+// register_types 为空壳（引擎模块注册机制要求存在）。
+void initialize_att_editor_ops_module(ModuleInitializationLevel p_level) {
+}
 
-void initialize_ai_module(ModuleInitializationLevel p_level);
-void uninitialize_ai_module(ModuleInitializationLevel p_level);
+void uninitialize_att_editor_ops_module(ModuleInitializationLevel p_level) {
+}

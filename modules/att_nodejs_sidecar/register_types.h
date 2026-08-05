@@ -32,5 +32,5 @@
 
 #include "modules/register_module_types.h"
 
-void initialize_webview_module(ModuleInitializationLevel p_level);
-void uninitialize_webview_module(ModuleInitializationLevel p_level);
+void initialize_att_nodejs_sidecar_module(ModuleInitializationLevel p_level);
+void uninitialize_att_nodejs_sidecar_module(ModuleInitializationLevel p_level);

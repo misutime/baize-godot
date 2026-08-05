@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  semantic_registry.cpp                                                 */
+/*  registry.cpp                                                 */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,59 +28,59 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "semantic_registry.h"
+#include "registry.h"
 
 #ifdef TOOLS_ENABLED
 
-#include "semantic_ops.h"
+#include "ops.h"
 
-Vector<SemanticRegistry::Method> SemanticRegistry::s_methods;
-bool SemanticRegistry::s_registered = false;
+Vector<Registry::Method> Registry::s_methods;
+bool Registry::s_registered = false;
 
-// ---- 参数解包 handler（SemanticOps 适配层）----
+// ---- 参数解包 handler（Ops 适配层）----
 
 static Dictionary _h_ui_get_tree(const Dictionary &p_args) {
-	return SemanticOps::get_ui_tree();
+	return Ops::get_ui_tree();
 }
 
 static Dictionary _h_ui_activate(const Dictionary &p_args) {
-	return SemanticOps::activate(p_args.get("id", "").operator String());
+	return Ops::activate(p_args.get("id", "").operator String());
 }
 
 static Dictionary _h_ui_set_text(const Dictionary &p_args) {
-	return SemanticOps::set_text(p_args.get("id", "").operator String(), p_args.get("value", "").operator String());
+	return Ops::set_text(p_args.get("id", "").operator String(), p_args.get("value", "").operator String());
 }
 
 static Dictionary _h_ui_focus(const Dictionary &p_args) {
-	return SemanticOps::focus(p_args.get("id", "").operator String());
+	return Ops::focus(p_args.get("id", "").operator String());
 }
 
 static Dictionary _h_editor_select_node(const Dictionary &p_args) {
-	return SemanticOps::select_node(p_args.get("path", "").operator String());
+	return Ops::select_node(p_args.get("path", "").operator String());
 }
 
 static Dictionary _h_editor_set_prop(const Dictionary &p_args) {
-	return SemanticOps::set_prop(p_args.get("path", "").operator String(), p_args.get("prop", "").operator String(), p_args.get("value", Variant()));
+	return Ops::set_prop(p_args.get("path", "").operator String(), p_args.get("prop", "").operator String(), p_args.get("value", Variant()));
 }
 
 static Dictionary _h_editor_get_state(const Dictionary &p_args) {
-	return SemanticOps::get_state();
+	return Ops::get_state();
 }
 
 static Dictionary _h_editor_undo(const Dictionary &p_args) {
-	return SemanticOps::undo();
+	return Ops::undo();
 }
 
 static Dictionary _h_editor_redo(const Dictionary &p_args) {
-	return SemanticOps::redo();
+	return Ops::redo();
 }
 
 static Dictionary _h_scene_get_node_count(const Dictionary &p_args) {
-	return SemanticOps::get_node_count();
+	return Ops::get_node_count();
 }
 
 static Dictionary _h_scene_create_node(const Dictionary &p_args) {
-	return SemanticOps::create_node(p_args.get("name", "").operator String());
+	return Ops::create_node(p_args.get("name", "").operator String());
 }
 
 // ---- 工具元数据 ----
@@ -106,7 +106,7 @@ static Dictionary _str_param(const String &p_desc) {
 	return d;
 }
 
-void SemanticRegistry::register_method(const String &p_name, const String &p_desc, const Dictionary &p_schema, Handler p_handler) {
+void Registry::register_method(const String &p_name, const String &p_desc, const Dictionary &p_schema, Handler p_handler) {
 	Method m;
 	m.name = p_name;
 	m.description = p_desc;
@@ -115,7 +115,7 @@ void SemanticRegistry::register_method(const String &p_name, const String &p_des
 	s_methods.push_back(m);
 }
 
-void SemanticRegistry::_register_all() {
+void Registry::_register_all() {
 	const Dictionary id_param = _str_param("语义 ID（ui.get_tree 返回的 id 字段；TreeItem 用 '<树控件 id>/item/<索引>…'）");
 	register_method("ui.get_tree", "导出编辑器 UI 语义树（role/name/state/items，含场景树 TreeItem）", _schema({}, {}), _h_ui_get_tree);
 	register_method("ui.activate", "激活语义目标（Button→真实输入路径等效点击；TreeItem→选中）", _schema({ { "id", id_param } }, { "id" }), _h_ui_activate);
@@ -138,14 +138,14 @@ void SemanticRegistry::_register_all() {
 	register_method("scene.create_node", "创建 Node3D 子节点（undo 可撤销），返回 { instance_id, path, name }", _schema({ { "name", name_param } }, { "name" }), _h_scene_create_node);
 }
 
-void SemanticRegistry::ensure_registered() {
+void Registry::ensure_registered() {
 	if (!s_registered) {
 		_register_all();
 		s_registered = true;
 	}
 }
 
-const SemanticRegistry::Method *SemanticRegistry::find(const String &p_name) {
+const Registry::Method *Registry::find(const String &p_name) {
 	ensure_registered();
 	for (const Method &m : s_methods) {
 		if (m.name == p_name) {
@@ -155,12 +155,12 @@ const SemanticRegistry::Method *SemanticRegistry::find(const String &p_name) {
 	return nullptr;
 }
 
-const Vector<SemanticRegistry::Method> &SemanticRegistry::methods() {
+const Vector<Registry::Method> &Registry::methods() {
 	ensure_registered();
 	return s_methods;
 }
 
-bool SemanticRegistry::validate_args(const Method &p_method, const Variant &p_params, Dictionary &r_args, String &r_err) {
+bool Registry::validate_args(const Method &p_method, const Variant &p_params, Dictionary &r_args, String &r_err) {
 	const Dictionary schema = p_method.input_schema;
 	const bool has_required = schema.has("required");
 	if (p_params.get_type() != Variant::DICTIONARY) {

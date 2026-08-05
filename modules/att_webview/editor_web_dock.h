@@ -34,7 +34,7 @@
 
 #include "editor/docks/editor_dock.h"
 #include "editor/plugins/editor_plugin.h"
-#include "modules/webview/web_panel.h"
+#include "modules/att_webview/web_panel.h"
 
 // 编辑器 WebDock 插件：创建 EditorDock 承载 WebPanel（DOCK_SLOT_LEFT_UL，可拖拽停靠）。
 // 生命周期经 _notification（本 fork 的 Node 生命周期 hook 为 GDCLASS 分发链，

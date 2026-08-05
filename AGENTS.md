@@ -7,7 +7,7 @@
 webview 模块的 CEF 集成有**编译期强制的分层**，任何改动不得破坏：
 
 ```text
-modules/webview/
+modules/att_webview/
 ├── webview_core.h     ← API 面：纯 C++（std::string/std::function，零 Godot 类型）
 ├── webview_core.cpp   ← CEF 专属 TU：必须 include CEF 头，禁止 include 任何 Godot 头
 ├── web_panel/webview_manager/register_types  ← Godot 壳层：可用 Godot 设施（print_line 等），只 include webview_core.h
@@ -36,7 +36,7 @@ modules/webview/
   CEF SDK + cmake 预构建），构建后完整暂存（bin/ 级 + mac .app bundle 内
   `Contents/Frameworks` + `Contents/Resources/webview/ui`）。无需手动先跑 stage。
 - 首次克隆 / 换 CEF 版本：直接 `task dev` 即可（预构建缺失时自动下载）；换版本改
-  `modules/webview/SCsub` 的 `CEF_SDK_VERSION` 常量
+  `modules/att_webview/SCsub` 的 `CEF_SDK_VERSION` 常量
 - UI 变更：`task ui-build`（React 壳 → bin/webview/ui，下次构建自动入 bundle）
 - 手动重暂存（可选）：`task stage-webview`（或 `just webview-stage`），幂等秒级
 
@@ -47,7 +47,7 @@ modules/webview/
 - 缓存结构：`<root>/<CEF_SDK_VERSION>/cef_binary_<CEF_SDK_VERSION>_windows64/`
 - 定位优先级：① 已解压 SDK → ② 缓存 tar.bz2（手动放包=离线）→ ③ 自动下载 → ④ 报错
 - 定位逻辑统一在 `misc/scripts/cef_dist.py`（SCsub 与 stage 共用，禁复制）
-- **CEF 版本锁定**：`CEF_SDK_VERSION` 只在 `modules/webview/SCsub` 定义（单点），开发者不能指定版本
+- **CEF 版本锁定**：`CEF_SDK_VERSION` 只在 `modules/att_webview/SCsub` 定义（单点），开发者不能指定版本
 
 ## 4. 构建系统坑（已踩，勿重蹈）
 
@@ -78,7 +78,7 @@ modules/webview/
 
 ## 7. 平台支持现状
 
-- **Windows x86_64 MSVC** 与 **macOS arm64/x64（clang）** 双平台（`modules/webview/SCsub` 平台门控，其他平台显式报错）
+- **Windows x86_64 MSVC** 与 **macOS arm64/x64（clang）** 双平台（`modules/att_webview/SCsub` 平台门控，其他平台显式报错）
 - mac 实机验证记录：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`；
   internal_begin_frame 修复（2026-08-03）为共享代码，**mac 需复验**
 - `cef_dist.py` 的 `sdk_dir_suffix()` 按宿主自动判定（windows64/macosarm64/macosx64）
@@ -117,7 +117,7 @@ modules/webview/
 
 - 适用：本仓库所有**新建**的 C++ 头/源文件（及后续 web/ TS 工程文件按各自生态惯例，
   TS 可省或同用 SPDX 单行）
-- **既有文件不动**：Godot 上游文件（含 `modules/webview/` 现有文件）保留原版权块
+- **既有文件不动**：Godot 上游文件（含 `modules/att_webview/` 现有文件）保留原版权块
 - 合规依据：MIT 许可由 SPDX 标识 + 仓库 LICENSE 文件满足；Godot 上游 4.x 新文件也逐步转
   SPDX 单行风格
 

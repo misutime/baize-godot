@@ -30,7 +30,7 @@
 
 #include "sidecar_server.h"
 
-#include "semantic_registry.h"
+#include "modules/att_editor_ops/registry.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -575,7 +575,7 @@ void SidecarServer::_drop_peer(int p_index, const String &p_reason) {
 	peers_.remove_at(p_index);
 }
 
-// ---- 分派（§5.2：sidecar.* 自身方法 + SemanticRegistry 透传）----
+// ---- 分派（§5.2：sidecar.* 自身方法 + Registry 透传）----
 
 Dictionary SidecarServer::_dispatch(SidecarPeer &p_peer, const String &p_method, const Variant &p_params) {
 	if (p_method == "sidecar.hello") {
@@ -621,14 +621,14 @@ Dictionary SidecarServer::_dispatch(SidecarPeer &p_peer, const String &p_method,
 		result["result"] = payload;
 		return result;
 	}
-	// SemanticRegistry 透传（能力面唯一事实源，与 AiBridge MCP 工具面同源，§5.2）。
-	const SemanticRegistry::Method *m = SemanticRegistry::find(p_method);
+	// Registry 透传（editor_ops 能力面唯一事实源，§5.2）。
+	const Registry::Method *m = Registry::find(p_method);
 	if (!m) {
 		return _err("method_not_found", "未注册的方法: " + p_method);
 	}
 	Dictionary args;
 	String verr;
-	if (!SemanticRegistry::validate_args(*m, p_params, args, verr)) {
+	if (!Registry::validate_args(*m, p_params, args, verr)) {
 		return _err("invalid_params", verr);
 	}
 	return m->handler(args);

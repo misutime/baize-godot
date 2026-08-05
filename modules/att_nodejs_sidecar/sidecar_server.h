@@ -118,7 +118,7 @@ class SidecarServer : public Object {
 	void _flush_out(SidecarPeer &p_peer);
 	void _drop_peer(int p_index, const String &p_reason);
 
-	// 分派（§5.2）：sidecar.* 自身方法 + SemanticRegistry 透传。
+	// 分派（§5.2）：sidecar.* 自身方法 + Registry 透传。
 	Dictionary _dispatch(SidecarPeer &p_peer, const String &p_method, const Variant &p_params);
 	// 内部错误 → JSON-RPC 数值码（§5.1：-32601/-32602/-32000，内部码入 data.code）。
 	static Dictionary _jsonrpc_error(const Dictionary &p_internal_error);

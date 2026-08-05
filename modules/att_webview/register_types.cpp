@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  semantic_registry.h                                                   */
+/*  register_types.cpp                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,47 +28,44 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "register_types.h"
 
-#include "core/string/ustring.h"
-#include "core/variant/variant.h"
+#include "editor_web_dock.h"
+#include "web_panel.h"
+#include "webview_manager.h"
 
-// 能力面注册表（AI FIRST 方案 §3.3）。
-//
-// 语义方法（ui.* / editor.* / scene.*）的唯一事实源：方法名、描述、参数 schema
-// （JSON Schema，含 required）与实现 handler 集中注册。AiBridge 的 MCP 工具面
-// （tools/list + tools/call）与直连 JSON-RPC 分发均从注册表生成/查询，避免
-// 分发表与元数据表双份维护导致漂移（如 scene.create_node 默认名曾分叉）。
-//
-// WebBridge（WebUI）委托到本注册表列为后续（见实施记录 §5）：届时 WebUI 与 MCP
-// 天然共享同一能力面，方法实现只写一份。
-//
-// 线程：全部 handler 在主线程调用（编辑器帧泵）。返回统一
-// { ok, result } / { ok:false, error:{code,message} }（与 WebBridge 协议一致）。
-class SemanticRegistry {
-public:
-	typedef Dictionary (*Handler)(const Dictionary &p_args);
+#if defined(__APPLE__)
+#include "cef_application_mac.h" // 注入 CEF mac 事件集成所需方法（须在 CEF 调用前）
+#endif
 
-	struct Method {
-		String name;
-		String description;
-		Dictionary input_schema; // JSON Schema（object，含 properties/required）
-		Handler handler;
-	};
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
+#include "core/object/message_queue.h"
 
-	/// 惰性注册全部能力（幂等；首查时执行）。
-	static void ensure_registered();
-	/// 按方法名查询（未注册返回 nullptr）。
-	static const Method *find(const String &p_name);
-	/// 全部已注册方法（tools/list 数据源）。
-	static const Vector<Method> &methods();
-	/// 分发前参数校验：必须是对象 + 满足 input_schema.required。失败返回 false 并给出原因。
-	static bool validate_args(const Method &p_method, const Variant &p_params, Dictionary &r_args, String &r_err);
+void initialize_att_webview_module(ModuleInitializationLevel p_level) {
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		GDREGISTER_CLASS(WebPanel);
+#if defined(__APPLE__)
+		// mac：CEF 消息泵依赖 NSApplication 的 isHandlingSendEvent/setHandlingSendEvent
+		// （CrAppProtocol），GodotApplication 未实现——这里在首次 CEF 调用前注入。
+		webview_install_cef_application_protocol();
+#endif
+		// C++ 路线：不再加载 gdcef 扩展；单例持有 WebViewCore，CEF 在首次
+		// create_browser（WebPanel::sync_size）时经 init_core 惰性初始化。
+		WebViewManager::get_singleton();
+	}
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		// EditorNode 在 Main::start() 创建（晚于模块初始化），deferred 到第一帧注册 dock。
+		// 插件作为 EditorNode 子节点，随编辑器退出自动释放（不单独 unregister）。
+		MessageQueue::get_singleton()->push_callable(callable_mp_static(register_web_dock_deferred));
+	}
+#endif
+}
 
-private:
-	static void register_method(const String &p_name, const String &p_desc, const Dictionary &p_schema, Handler p_handler);
-	static void _register_all();
-
-	static Vector<Method> s_methods;
-	static bool s_registered;
-};
+void uninitialize_att_webview_module(ModuleInitializationLevel p_level) {
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		// free_singleton 内部先 shutdown_core（关闭全部浏览器 + CefShutdown），再释放单例。
+		WebViewManager::free_singleton();
+	}
+}

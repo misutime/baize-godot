@@ -23,10 +23,10 @@
 |---|---|
 | `misc/scripts/cef_dist.py` | CEF 分发包定位/下载/解压；新增 `sdk_dir_suffix()`（宿主自动判定 windows64/macosarm64/macosx64），下载 URL 模板、SHA-256 登记表、SDK 哨兵文件均按平台分支 |
 | `misc/scripts/stage_webview.py` | 预构建 + 暂存脚本；平台分支（wrapper 库名 `.lib`/`.a`、应用产物 exe/5 个 helper bundle、CEF 运行时 DLL 集/framework、cmake 参数）；mac 专属：`patch_helper_plists`（plist 占位符补全 + bundle id 统一 + entitlements 重签名）、`-DUSE_SANDBOX=ON`、构建选项指纹 |
-| `modules/webview/SCsub` | 平台门控（windows x86_64 MSVC / macos arm64·x86_64 clang）；env_cef flags 平台分支；链接（Windows: libcef.lib+wrapper.lib；mac: wrapper.a + pthread/AppKit/Cocoa/IOSurface） |
-| `modules/webview/webview_core.cpp` | CEF 核心层；init()/shutdown() mac 分支：`cef_load_library`、`CefMainArgs(argc,argv)`、subprocess/缓存路径、`settings.framework_dir_path`、`settings.main_bundle_path`、`--use-mock-keychain`（GPU 开关已在 C-mac-2 移除） |
+| `modules/att_webview/SCsub` | 平台门控（windows x86_64 MSVC / macos arm64·x86_64 clang）；env_cef flags 平台分支；链接（Windows: libcef.lib+wrapper.lib；mac: wrapper.a + pthread/AppKit/Cocoa/IOSurface） |
+| `modules/att_webview/webview_core.cpp` | CEF 核心层；init()/shutdown() mac 分支：`cef_load_library`、`CefMainArgs(argc,argv)`、subprocess/缓存路径、`settings.framework_dir_path`、`settings.main_bundle_path`、`--use-mock-keychain`（GPU 开关已在 C-mac-2 移除） |
 | `justfile` | dev-run 平台化（`os()` 分支 exe/project 路径） |
-| `modules/webview/ui/` | **新增**：编辑器页面源（bridge.html 桩页）移入仓库（原为项目外 `../refers/cef-smoke-test/ui`） |
+| `modules/att_webview/ui/` | **新增**：编辑器页面源（bridge.html 桩页）移入仓库（原为项目外 `../refers/cef-smoke-test/ui`） |
 
 ### 问题与解决方案（按排查顺序，每项：现象 → 根因 → 修复 → 证据）
 
@@ -86,7 +86,7 @@
 #### P9. UI 源在项目外 + stage_ui 路径 bug
 - **现象**：页面 404；`bin/webview/bridge.html` 在根目录而非 `bin/webview/ui/`（编辑器按 `webview/ui/bridge.html` 加载，`editor_web_dock.cpp:42`）。
 - **根因**：`UI_SOURCE = ../refers/cef-smoke-test/ui`（项目外路径，产品级不允许）；`stage_ui()` 把 html 拷到 `WEBVIEW_DEST` 根（漏了 `ui/` 子目录）。
-- **修复**：UI 源移入仓库 `modules/webview/ui/`（MVP 阶段直接收 html）；`stage_ui` 拷到 `tmp/ui/`；另修 MANIFEST 写入父目录缺失（UI 缺失时 `WEBVIEW_DEST` 不存在）。
+- **修复**：UI 源移入仓库 `modules/att_webview/ui/`（MVP 阶段直接收 html）；`stage_ui` 拷到 `tmp/ui/`；另修 MANIFEST 写入父目录缺失（UI 缺失时 `WEBVIEW_DEST` 不存在）。
 - **证据**：`bin/webview/ui/bridge.html` 存在；页面加载 200。
 
 ### 技术核心逻辑：mac 非 bundle 嵌入 CEF 151 的 7 个要点
@@ -141,7 +141,7 @@
 
 ### 变更
 
-`modules/webview/webview_core.cpp` `onBeforeCommandLineProcessing`：删除 mac 分支的两行 `AppendSwitch("disable-gpu")` / `AppendSwitch("disable-gpu-compositing")`，保留 `use-mock-keychain`。
+`modules/att_webview/webview_core.cpp` `onBeforeCommandLineProcessing`：删除 mac 分支的两行 `AppendSwitch("disable-gpu")` / `AppendSwitch("disable-gpu-compositing")`，保留 `use-mock-keychain`。
 
 ### 验证结果
 

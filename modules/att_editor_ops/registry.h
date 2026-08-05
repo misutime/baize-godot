@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  registry.h                                                   */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,40 +28,44 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "ai_bridge.h"
-#include "sidecar_server.h"
+#include "core/string/ustring.h"
+#include "core/variant/variant.h"
 
-#include "core/object/callable_mp.h"
-#include "core/object/message_queue.h"
+// 编辑器能力注册表（editor_ops 唯一事实源，见《实施原则-编辑器领域能力统一editor_ops.md》）。
+//
+// 能力方法（ui.* / editor.* / scene.*）的唯一事实源：方法名、描述、参数 schema
+// （JSON Schema，含 required）与实现 handler 集中注册。各暴露通道（nodejs_sidecar
+// 的 WS/JSON-RPC、webview WebBridge 委托、未来 Node MCP）均从注册表生成/查询，避免
+// 分发表与元数据表双份维护导致漂移（如 scene.create_node 默认名曾分叉）。
+//
+// 线程：全部 handler 在主线程调用（编辑器帧泵）。返回统一
+// { ok, result } / { ok:false, error:{code,message} }（与 WebBridge 协议一致）。
+class Registry {
+public:
+	typedef Dictionary (*Handler)(const Dictionary &p_args);
 
-#ifdef TOOLS_ENABLED
-// EditorNode 在 Main::start() 创建（晚于模块初始化），AI Bridge / Sidecar 延迟到第一帧启动。
-static void ai_bridge_start_deferred() {
-	AiBridge::get_singleton()->start();
-}
-static void sidecar_server_start_deferred() {
-	SidecarServer::get_singleton()->start();
-}
-#endif // TOOLS_ENABLED
+	struct Method {
+		String name;
+		String description;
+		Dictionary input_schema; // JSON Schema（object，含 properties/required）
+		Handler handler;
+	};
 
-void initialize_ai_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(ai_bridge_start_deferred));
-		MessageQueue::get_singleton()->push_callable(callable_mp_static(sidecar_server_start_deferred));
-	}
-#endif // TOOLS_ENABLED
-}
+	/// 惰性注册全部能力（幂等；首查时执行）。
+	static void ensure_registered();
+	/// 按方法名查询（未注册返回 nullptr）。
+	static const Method *find(const String &p_name);
+	/// 全部已注册方法（tools/list 数据源）。
+	static const Vector<Method> &methods();
+	/// 分发前参数校验：必须是对象 + 满足 input_schema.required。失败返回 false 并给出原因。
+	static bool validate_args(const Method &p_method, const Variant &p_params, Dictionary &r_args, String &r_err);
 
-void uninitialize_ai_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		// 退出编排（§4.4 审查修订 P1-6）：sidecar 先停（shutdown 通知 + 等 2s + kill 进程树），
-		// 再 AiBridge；CEF 在 SCENE 级随后自然 shutdown（Main::cleanup 顺序：SceneTree→EDITOR→SCENE）。
-		SidecarServer::free_singleton();
-		AiBridge::free_singleton();
-	}
-#endif // TOOLS_ENABLED
-}
+private:
+	static void register_method(const String &p_name, const String &p_desc, const Dictionary &p_schema, Handler p_handler);
+	static void _register_all();
+
+	static Vector<Method> s_methods;
+	static bool s_registered;
+};
