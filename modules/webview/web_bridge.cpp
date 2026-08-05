@@ -4,6 +4,8 @@
 
 #include "webview_manager.h"
 
+#include "modules/ai/semantic_registry.h"
+
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
 #include "core/object/callable_mp.h"
@@ -66,64 +68,13 @@ void WebBridge::handle_invoke(int32_t p_browser_id, const String &p_method, cons
 }
 
 void WebBridge::_method_scene_get_node_count(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id }。返回场景根节点后代总数(含根自身)。
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	EditorInterface *ei = EditorInterface::get_singleton();
-	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
-	if (!root) {
-		_respond(p_browser_id, req_id, false, Variant(), "no_scene", "当前没有打开的编辑场景");
-		return;
-	}
-	// 递归统计(含根自身)。
-	int count = 0;
-	List<Node *> stack;
-	stack.push_back(root);
-	while (!stack.is_empty()) {
-		Node *n = stack.back()->get();
-		stack.pop_back();
-		count++;
-		for (int i = 0; i < n->get_child_count(); i++) {
-			stack.push_back(n->get_child(i));
-		}
-	}
-	_respond(p_browser_id, req_id, true, count);
+	// 委托 SemanticRegistry（能力面唯一事实源，与 AiBridge MCP 工具面共享同一份实现）。
+	_dispatch_semantic(p_browser_id, "scene.get_node_count", p_args_json);
 }
 
 void WebBridge::_method_scene_create_node(int32_t p_browser_id, const String &p_args_json) {
-	// 参数: { req_id, name }。创建 Node3D 并作为编辑场景根的子节点(undo 可撤销)。
-	String req_id;
-	String name = "BridgeNode";
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		const Dictionary args = parsed.operator Dictionary();
-		req_id = args.get("req_id", "").operator String();
-		name = args.get("name", name).operator String();
-	}
-	EditorInterface *ei = EditorInterface::get_singleton();
-	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
-	if (!root) {
-		_respond(p_browser_id, req_id, false, Variant(), "no_scene", "当前没有打开的编辑场景");
-		return;
-	}
-	Node3D *node = memnew(Node3D);
-	node->set_name(name);
-	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
-	eurm->create_action("WebUI Create Node");
-	eurm->add_do_method(root, "add_child", node, true);
-	eurm->add_undo_method(root, "remove_child", node);
-	// 场景 owner:未设 owner 的节点不会写入 .tscn,保存场景后丢失(PackedScene::_parse_node 跳过);
-	// redo 时同样需要恢复 owner(与 SceneTreeDock 创建路径一致)。
-	eurm->add_do_method(node, "set_owner", root);
-	// UndoRedo 接管释放:undo 后 remove_child 使节点脱离场景,redo 栈被丢弃时
-	// (discard_redo) 由 TYPE_REFERENCE 引用操作删除——否则节点永久泄漏。
-	eurm->add_do_reference(node);
-	eurm->commit_action();
-	// node 已由 do 方法(commit_action 执行)挂入场景;返回 instance_id 作为 node_id。
-	_respond(p_browser_id, req_id, true, static_cast<uint64_t>(node->get_instance_id()));
+	// 委托 SemanticRegistry（能力面唯一事实源）；返回形状适配在 _dispatch_semantic 内完成。
+	_dispatch_semantic(p_browser_id, "scene.create_node", p_args_json);
 }
 
 void WebBridge::_method_scene_get_node_position(int32_t p_browser_id, const String &p_args_json) {
@@ -311,31 +262,52 @@ void WebBridge::_method_editor_get_ui_font_bold(int32_t p_browser_id, const Stri
 }
 
 void WebBridge::_method_editor_undo(int32_t p_browser_id, const String &p_args_json) {
-	String req_id;
-	const Variant parsed = JSON::parse_string(p_args_json);
-	if (parsed.get_type() == Variant::DICTIONARY) {
-		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
-	}
-	const bool ok = EditorUndoRedoManager::get_singleton()->undo();
-	if (!ok) {
-		_respond(p_browser_id, req_id, false, Variant(), "nothing_to_undo", "没有可撤销的操作");
-		return;
-	}
-	_respond(p_browser_id, req_id, true, Dictionary());
+	// 委托 SemanticRegistry（能力面唯一事实源）；SemanticOps::undo 与旧实现同为
+	// EditorUndoRedoManager::undo()，错误码 nothing_to_undo 保持一致。
+	_dispatch_semantic(p_browser_id, "editor.undo", p_args_json);
 }
 
 void WebBridge::_method_editor_redo(int32_t p_browser_id, const String &p_args_json) {
+	// 委托 SemanticRegistry（能力面唯一事实源）；SemanticOps::redo 与旧实现同为
+	// EditorUndoRedoManager::redo()，错误码 nothing_to_redo 保持一致。
+	_dispatch_semantic(p_browser_id, "editor.redo", p_args_json);
+}
+
+void WebBridge::_dispatch_semantic(int32_t p_browser_id, const String &p_method, const String &p_args_json) {
+	// 能力面合流（方案 §5.2 S1）：语义方法（scene.* / editor.*）统一委托 SemanticRegistry
+	// （能力面唯一事实源，与 AiBridge MCP 工具面共享同一份实现），WebBridge 仅保留协议适配层。
+	// 参数: { req_id, ...方法参数 }。req_id 仅用于应答配对，其余字段原样交给注册表校验/执行
+	// （校验只查 required 存在性，handler 用 get() 取参——多余 key 无副作用）。
 	String req_id;
 	const Variant parsed = JSON::parse_string(p_args_json);
 	if (parsed.get_type() == Variant::DICTIONARY) {
 		req_id = parsed.operator Dictionary().get("req_id", "").operator String();
 	}
-	const bool ok = EditorUndoRedoManager::get_singleton()->redo();
-	if (!ok) {
-		_respond(p_browser_id, req_id, false, Variant(), "nothing_to_redo", "没有可重做的操作");
+	const SemanticRegistry::Method *method = SemanticRegistry::find(p_method);
+	if (!method) {
+		_respond(p_browser_id, req_id, false, Variant(), "method_not_found", "未注册的方法: " + p_method);
 		return;
 	}
-	_respond(p_browser_id, req_id, true, Dictionary());
+	Dictionary args;
+	String verr;
+	if (!SemanticRegistry::validate_args(*method, parsed, args, verr)) {
+		_respond(p_browser_id, req_id, false, Variant(), "invalid_params", verr);
+		return;
+	}
+	const Dictionary result = method->handler(args);
+	if (result.get("ok", false).operator bool()) {
+		Variant payload = result.get("result", Variant());
+		if (p_method == "scene.create_node") {
+			// 返回形状适配：SDK createNode 期望裸 node_id（instance_id，number，与
+			// node_position_changed 事件的 node_id 同语义）；注册表 handler 返回
+			// { instance_id, path, name } 三元组——取 instance_id 转发，其余字段丢弃。
+			payload = payload.operator Dictionary().get("instance_id", Variant());
+		}
+		_respond(p_browser_id, req_id, true, payload);
+		return;
+	}
+	const Dictionary error = result.get("error", Dictionary()).operator Dictionary();
+	_respond(p_browser_id, req_id, false, Variant(), error.get("code", "").operator String(), error.get("message", "").operator String());
 }
 
 void WebBridge::_respond(int32_t p_browser_id, const String &p_req_id, bool p_ok, const Variant &p_result,

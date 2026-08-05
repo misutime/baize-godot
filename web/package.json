@@ -2,7 +2,7 @@
   "name": "baize-web",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.17.0",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "build": "pnpm -r --filter ./sdk --filter ./ui run build",
     "test": "pnpm -r run test",

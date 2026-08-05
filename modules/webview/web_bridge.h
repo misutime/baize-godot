@@ -60,6 +60,8 @@ public:
 
 private:
 	// ---- 方法实现（按命名空间分组；p_args_json 为参数对象 JSON，含 req_id）----
+	// scene.get_node_count / scene.create_node / editor.undo / editor.redo 四个方法
+	// 仅保留协议适配壳，逻辑委托 SemanticRegistry（能力面唯一事实源，见 _dispatch_semantic）。
 	static void _method_scene_get_node_count(int32_t p_browser_id, const String &p_args_json);
 	static void _method_scene_create_node(int32_t p_browser_id, const String &p_args_json);
 	static void _method_scene_get_node_position(int32_t p_browser_id, const String &p_args_json);
@@ -74,6 +76,11 @@ private:
 	/// 场景相对路径 → Node3D 公共解析：空路径/无场景/节点缺失或非 Node3D 时发出
 	/// 对应错误应答（invalid_params / no_scene / invalid_node）并返回 nullptr。
 	static Node3D *_resolve_node3d(int32_t p_browser_id, const String &p_req_id, const String &p_node_path);
+
+	/// 语义方法统一委托：SemanticRegistry find + validate_args + handler（与 AiBridge MCP
+	/// 工具面共享实现，消除双份漂移）。find 失败 → method_not_found；校验失败 → invalid_params；
+	/// handler 返回 { ok, result } / { ok:false, error:{code,message} }，按既有契约转发。
+	static void _dispatch_semantic(int32_t p_browser_id, const String &p_method, const String &p_args_json);
 
 	/// 应答下行："method_result" 事件携带 { req_id, ok, result } / { req_id, ok:false, error }。
 	static void _respond(int32_t p_browser_id, const String &p_req_id, bool p_ok, const Variant &p_result,
