@@ -44,7 +44,7 @@ class WebPanel;
 // 职责：持有 WebViewCore（C++ 核心，封装 CEF）生命周期、每帧 pump（单例驱动：
 // init_core 成功后挂 SceneTree::process_frame，与面板数量解耦，最后面板退出后
 // 异步关闭送达前仍持续泵送）、面板注册表（browser_id → WebPanel）与核心回调分发
-// （on_paint / on_load_status / on_query）。
+// （on_load_status / on_query / on_invoke_method）。
 // 不再加载 gdcef 扩展：CEF 由核心层直接初始化（init_core 惰性，失败为终态）。
 class WebViewManager {
 	static WebViewManager *singleton;
@@ -70,35 +70,21 @@ public:
 	void register_panel(WebPanel *p_panel);
 	void unregister_panel(int32_t p_id);
 
-	int create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h);
-	void resize_browser(int32_t p_id, int32_t p_w, int32_t p_h);
+	int create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h, void *p_parent_handle);
+	void resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, int32_t p_w, int32_t p_h);
+	// 显示/隐藏浏览器原生子窗口（面板可见性同步，窗口模式）。
+	void set_browser_visible(int32_t p_id, bool p_visible);
 	void destroy_browser(int32_t p_id);
 	void navigate_browser(int32_t p_id, const String &p_url);
 
 	// JS 查询应答（on_query 回调给出的 p_query_id）。M2 接入 IPC 后由 WebPanel::send_message 使用。
 	bool respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const String &p_response, int p_error);
 
-	// 输入事件转发（OSR：面板 GUI 输入 → WebViewCore → CEF）。
-	// 参数语义与 WebViewCore 对应 API 一致（见 webview_core.h）。
-	void send_mouse_move(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, bool p_leave);
-	void send_mouse_click(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_button, bool p_up, int32_t p_click_count);
-	void send_mouse_wheel(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_delta_x, int32_t p_delta_y);
-	void send_key_event(int32_t p_id, int32_t p_type, uint32_t p_modifiers, int32_t p_windows_key_code, int32_t p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable);
-	void set_focus(int32_t p_id, bool p_focus);
-
 	// 事件下行（协议层）：payload 为事件 payload JSON（经 WebViewCore::emit_event → TriggerEvent）。
 	void emit_event(int32_t p_id, const String &p_event_name, const String &p_payload_json);
 
-	// IME（中文输入法）：组合文本转发（面板 NOTIFICATION_OS_IME_UPDATE → 核心层 → CEF）。
-	void ime_set_composition(int32_t p_id, const String &p_text, int32_t p_selection_start, int32_t p_selection_end);
-	void ime_commit_text(int32_t p_id, const String &p_text);
-	void ime_cancel_composition(int32_t p_id);
-
 	// WebViewCore 回调（主线程，pump 内同步触发）→ 静态分发到面板注册表。
-	static void _on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h);
-	static void _on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_w, uint32_t p_h);
 	static void _on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url);
 	static void _on_query(int32_t p_id, const std::string &p_query, int64_t p_query_id);
 	static void _on_invoke_method(int32_t p_id, const std::string &p_method, const std::vector<std::string> &p_args);
-	static void _on_focus_editable_changed(int32_t p_id, bool p_focus_on_editable);
 };

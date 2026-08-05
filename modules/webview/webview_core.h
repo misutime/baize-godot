@@ -38,8 +38,9 @@
 #include <vector>
 
 // C++ 核心层:封装 CefViewCore(CefViewBrowserApp / CefViewBrowserClient)为引擎模块可用的
-// 生命周期 / 消息泵 / 浏览器 / OSR / JS 桥 API。这是 C++ 路线的基础切片,WebPanel /
-// WebViewManager / SCsub 都依赖本 API 面。
+// 生命周期 / 消息泵 / 浏览器 / JS 桥 API。渲染采用 CEF 窗口模式(非 OSR):CEF 在宿主
+// 窗口内创建原生子窗口,像素零回传、输入/IME 原生直达。这是 C++ 路线的基础切片,
+// WebPanel / WebViewManager / SCsub 都依赖本 API 面。
 //
 // 边界纪律(两层,区别于 4A webview_ffi.h 的 C ABI 时代规则):
 // - 公开 API 面(本头文件)保持纯 C++:std::string / std::function 回调,零 Godot 类型
@@ -52,9 +53,8 @@
 // 两层共同保持:回调经 std::function 交给宿主,禁止 Godot 对象穿越。
 //
 // 线程模型:CEF 以 external_message_pump=1 模式集成,全部 API 与回调都在主线程
-// (编辑器 UI 线程)发生。pump() 驱动 CefDoMessageLoopWork(),CEF 回调(OnPaint /
-// processQueryRequest / loadEnd / OnBeforeClose 等)在 pump 内同步触发,宿主可在
-// 回调中安全做纹理操作(4A 已验证)。
+// (编辑器 UI 线程)发生。pump() 驱动 CefDoMessageLoopWork(),CEF 回调
+// (processQueryRequest / loadEnd / OnBeforeClose 等)在 pump 内同步触发。
 //
 // 生命周期:WebViewManager 单例持有本对象;init() 在首次 create_browser 前惰性调用;
 // shutdown() 在模块卸载时调用。初始化失败为终态,不可重试。
@@ -62,14 +62,6 @@ class WebViewCore {
 public:
 	// 宿主注入的回调集合(仿 4A WvCallbacks,C++ 化)。
 	struct Callbacks {
-		// id: 浏览器 id;rgba: RGBA8 像素缓冲(w*h*4),仅回调期间有效,宿主必须拷贝;
-		// w / h: 像素尺寸(CEF OnPaint 输出 BGRA,本核心层已转 RGBA)。
-		std::function<void(int32_t id, const uint8_t *rgba, uint32_t w, uint32_t h)> on_paint;
-		// id: 浏览器 id;handle: GPU 共享纹理句柄(shared_texture_enabled=1,mac: IOSurfaceRef
-		// 按 uint64 透传)。句柄每帧变化、仅回调期间有效,宿主必须在该回调内打开并复制到
-		// 自有纹理(CEF 文档:不能缓存、不能在回调外访问,见 cef_render_handler.h
-		// OnAcceleratedPaint);w / h: 纹理像素尺寸(CEF coded_size)。
-		std::function<void(int32_t id, uint64_t handle, uint32_t w, uint32_t h)> on_accelerated_paint;
 		// id: 浏览器 id;status: HTTP 状态码(加载错误为 -1);url: 加载的 URL。
 		std::function<void(int32_t id, int32_t status, const std::string &url)> on_load_status;
 		// id: 浏览器 id;query: JS 侧 window.cefViewQuery 请求体;query_id: 应答句柄
@@ -78,9 +70,6 @@ public:
 		// id: 浏览器 id;method: JS 侧 CefViewClient.invoke 的方法名(点号命名空间);
 		// args: 参数列表(协议约定已字符串化;对象参数由前端 SDK JSON.stringify 后传入)。
 		std::function<void(int32_t id, const std::string &method, const std::vector<std::string> &args)> on_invoke_method;
-		// id: 浏览器 id;focus_on_editable: 页面焦点是否在可编辑元素(focusedEditableNodeChanged)。
-		// 宿主据此决定是否激活 IME 管道——非编辑节点聚焦时激活会截获按键(P1 回归)。
-		std::function<void(int32_t id, bool focus_on_editable)> on_focus_editable_changed;
 	};
 
 	WebViewCore();
@@ -95,26 +84,30 @@ public:
 	// 相对路径会导致初始化失败)。失败为终态:CEF 禁止初始化失败后重试,后续调用全部失效。
 	bool init(const std::string &p_exe_dir);
 
-	// 消息泵:主线程每帧调用一次。节流:仅当 CEF 通过 OnScheduleMessagePumpWork 请求
-	// 泵送时才实际调用 CefDoMessageLoopWork;初始化后前 60 帧无条件泵送(防消息泵
-	// 首帧不通知导致 renderer 不产出)。每帧最多泵送一次。
+	// 消息泵:主线程每帧调用一次,无条件 CefDoMessageLoopWork(窗口模式的帧处理同样依赖
+	// 消息泵持续运转;CEF 无工作时开销≈0)。每帧最多泵送一次。
 	void pump();
 
 	// 关闭 CEF:先关闭全部浏览器并有界泵等待异步关闭(OnBeforeClose 递减计数),再
 	// CefShutdown。幂等,可重复调用。
 	void shutdown();
 
-	// 创建窗口渲染(OSR)浏览器。p_id 由调用方分配,必须唯一;w / h 为物理像素,必须非零。
-	// p_gpu_osr_enabled: 宿主在创建前判定的 GPU 纹理直通能力(mac: Metal 渲染器 +
-	// 主线程==渲染线程);为 false 或环境变量 WEBVIEW_OSR_SOFTWARE=1 时走软件路径
-	// (OnPaint BGRA)。GPU 路径零 CPU 读回;resize 收敛为实测口径,确切机制见交接文档
-	// 修正记录。非 mac 平台恒为软件路径。返回 0 成功,-1 失败
-	// (未初始化 / id 重复 / 尺寸非法 / CEF 创建失败)。
-	int create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, bool p_gpu_osr_enabled);
+	// 创建窗口渲染(非 OSR)浏览器。p_id 由调用方分配,必须唯一;w / h 为物理像素
+	// (相对父窗口客户区),必须非零;p_parent_handle 为宿主窗口句柄(Windows: 编辑器
+	// 主窗口 HWND;mac: 内容 NSView)——CEF 经 CefWindowInfo::SetAsChild 在其中创建
+	// 内部子窗口,原生接收输入/IME,渲染走自身 GPU 合成器(跟随显示 vsync),无像素回传。
+	// 返回 0 成功,-1 失败(未初始化 / id 重复 / 尺寸非法 / 父句柄为空 / CEF 创建失败)。
+	int create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, void *p_parent_handle);
 
-	// 调整浏览器尺寸(物理像素)。返回 0 成功,-1 失败(未初始化 / id 不存在 / 尺寸非法
-	// ——0 或 >INT_MAX 拒绝,与 create_browser 统一校验)。
-	int resize_browser(int32_t p_id, uint32_t p_w, uint32_t p_h);
+	// 调整浏览器子窗口的位置与尺寸(物理像素,相对父窗口客户区)。返回 0 成功,-1 失败
+	// (未初始化 / id 不存在 / 尺寸非法——0 或 >INT_MAX 拒绝,与 create_browser 统一校验;
+	// Windows: 子窗口句柄为空或 MoveWindow 失败)。
+	int resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_w, uint32_t p_h);
+
+	// 显示/隐藏浏览器原生子窗口(面板可见性同步:窗口模式下 Godot CanvasItem 的可见性
+	// 不自动传播到 OS 子窗口——dock 隐藏/折叠时必须显式隐藏,否则子窗口盖住其他内容)。
+	// 返回 0 成功,-1 失败(未初始化 / id 不存在 / 句柄为空)。
+	int set_browser_visible(int32_t p_id, bool p_visible);
 
 	// 导航到新 URL。返回 0 成功,-1 失败(未初始化 / id 不存在 / 无主 frame)。
 	int navigate_browser(int32_t p_id, const std::string &p_url);
@@ -127,69 +120,10 @@ public:
 	// 浏览器不存在)。
 	bool respond_query(int32_t p_id, int64_t p_query_id, bool p_success, const std::string &p_response, int p_error);
 
-	// ---- 输入事件转发(OSR 宿主职责)----
-	// CEF OSR 无原生窗口,鼠标/键盘/焦点必须由宿主转发(选型文档 §6.3)。
-	// 参数用标量透传(API 面不暴露 CEF 类型):坐标 x/y 为 OSR 视口像素(面板本地坐标),
-	// modifiers 为 CEF cef_event_flags_t 位标志(见下方 MOD_* 常量)。
-
-	// 鼠标移动。p_leave=true 表示鼠标离开视口(CEF 需显式 leave 才能收 mouseout)。
-	void send_mouse_move(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, bool p_leave);
-
-	// 鼠标按键。p_button:0=左,1=中,2=右;p_up:true=弹起,false=按下;
-	// p_click_count:连续点击次数(CEF 双击/三击语义)。
-	void send_mouse_click(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_button, bool p_up, int p_click_count);
-
-	// 鼠标滚轮。p_delta_x/y:滚动量(正=向上/向左)。
-	void send_mouse_wheel(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_delta_x, int p_delta_y);
-
-	// 键盘事件。p_type:0=RAWKEYDOWN,1=KEYDOWN,2=KEYUP,3=CHAR(与 CEF cef_key_event_type_t
-	// 一致);p_windows_key_code:Windows 虚拟键码;p_native_key_code:原生键码(Windows 扫描码,
-	// 可传 0);p_character:按键产生的 Unicode 字符(KEYEVENT_CHAR 用,char32_t 标量经 uint32 透传,
-	// 补充平面 U+10000+ 由核心层拆 UTF-16 代理对发两次 CHAR);p_unmodified_character:去除同时
-	// 按下修饰键(Shift 除外)后的字符(CEF 快捷键判定用,无则传 0);p_focus_on_editable:是否在
-	// 页面可编辑元素(CEF 输入法/编辑语义;现由 CEF 回调权威提供,该参数仅作后备)。
-	void send_key_event(int32_t p_id, int p_type, uint32_t p_modifiers, int p_windows_key_code, int p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable);
-
-	// 焦点。OSR 视图获得/失去焦点时调用(键盘事件只在有焦点时被 renderer 处理)。
-	void set_focus(int32_t p_id, bool p_focus);
-
 	// 事件下行(C++→JS):触发页面 addEventListener 注册的 p_event_name 监听器。
 	// p_args 为字符串参数列表(协议约定;事件 payload 由协议层 JSON.stringify 成单字符串)。
 	// 返回 true 表示事件已发送到 renderer。
 	bool emit_event(int32_t p_id, const std::string &p_event_name, const std::vector<std::string> &p_args);
-
-	// ---- IME(中文输入法,OSR 宿主职责;组合文本经 Godot DisplayServer IME 管道转发)----
-	// 组合中更新:设置组合文本与选中范围(候选窗定位为完整版,基础版交给系统候选窗)。
-	void ime_set_composition(int32_t p_id, const std::string &p_text, uint32_t p_selection_start, uint32_t p_selection_end);
-	// 组合结束:提交组合文本(上屏)。
-	void ime_commit_text(int32_t p_id, const std::string &p_text);
-	// 取消组合(丢弃未提交文本)。
-	void ime_cancel_composition(int32_t p_id);
-
-	// 修饰键位标志(与 CEF cef_event_flags_t 对齐,宿主(Godot 壳层)映射用)。
-	static constexpr uint32_t MOD_SHIFT = 2;
-	static constexpr uint32_t MOD_CONTROL = 4;
-	static constexpr uint32_t MOD_ALT = 8;
-	static constexpr uint32_t MOD_LEFT_MOUSE = 16;
-	static constexpr uint32_t MOD_MIDDLE_MOUSE = 32;
-	static constexpr uint32_t MOD_RIGHT_MOUSE = 64;
-	static constexpr uint32_t MOD_COMMAND = 128; // mac Cmd
-	static constexpr uint32_t MOD_NUM_LOCK = 256;
-	static constexpr uint32_t MOD_IS_KEY_PAD = 512;
-	static constexpr uint32_t MOD_IS_REPEAT = 8192;
-	static constexpr uint32_t MOD_PRECISION_SCROLLING = 16384;
-
-	// 键盘事件类型(与 CEF cef_key_event_type_t 对齐)。
-	static constexpr int KEY_RAWKEYDOWN = 0;
-	static constexpr int KEY_KEYDOWN = 1;
-	static constexpr int KEY_KEYUP = 2;
-	static constexpr int KEY_CHAR = 3;
-
-	// 鼠标按键(与 CEF cef_mouse_button_type_t 对齐)。
-	static constexpr int MOUSE_LEFT = 0;
-	static constexpr int MOUSE_MIDDLE = 1;
-	static constexpr int MOUSE_RIGHT = 2;
-
 
 	// 注入回调(可在 init 前后任意时刻调用;shutdown 后自动清空)。
 	void set_callbacks(const Callbacks &p_callbacks);

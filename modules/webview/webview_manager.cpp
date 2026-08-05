@@ -41,36 +41,7 @@
 #include "core/string/ustring.h"
 #include "scene/main/scene_tree.h"
 
-#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
-#include "drivers/metal/rendering_context_driver_metal.h"
-#include "servers/rendering/rendering_device.h"
-#endif
-
 namespace {
-
-// GPU OSR(mac)能力判定:浏览器创建前由宿主决定 shared_texture_enabled,防止 CEF 只
-// 交付加速帧而消费端丢弃(面板空白)。两个硬性前提,任一不满足即走软件路径:
-// 1. 渲染器为 Metal(RD 上下文驱动是 RenderingContextDriverMetal)——Vulkan/MoltenVK
-//    下 IOSurface 导入路径不可用(set_accelerated_paint 静默返回);
-// 2. 主线程 == 渲染线程(thread_model=Safe)——Separate 模式下主线程回调内的
-//    RD::texture_copy / free_rid 被 ERR_RENDER_THREAD_GUARD 拒绝(目标空白 + 每帧
-//    泄漏导入的源纹理),GPU OSR 的“回调内同步拷贝”契约无法满足。
-// WEBVIEW_OSR_SOFTWARE=1 的显式覆盖在核心层 create_browser 内叠加。
-static bool gpu_osr_capable() {
-#if defined(__APPLE__) && defined(RD_ENABLED) && defined(METAL_ENABLED)
-	RenderingDevice *rd = RenderingDevice::get_singleton();
-	if (rd == nullptr || rd->get_context_driver() == nullptr) {
-		return false;
-	}
-	if (dynamic_cast<RenderingContextDriverMetal *>(rd->get_context_driver()) == nullptr) {
-		return false;
-	}
-	const int thread_model = GLOBAL_GET("rendering/driver/threads/thread_model");
-	return thread_model != OS::RENDER_SEPARATE_THREAD;
-#else
-	return false;
-#endif
-}
 
 // 每帧消息泵驱动器：CEF 初始化成功后挂到 SceneTree::process_frame，使 pump 与面板
 // 数量解耦——最后一个面板退出后、异步关闭（OnBeforeClose）送达前仍持续泵送。
@@ -118,12 +89,9 @@ void WebViewManager::init_core() {
 	core_initialized_ = true; // CEF 初始化失败为终态，禁止重试
 	const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
 	WebViewCore::Callbacks cbs;
-	cbs.on_paint = &WebViewManager::_on_paint;
-	cbs.on_accelerated_paint = &WebViewManager::_on_accelerated_paint;
 	cbs.on_load_status = &WebViewManager::_on_load_status;
 	cbs.on_query = &WebViewManager::_on_query;
 	cbs.on_invoke_method = &WebViewManager::_on_invoke_method;
-	cbs.on_focus_editable_changed = &WebViewManager::_on_focus_editable_changed;
 	core_.set_callbacks(cbs);
 	// 核心层日志（stderr）转发到 Godot stdout——GUI 版输出面板只显示 print_line。
 	core_.set_log_callback([](const std::string &p_msg) {
@@ -186,19 +154,25 @@ void WebViewManager::unregister_panel(int32_t p_id) {
 	panels_.erase(p_id);
 }
 
-int WebViewManager::create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h) {
+int WebViewManager::create_browser(int32_t p_id, const String &p_url, int32_t p_w, int32_t p_h, void *p_parent_handle) {
 	init_core(); // 惰性：首次 create_browser 时初始化 CEF
 	if (!core_.is_initialized()) {
 		ERR_PRINT("[WebView] create_browser before core ready.");
 		return -1;
 	}
 	const CharString url = p_url.utf8();
-	return core_.create_browser(p_id, url.get_data(), (uint32_t)p_w, (uint32_t)p_h, gpu_osr_capable());
+	return core_.create_browser(p_id, url.get_data(), (uint32_t)p_w, (uint32_t)p_h, p_parent_handle);
 }
 
-void WebViewManager::resize_browser(int32_t p_id, int32_t p_w, int32_t p_h) {
+void WebViewManager::resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, int32_t p_w, int32_t p_h) {
 	if (core_.is_initialized()) {
-		core_.resize_browser(p_id, (uint32_t)p_w, (uint32_t)p_h);
+		core_.resize_browser(p_id, p_x, p_y, (uint32_t)p_w, (uint32_t)p_h);
+	}
+}
+
+void WebViewManager::set_browser_visible(int32_t p_id, bool p_visible) {
+	if (core_.is_initialized()) {
+		core_.set_browser_visible(p_id, p_visible);
 	}
 }
 
@@ -223,41 +197,7 @@ bool WebViewManager::respond_query(int32_t p_id, int64_t p_query_id, bool p_succ
 	return core_.respond_query(p_id, p_query_id, p_success, response.get_data(), p_error);
 }
 
-// 输入事件转发:面板 GUI 输入 → 核心层 → CEF(纯透传,参数语义见 webview_core.h)。
-void WebViewManager::send_mouse_move(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, bool p_leave) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.send_mouse_move(p_id, p_x, p_y, p_modifiers, p_leave);
-}
-
-void WebViewManager::send_mouse_click(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_button, bool p_up, int32_t p_click_count) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.send_mouse_click(p_id, p_x, p_y, p_modifiers, p_button, p_up, p_click_count);
-}
-
-void WebViewManager::send_mouse_wheel(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_modifiers, int32_t p_delta_x, int32_t p_delta_y) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.send_mouse_wheel(p_id, p_x, p_y, p_modifiers, p_delta_x, p_delta_y);
-}
-
-void WebViewManager::send_key_event(int32_t p_id, int32_t p_type, uint32_t p_modifiers, int32_t p_windows_key_code, int32_t p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.send_key_event(p_id, p_type, p_modifiers, p_windows_key_code, p_native_key_code, p_character, p_unmodified_character, p_focus_on_editable);
-}
-
-void WebViewManager::set_focus(int32_t p_id, bool p_focus) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.set_focus(p_id, p_focus);
-}
+// 输入事件转发已删除:窗口模式(非 OSR)下 CEF 原生子窗口直接接收鼠标/键盘/IME,宿主不再转发。
 
 void WebViewManager::emit_event(int32_t p_id, const String &p_event_name, const String &p_payload_json) {
 	if (!core_.is_initialized()) {
@@ -266,30 +206,6 @@ void WebViewManager::emit_event(int32_t p_id, const String &p_event_name, const 
 	const CharString event_name = p_event_name.utf8();
 	const CharString payload = p_payload_json.utf8();
 	core_.emit_event(p_id, event_name.get_data(), std::vector<std::string>{ payload.get_data() });
-}
-
-// IME 组合文本转发(面板 IME 更新 → CEF)。
-void WebViewManager::ime_set_composition(int32_t p_id, const String &p_text, int32_t p_selection_start, int32_t p_selection_end) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	const CharString text = p_text.utf8();
-	core_.ime_set_composition(p_id, text.get_data(), static_cast<uint32_t>(p_selection_start), static_cast<uint32_t>(p_selection_end));
-}
-
-void WebViewManager::ime_commit_text(int32_t p_id, const String &p_text) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	const CharString text = p_text.utf8();
-	core_.ime_commit_text(p_id, text.get_data());
-}
-
-void WebViewManager::ime_cancel_composition(int32_t p_id) {
-	if (!core_.is_initialized()) {
-		return;
-	}
-	core_.ime_cancel_composition(p_id);
 }
 
 // invoke 上行（协议层）：静态回调 → WebBridge 方法注册表分派。
@@ -307,44 +223,6 @@ void WebViewManager::_on_invoke_method(int32_t p_id, const std::string &p_method
 		args.write[i] = String::utf8(p_args[i].c_str());
 	}
 	WebBridge::handle_invoke(p_id, String::utf8(p_method.c_str()), args);
-}
-
-// 页面可编辑焦点回调 → 分发到面板(IME 管道激活依据)。
-void WebViewManager::_on_focus_editable_changed(int32_t p_id, bool p_focus_on_editable) {
-	WebViewManager *mgr = peek_singleton();
-	if (!mgr) {
-		return;
-	}
-	WebPanel **slot = mgr->panels_.getptr(p_id);
-	if (slot && *slot) {
-		(*slot)->set_focus_editable(p_focus_on_editable);
-	}
-}
-
-void WebViewManager::_on_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_w, uint32_t p_h) {
-	// 静态回调（GPU 纹理直通，mac IOSurface）：peek 不创建——单例为 null
-	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。
-	WebViewManager *mgr = peek_singleton();
-	if (!mgr) {
-		return;
-	}
-	WebPanel **slot = mgr->panels_.getptr(p_id);
-	if (slot && *slot) {
-		(*slot)->set_accelerated_paint(p_handle, p_w, p_h); // 句柄仅回调期间有效，宿主在回调内复制
-	}
-}
-
-void WebViewManager::_on_paint(int32_t p_id, const uint8_t *p_rgba, uint32_t p_w, uint32_t p_h) {
-	// 静态回调（C++ 核心层经 std::function 调用）：peek 不创建——单例为 null
-	// （teardown 后）时直接返回，防止 get_singleton 复活已释放的单例。
-	WebViewManager *mgr = peek_singleton();
-	if (!mgr) {
-		return;
-	}
-	WebPanel **slot = mgr->panels_.getptr(p_id);
-	if (slot && *slot) {
-		(*slot)->set_paint(p_rgba, p_w, p_h); // 回调期间缓冲有效，set_paint 内部拷贝
-	}
 }
 
 void WebViewManager::_on_load_status(int32_t p_id, int32_t p_status, const std::string &p_url) {

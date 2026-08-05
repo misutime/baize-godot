@@ -63,7 +63,6 @@
 #include <CefViewBrowserClientDelegate.h>
 #include <CefViewCoreProtocol.h>
 
-#include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstdio>
@@ -244,11 +243,6 @@ struct WebViewCore::Impl {
 	bool framework_loaded = false; // mac:cef_load_library 成功标志(shutdown 时对应 unload)
 #endif
 
-	// ---- 泵节流 ----
-	// 原子标志:OnScheduleMessageLoopWork 可能来自任意 CEF 线程(CEF 文档:any thread),
-	// delegate 只允许原子置位;主线程 pump() 用 exchange(false) 读取并清除。
-	std::atomic<bool> pump_requested{false};
-
 	// ---- CEF 对象 ----
 	std::shared_ptr<CefViewBrowserAppDelegateInterface> app_delegate;
 	CefRefPtr<CefViewBrowserApp> app;
@@ -261,18 +255,10 @@ struct WebViewCore::Impl {
 		CefRefPtr<CefBrowser> browser;
 		CefRefPtr<CefViewBrowserClient> client;
 		std::shared_ptr<CefViewBrowserClientDelegateInterface> client_delegate;
-		uint32_t width = 0;
-		uint32_t height = 0;
 		bool closing = false;
-		// 页面可编辑元素焦点状态(本浏览器专属;focusedEditableNodeChanged 回调更新,
-		// send_key_event 读取——随条目销毁自动清除,不跨浏览器串状态)。
-		bool focus_on_editable = false;
 	};
 	std::unordered_map<int32_t, BrowserEntry> browsers;
 	int pending_close = 0; // 待异步关闭的浏览器数(OnBeforeClose 递减)
-
-	// ---- paint 暂存(RGBA;仅回调期间有效) ----
-	std::vector<uint8_t> paint_buffer;
 
 	// =======================================================================
 	// CefViewBrowserAppDelegateInterface 实现:转发 CefViewBrowserApp 的 3 个钩子。
@@ -318,11 +304,9 @@ struct WebViewCore::Impl {
 		}
 
 		void onScheduleMessageLoopWork(int64_t p_delay_ms) override {
-			// CEF 请求一次消息泵工作(节流依据)。可能来自任意 CEF 线程,这里只做
-			// 原子置位(relaxed 足够:仅为“有活要泵”的提示,CEF 内部有自己的同步),
-			// 不碰任何非原子宿主状态;实际泵送由主循环 pump() 完成。
+			// 宿主每帧无条件泵送(CefDoMessageLoopWork),CEF 的调度请求无需门控——
+			// 保留空实现满足接口。
 			try {
-				self_->pump_requested.store(true, std::memory_order_relaxed);
 			} catch (const std::exception &e) {
 				log_callback_exception("AppDelegate::onScheduleMessageLoopWork", e.what());
 			} catch (...) {
@@ -340,13 +324,8 @@ struct WebViewCore::Impl {
 	// =======================================================================
 	class ClientDelegate final : public CefViewBrowserClientDelegateInterface {
 	public:
-		ClientDelegate(Impl *p_self, int32_t p_id, uint32_t p_w, uint32_t p_h)
-				: self_(p_self), id_(p_id), width_(p_w), height_(p_h) {}
-
-		void set_size(uint32_t p_w, uint32_t p_h) {
-			width_ = p_w;
-			height_ = p_h;
-		}
+		ClientDelegate(Impl *p_self, int32_t p_id)
+				: self_(p_self), id_(p_id) {}
 
 		// ---- 桥(renderer 进程) ----
 		void processUrlRequest(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, const CefString &p_url) override {
@@ -372,16 +351,7 @@ struct WebViewCore::Impl {
 
 		void focusedEditableNodeChanged(CefRefPtr<CefBrowser> &p_browser, CefRefPtr<CefFrame> &p_frame, bool p_focus_on_editable_node) override {
 			try {
-				// 按浏览器记录可编辑元素焦点状态(键盘事件 focus_on_editable_field 权威来源);
-				// 只更新本浏览器条目,不串其他浏览器状态。
-				auto entry = self_->browsers.find(id_);
-				if (entry != self_->browsers.end()) {
-					entry->second.focus_on_editable = p_focus_on_editable_node;
-				}
-				// 回调宿主(面板据此激活/禁用 IME 管道)。
-				if (self_->callbacks.on_focus_editable_changed) {
-					self_->callbacks.on_focus_editable_changed(id_, p_focus_on_editable_node);
-				}
+				// 窗口模式:IME 由 CEF 原生子窗口自处理,宿主无需 IME 管道——空实现满足接口。
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::focusedEditableNodeChanged", e.what());
 			} catch (...) {
@@ -808,15 +778,12 @@ struct WebViewCore::Impl {
 			}
 		}
 
-		// ---- OSR 渲染 ----
+		// ---- 渲染回调(窗口模式:CEF 不调用,保留空实现满足纯虚接口)----
+		// 窗口模式(非 OSR)下 CEF 把内容直接画进自身原生子窗口,不回调 CefRenderHandler 的
+		// getViewRect / OnPaint / OnAcceleratedPaint。以下为空实现(纯虚接口必须全部实现)。
 		bool getScreenInfo(CefRefPtr<CefBrowser> &p_browser, CefScreenInfo &p_screen_info) override {
 			try {
-				// M1b:无 DPI 缩放处理(device_scale_factor=1,与 4A 一致;V2 接 DisplayServer 缩放)。
-				p_screen_info.device_scale_factor = 1.0f;
-				p_screen_info.depth = 24;
-				p_screen_info.depth_per_component = 8;
-				p_screen_info.is_monochrome = 0;
-				return true;
+				return false;
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::getScreenInfo", e.what());
 			} catch (...) {
@@ -827,14 +794,6 @@ struct WebViewCore::Impl {
 
 		void getViewRect(CefRefPtr<CefBrowser> &p_browser, CefRect &p_rect) override {
 			try {
-				// 尺寸在 create_browser / resize_browser 入口已校验(0 与 >INT_MAX 拒绝),
-				// 此处再防御性钳制,确保 CEF 始终拿到非空矩形(不出现 0/负宽高)。
-				const uint32_t w = (width_ == 0 || width_ > static_cast<uint32_t>(INT_MAX)) ? 1 : width_;
-				const uint32_t h = (height_ == 0 || height_ > static_cast<uint32_t>(INT_MAX)) ? 1 : height_;
-				p_rect.x = 0;
-				p_rect.y = 0;
-				p_rect.width = static_cast<int>(w);
-				p_rect.height = static_cast<int>(h);
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::getViewRect", e.what());
 			} catch (...) {
@@ -844,15 +803,6 @@ struct WebViewCore::Impl {
 
 		void onPaint(CefRefPtr<CefBrowser> &p_browser, CefRenderHandler::PaintElementType p_type, const CefRenderHandler::RectList &p_dirty_rects, const void *p_buffer, int p_width, int p_height) override {
 			try {
-				// 只处理主视图(popup 合成后续切片)。注意:cef_paint_element_type_t 是无作用域枚举,
-				// 枚举值 PET_VIEW / PET_POPUP 在包含作用域,不能写成 PaintElementType::VIEW。
-				if (p_type != PET_VIEW) {
-					return;
-				}
-				if (p_buffer == nullptr || p_width <= 0 || p_height <= 0) {
-					return;
-				}
-				self_->handle_paint(id_, p_buffer, p_width, p_height);
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::onPaint", e.what());
 			} catch (...) {
@@ -860,28 +810,8 @@ struct WebViewCore::Impl {
 			}
 		}
 
-		// GPU 纹理直通(shared_texture_enabled=1):CEF 经本回调交付共享纹理句柄
-		// (mac: IOSurface)。句柄每帧来自缓冲池、仅本回调内有效——只透传给宿主,
-		// 由宿主在回调内完成“打开 → 复制到自有纹理”(见 handle_accelerated_paint)。
 		void onAcceleratedPaint(CefRefPtr<CefBrowser> &p_browser, CefRenderHandler::PaintElementType p_type, const CefRenderHandler::RectList &p_dirty_rects, const CefAcceleratedPaintInfo &p_info) override {
 			try {
-				if (p_type != PET_VIEW) {
-					return;
-				}
-#if defined(__APPLE__)
-				const void *handle = p_info.shared_texture_io_surface;
-				if (handle == nullptr) {
-					return;
-				}
-				const int32_t w = static_cast<int32_t>(p_info.extra.coded_size.width);
-				const int32_t h = static_cast<int32_t>(p_info.extra.coded_size.height);
-				if (w <= 0 || h <= 0) {
-					return;
-				}
-				self_->handle_accelerated_paint(id_, reinterpret_cast<uint64_t>(handle), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-#else
-				// 非 mac 平台暂未实现共享纹理消费端(保持软件路径);收到即忽略。
-#endif
 			} catch (const std::exception &e) {
 				log_callback_exception("ClientDelegate::onAcceleratedPaint", e.what());
 			} catch (...) {
@@ -892,42 +822,10 @@ struct WebViewCore::Impl {
 	private:
 		Impl *self_;
 		int32_t id_;
-		uint32_t width_;
-		uint32_t height_;
 	};
 
+	// ---- 内部处理(全部在主线程,无锁)。
 	// =======================================================================
-	// 内部处理(全部在主线程,无锁)。
-	// =======================================================================
-
-	// OnAcceleratedPaint → 宿主回调(mac: IOSurfaceRef)。句柄仅回调期间有效、每帧来自
-	// 缓冲池(可能变化),宿主必须在回调内打开并复制到自有纹理(CEF 契约,见
-	// cef_render_handler.h OnAcceleratedPaint 文档)。
-	void handle_accelerated_paint(int32_t p_id, uint64_t p_handle, uint32_t p_width, uint32_t p_height) {
-		if (callbacks.on_accelerated_paint) {
-			callbacks.on_accelerated_paint(p_id, p_handle, p_width, p_height);
-		}
-	}
-
-	// OnPaint → BGRA→RGBA → 宿主回调(4A core.rs bgra_to_rgba 逻辑)。
-	void handle_paint(int32_t p_id, const void *p_buffer, int p_width, int p_height) {
-		if (!callbacks.on_paint) {
-			return;
-		}
-		const size_t byte_count = static_cast<size_t>(p_width) * static_cast<size_t>(p_height) * 4;
-		if (paint_buffer.size() < byte_count) {
-			paint_buffer.resize(byte_count);
-		}
-		// CEF OnPaint 输出 BGRA(上左原点);交换 R/B 得到 RGBA。
-		const uint8_t *src = static_cast<const uint8_t *>(p_buffer);
-		for (size_t i = 0; i < byte_count; i += 4) {
-			paint_buffer[i + 0] = src[i + 2]; // R
-			paint_buffer[i + 1] = src[i + 1]; // G
-			paint_buffer[i + 2] = src[i + 0]; // B
-			paint_buffer[i + 3] = src[i + 3]; // A
-		}
-		callbacks.on_paint(p_id, paint_buffer.data(), static_cast<uint32_t>(p_width), static_cast<uint32_t>(p_height));
-	}
 
 	void handle_query(int32_t p_id, const std::string &p_query, int64_t p_query_id) {
 		if (callbacks.on_query) {
@@ -1122,7 +1020,7 @@ bool WebViewCore::init(const std::string &p_exe_dir) {
 	// patch_helper_plists),浏览器进程即取得同一 id。
 	CefString(&settings.main_bundle_path) = runtime_root + "/CefViewWing.app";
 #endif
-	settings.windowless_rendering_enabled = 1; // OSR 软件渲染(OnPaint)
+	settings.windowless_rendering_enabled = 0; // 窗口模式(非 OSR):CEF 原生子窗口渲染
 	settings.external_message_pump = 1; // 由宿主主循环 CefDoMessageLoopWork 驱动
 	settings.log_severity = LOGSEVERITY_DEFAULT; // debug.log 在 exe 目录
 	// 不设 background_color：页面背景是页面自身职责（body 背景不透明 + height:100%
@@ -1159,13 +1057,8 @@ void WebViewCore::pump() {
 		return;
 	}
 
-	// internal_begin_frame 模式(external_begin_frame_enabled=0):CEF 内部帧源按
-	// windowless_frame_rate=60 驱动,宿主不再 SendExternalBeginFrame。
-	// 每帧泵送:internal BF 的帧处理依赖 CefDoMessageLoopWork 持续运转(实测节流泵会
-	// 饿死内部帧源→动画 0 帧);CEF 无工作时开销近乎为零(实测静态页 60s CEF 累计 CPU≈0)。
-	// 清空 pump_requested 防标志累积(每帧泵下不再作为门控)。
-	impl_->pump_requested.exchange(false, std::memory_order_relaxed);
-
+	// 窗口模式(非 OSR)每帧泵送:CEF 的帧/消息处理依赖 CefDoMessageLoopWork 持续运转
+	// (external_message_pump 契约);CEF 无工作时开销近乎为零(静态页累计 CPU≈0)。
 	CefDoMessageLoopWork();
 }
 
@@ -1202,8 +1095,6 @@ void WebViewCore::shutdown() {
 			log_stderr(("[webview_core] CefShutdown aborted: pending_close=" + std::to_string(impl_->pending_close) + " (timeout " + std::to_string(kShutdownWaitMs / 1000) + "s)\n").c_str());
 			impl_->cef_initialized = false;
 			impl_->cef_shutdown = true;
-			impl_->pump_requested.store(false, std::memory_order_relaxed);
-			impl_->paint_buffer.clear();
 			impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
 			return;
 		}
@@ -1224,13 +1115,11 @@ void WebViewCore::shutdown() {
 
 	impl_->cef_initialized = false;
 	impl_->cef_shutdown = true;
-	impl_->pump_requested.store(false, std::memory_order_relaxed);
 	impl_->pending_close = 0;
-	impl_->paint_buffer.clear();
 	impl_->callbacks = Callbacks(); // 断开宿主回调,防 shutdown 后泄漏/穿越
 }
 
-int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, bool p_gpu_osr_enabled) {
+int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t p_w, uint32_t p_h, void *p_parent_handle) {
 	if (impl_ == nullptr) {
 		return -1;
 	}
@@ -1245,36 +1134,19 @@ int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t
 	}
 
 	CefWindowInfo window_info;
-	window_info.windowless_rendering_enabled = 1; // OSR
-	// 交付路径:mac 默认 GPU 纹理直通(shared_texture_enabled=1 → OnAcceleratedPaint)。
-	// p_gpu_osr_enabled 由宿主在浏览器创建前判定(Metal 渲染器 + 主线程==渲染线程),
-	// 不满足必须置 0——否则 CEF 只交付加速帧而消费端丢弃,面板空白且无软件帧兑底。
-	// 注:Chromium 合成器无论 GPU/软件均为按需提交(damage-driven)——GPU OSR 只改像素
-	// 交付方式、不改帧调度。resize 收敛为实测口径(连续 resize 瞬时收敛、尾随重发 0 触发),
-	// 确切机制(Invalidate 真提交 vs viz 自动重分配)待确认——见交接文档“为什么 GPU OSR
-	// 能根治(实测口径,2026-08-04 修正)”与《技术详解-GPU-OSR与帧调度》。
-	// WEBVIEW_OSR_SOFTWARE=1 为显式强制软件路径(调试/回退)。
-#if defined(__APPLE__)
-	{
-		const char *osr_software = std::getenv("WEBVIEW_OSR_SOFTWARE");
-		const bool force_software = osr_software != nullptr && osr_software[0] == '1';
-		window_info.shared_texture_enabled = (force_software || !p_gpu_osr_enabled) ? 0 : 1;
+	// 窗口模式(非 OSR):CEF 在宿主窗口内创建原生子窗口(Windows: WS_CHILD 子窗口;
+	// mac: 子 NSView)。原生接收输入/IME,渲染走自身 GPU 合成器(跟随显示 vsync),
+	// 无像素回传——shared_texture / external_begin_frame / windowless_frame_rate 均不适用。
+	if (p_parent_handle == nullptr) {
+		log_stderr("[webview_core] create_browser: parent handle required in windowed mode\n");
+		return -1;
 	}
-#else
-	window_info.shared_texture_enabled = 0; // 软件路径 → OnPaint(BGRA)
-#endif
-	// internal 帧源（external_begin_frame_enabled=0）：CEF 按 windowless_frame_rate
-	// 驱动。曾试 external（=1）+ 宿主持续 SendExternalBeginFrame：软件渲染路径下
-	// viz 不触发 Draw（OnPaint 完全无输出，实测 8 秒卡死）——软件 OSR 不支持外部
-	// 帧驱动。internal 模式下 onPaint 正常输出，resize 收敛延迟（hold 机制）由宿主
-	// “尾随重发同尺寸”加速（见 web_panel NOTIFICATION_PROCESS）。
-	window_info.external_begin_frame_enabled = 0;
+	window_info.SetAsChild(reinterpret_cast<CefWindowHandle>(p_parent_handle), CefRect(0, 0, static_cast<int>(p_w), static_cast<int>(p_h)));
 
 	CefBrowserSettings browser_settings;
-	browser_settings.windowless_frame_rate = 60;
 
-	// 每个浏览器一个 client/delegate:id 与尺寸在创建前绑定(GetViewRect 直接读取)。
-	auto client_delegate = std::make_shared<Impl::ClientDelegate>(impl_.get(), p_id, p_w, p_h);
+	// 每个浏览器一个 client/delegate(id 与宿主父窗口绑定)。
+	auto client_delegate = std::make_shared<Impl::ClientDelegate>(impl_.get(), p_id);
 	CefRefPtr<CefViewBrowserClient> client = new CefViewBrowserClient(impl_->app, client_delegate);
 
 	CefRefPtr<CefBrowser> browser = CefBrowserHost::CreateBrowserSync(window_info, client, p_url, browser_settings, nullptr, nullptr);
@@ -1286,13 +1158,11 @@ int WebViewCore::create_browser(int32_t p_id, const std::string &p_url, uint32_t
 	entry.browser = browser;
 	entry.client = client;
 	entry.client_delegate = client_delegate;
-	entry.width = p_w;
-	entry.height = p_h;
 	impl_->browsers[p_id] = std::move(entry);
 	return 0;
 }
 
-int WebViewCore::resize_browser(int32_t p_id, uint32_t p_w, uint32_t p_h) {
+int WebViewCore::resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, uint32_t p_w, uint32_t p_h) {
 	if (impl_ == nullptr) {
 		return -1;
 	}
@@ -1304,20 +1174,53 @@ int WebViewCore::resize_browser(int32_t p_id, uint32_t p_w, uint32_t p_h) {
 		return -1;
 	}
 	if (!is_valid_browser_size(p_w, p_h)) {
-		return -1; // 与 create_browser 统一校验:0 与 >INT_MAX 拒绝,防 GetViewRect 空/负
+		return -1; // 与 create_browser 统一校验:0 与 >INT_MAX 拒绝
 	}
+	// 窗口模式:直接移动/缩放 CEF 创建的子窗口(原生 WM_SIZE → 合成器重排,即时收敛,
+	// 无 OSR hold 机制)。坐标相对父窗口客户区,物理像素。
+#if defined(_WIN32)
+	HWND hwnd = it->second.browser->GetHost()->GetWindowHandle();
+	if (hwnd == nullptr) {
+		log_stderr("[webview_core] resize_browser: GetWindowHandle() null\n");
+		return -1;
+	}
+	if (MoveWindow(hwnd, p_x, p_y, static_cast<int>(p_w), static_cast<int>(p_h), TRUE) == 0) {
+		char buf[160];
+		snprintf(buf, sizeof(buf), "[webview_core] resize_browser: MoveWindow failed (err=%lu)\n", static_cast<unsigned long>(GetLastError()));
+		log_stderr(buf);
+		return -1;
+	}
+#else
+	// mac:窗口模式未实机验证——CEF 子 view 显式定位需 ObjC++(setFrame:),本工程未实现。
+	// 返回 -1 显式失败(不静默谎报成功),待 mac 后置(见《技术详解-WebDock原生子窗口》§6.2)。
+	log_stderr("[webview_core] resize_browser: windowed resize not implemented on mac\n");
+	return -1;
+#endif
+	return 0;
+}
 
-	Impl::BrowserEntry &entry = it->second;
-	entry.width = p_w;
-	entry.height = p_h;
-	// 同步 delegate 内尺寸(GetViewRect 直接读取,无需跨结构查找)。
-	static_cast<Impl::ClientDelegate *>(entry.client_delegate.get())->set_size(p_w, p_h);
-	entry.browser->GetHost()->WasResized(); // 通知 CEF 重新查询 GetViewRect
-	// Invalidate(PET_VIEW) 请求整幅重绘（cefclient OnResize 同款配套）：页面静止时
-	// 合成器按需不产帧，Invalidate 输出 host_display_client 的 pixel_size_（由 viz
-	// 分配共享内存时更新）——新尺寸渲染由 internal 帧源 + 宿主“尾随重发”加速收敛
-	// （见 web_panel NOTIFICATION_PROCESS 与 create_browser 注释）。
-	entry.browser->GetHost()->Invalidate(PET_VIEW);
+int WebViewCore::set_browser_visible(int32_t p_id, bool p_visible) {
+	if (impl_ == nullptr) {
+		return -1;
+	}
+	if (!impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return -1;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return -1;
+	}
+#if defined(_WIN32)
+	HWND hwnd = it->second.browser->GetHost()->GetWindowHandle();
+	if (hwnd == nullptr) {
+		log_stderr("[webview_core] set_browser_visible: GetWindowHandle() null\n");
+		return -1;
+	}
+	ShowWindow(hwnd, p_visible ? SW_SHOW : SW_HIDE);
+#else
+	// mac:子 view 显隐需 ObjC++([view setHidden:])——本工程未实现,待 mac 后置。
+	(void)p_visible;
+#endif
 	return 0;
 }
 
@@ -1375,115 +1278,6 @@ bool WebViewCore::respond_query(int32_t p_id, int64_t p_query_id, bool p_success
 	return it->second.client->ResponseQuery(p_query_id, p_success, p_response, p_error);
 }
 
-// ---------------------------------------------------------------------------
-// 输入事件转发:OSR 无原生窗口,宿主把鼠标/键盘/焦点事件转发给 CEF。
-// 全部调用必须在主线程(与 pump 同线程);失败路径静默返回(与其它转发 API 一致)。
-// ---------------------------------------------------------------------------
-
-void WebViewCore::send_mouse_move(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, bool p_leave) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	CefMouseEvent ev;
-	ev.x = p_x;
-	ev.y = p_y;
-	ev.modifiers = p_modifiers;
-	it->second.browser->GetHost()->SendMouseMoveEvent(ev, p_leave);
-}
-
-void WebViewCore::send_mouse_click(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_button, bool p_up, int p_click_count) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	if (p_button < MOUSE_LEFT || p_button > MOUSE_RIGHT) {
-		return;
-	}
-	CefMouseEvent ev;
-	ev.x = p_x;
-	ev.y = p_y;
-	ev.modifiers = p_modifiers;
-	it->second.browser->GetHost()->SendMouseClickEvent(ev, static_cast<cef_mouse_button_type_t>(p_button), p_up, p_click_count);
-}
-
-void WebViewCore::send_mouse_wheel(int32_t p_id, int p_x, int p_y, uint32_t p_modifiers, int p_delta_x, int p_delta_y) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	CefMouseEvent ev;
-	ev.x = p_x;
-	ev.y = p_y;
-	ev.modifiers = p_modifiers;
-	it->second.browser->GetHost()->SendMouseWheelEvent(ev, p_delta_x, p_delta_y);
-}
-
-void WebViewCore::send_key_event(int32_t p_id, int p_type, uint32_t p_modifiers, int p_windows_key_code, int p_native_key_code, uint32_t p_character, uint32_t p_unmodified_character, bool p_focus_on_editable) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	if (p_type < KEY_RAWKEYDOWN || p_type > KEY_CHAR) {
-		return;
-	}
-	CefKeyEvent ev;
-	ev.type = static_cast<cef_key_event_type_t>(p_type);
-	ev.modifiers = p_modifiers;
-	ev.windows_key_code = p_windows_key_code;
-	ev.native_key_code = p_native_key_code;
-	ev.is_system_key = 0;
-	ev.character = static_cast<char16_t>(p_character);
-	ev.unmodified_character = static_cast<char16_t>(p_unmodified_character);
-	// 可编辑焦点状态由 CEF 回调(focusedEditableNodeChanged)按浏览器权威提供,面板传入参数仅作后备。
-	ev.focus_on_editable_field = (it->second.focus_on_editable || p_focus_on_editable) ? 1 : 0;
-	CefRefPtr<CefBrowser> browser = it->second.browser;
-
-	// 补充平面字符(U+10000..U+10FFFF):CEF 字符字段是 UTF-16 code unit,必须拆代理对
-	// 发两次 CHAR 事件,否则 char16_t 截断产生错误字符(如 emoji U+1F600 → U+F600)。
-	if (p_type == KEY_CHAR && p_character >= 0x10000 && p_character <= 0x10FFFF) {
-		const uint32_t v = p_character - 0x10000;
-		const char16_t hi = static_cast<char16_t>(0xD800 + (v >> 10));
-		const char16_t lo = static_cast<char16_t>(0xDC00 + (v & 0x3FF));
-		CefKeyEvent ev_hi = ev;
-		ev_hi.character = hi;
-		ev_hi.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xD800 + ((p_unmodified_character - 0x10000) >> 10)) : p_unmodified_character);
-		// Windows OSR 的 CHAR 路径用 windows_key_code 作字符载荷——代理对必须对应 hi/lo 值。
-		ev_hi.windows_key_code = hi;
-		browser->GetHost()->SendKeyEvent(ev_hi);
-		CefKeyEvent ev_lo = ev;
-		ev_lo.character = lo;
-		ev_lo.unmodified_character = static_cast<char16_t>(p_unmodified_character >= 0x10000 && p_unmodified_character <= 0x10FFFF ? (0xDC00 + ((p_unmodified_character - 0x10000) & 0x3FF)) : p_unmodified_character);
-		ev_lo.windows_key_code = lo;
-		browser->GetHost()->SendKeyEvent(ev_lo);
-		return;
-	}
-	browser->GetHost()->SendKeyEvent(ev);
-}
-
-void WebViewCore::set_focus(int32_t p_id, bool p_focus) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	it->second.browser->GetHost()->SetFocus(p_focus);
-}
-
 bool WebViewCore::emit_event(int32_t p_id, const std::string &p_event_name, const std::vector<std::string> &p_args) {
 	if (!is_initialized()) {
 		return false;
@@ -1501,46 +1295,6 @@ bool WebViewCore::emit_event(int32_t p_id, const std::string &p_event_name, cons
 		args->SetString(static_cast<int>(i + 1), p_args[i]);
 	}
 	return it->second.client->TriggerEvent(it->second.browser, CEFVIEW_MAIN_FRAME, msg);
-}
-
-void WebViewCore::ime_set_composition(int32_t p_id, const std::string &p_text, uint32_t p_selection_start, uint32_t p_selection_end) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	std::vector<CefCompositionUnderline> underlines; // 基础版:无下划线(候选窗定位为完整版)
-	// "无替换范围"必须用 InvalidRange:Chromium 151 视零宽 [0,0) 为合法 range,会先
-	// SelectRange(0,0) 把 caret 强制移到文档偏移 0——组合/上屏文本跑到文本开头
-	// (shifu 源码级确认;cefclient osr_window_win.cc 同用 InvalidRange)。
-	const CefRange replacement = CefRange::InvalidRange();
-	const CefRange selection(p_selection_start, p_selection_end);
-	it->second.browser->GetHost()->ImeSetComposition(p_text, underlines, replacement, selection);
-}
-
-void WebViewCore::ime_commit_text(int32_t p_id, const std::string &p_text) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	const CefRange replacement = CefRange::InvalidRange();
-	it->second.browser->GetHost()->ImeCommitText(p_text, replacement, 0);
-}
-
-void WebViewCore::ime_cancel_composition(int32_t p_id) {
-	if (!is_initialized()) {
-		return;
-	}
-	auto it = impl_->browsers.find(p_id);
-	if (it == impl_->browsers.end()) {
-		return;
-	}
-	it->second.browser->GetHost()->ImeCancelComposition();
 }
 
 void WebViewCore::set_callbacks(const Callbacks &p_callbacks) {
