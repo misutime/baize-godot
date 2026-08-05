@@ -150,3 +150,24 @@
 - 原生菜单栏 12px 为 Godot 主题小字号（菜单栏非对标对象）。
 
 **遗留**：`--force-device-scale-factor=1` 为固定值——若未来 Godot 窗口支持真 DPI 缩放（window_get_scale>1），需改为传 Godot scale（create_browser 参数化），与 OSR 时代"恒 1"的简化一致，暂不处理。
+
+## 10. 实测 bug 修复：点过 webui 后原生输入框失效（焦点双轨，2026-08-05）
+
+**现象**（用户实测）：先点 webui 的节点位置输入框输入（正常）→ 再去点原生 Transform position 输入框，输入任何数字无反应。
+
+**根因**（Windows 焦点机制）：CEF 子窗口持有键盘焦点后，点击 Godot 自绘输入控件（LineEdit）不会自动转移 Windows 焦点——前台窗口（Engine）已激活，Windows 不重新分配焦点，键盘事件继续被 CEF 子窗口吃掉，Godot 输入框收不到输入。这是非 OSR 引入真实子窗口后的**焦点双轨**问题（OSR 时代单窗口无此问题）。
+
+**修复**（webview_manager.cpp `poll_focus_return`，pump 每帧一次）：用 **Godot 自身输入状态**（`Input::is_mouse_button_pressed(LEFT)`）检测"Godot 侧鼠标按下沿"——点击 CEF 子窗口（webui）时事件不进 Godot，Input 不更新；点击 Godot UI 时 Input 记录按下。**Input 的按下沿 = 点击 Godot UI → `SetFocus` 把键盘焦点归还主窗口**。集中式（每帧一次，与面板数无关），多面板天然正确（reviewer P1 的逐面板误抢焦点问题由集中化 + Godot Input 语义消除）。
+
+**调研过程中的弯路**（留档）：① 先尝试 Godot 全局输入（`set_process_input` + override `Node::input()`），实测不触发——Godot 4 的 input 阶段只调用 GDVIRTUAL `_input`（脚本），不调用 C++ 虚函数 `input()`（node.cpp:3594 `_call_input` 仅 GDVIRTUAL_CALL）；EditorPlugin 亦无全局 input 回调。② 改用 `GetAsyncKeyState` 轮询，**实测在 Godot 主线程恒返回 0**（调用线程无输入队列时该 API 恒 0——poll-diag 日志铁证：down=0 edge=0）→ 按下沿从未触发，初版修复实际从未生效（早前"验证通过"是菜单弹出等 Godot 交互假象）。最终采用 Godot Input 方案。
+
+**验证**（2026-08-05 用户实机操作 + 日志，非自动化模拟——自动化曾因桌面全屏窗口拦截点击产生多轮假阴性）：
+| 日志证据 | 对应操作 | 结论 |
+|---|---|---|
+| `focus-return` ×3 | 点击 Godot UI（选节点等） | Godot Input 按下沿 → SetFocus 归还 ✓ |
+| `key-diag 1 + Enter` | webui 输入框输入 | 点击 webui 无 focus-return 打断，CEF 收到键盘 ✓ |
+| `focus-return` ×2 | 点回 Godot UI | 焦点归还 ✓ |
+| `key-diag 1 + Enter` | 再点 webui 输入 | webui 输入恢复 ✓ |
+| `focus-return`（后无 key-diag） | **点原生 Transform position 输入框输入** | 焦点归还 Godot，原生输入生效 ✓ |
+
+**用户结论**：序列 A（webui 输入）/ B（原生 position 输入，原 bug 场景）/ C（回 webui 输入）**完全正常**。

@@ -97,15 +97,15 @@ void WebPanel::_sync_native_bounds() {
 	}
 	// 可见性同步:Godot CanvasItem 可见性不传播到 OS 子窗口——面板隐藏(dock 折叠/切页/
 	// 布局隐藏)时子窗口必须显式隐藏,否则盖住其他编辑器内容;重新可见时强制重下发矩形。
-	const bool visible = is_visible_in_tree();
-	if (visible != last_visible_) {
-		last_visible_ = visible;
-		WebViewManager::get_singleton()->set_browser_visible(browser_id, visible);
-		if (visible) {
+	const bool is_visible = is_visible_in_tree();
+	if (is_visible != last_visible_) {
+		last_visible_ = is_visible;
+		WebViewManager::get_singleton()->set_browser_visible(browser_id, is_visible);
+		if (is_visible) {
 			last_phys_rect_ = Rect2i(); // 哨兵:隐藏期间布局可能已变化,强制下次全量同步
 		}
 	}
-	if (!visible) {
+	if (!is_visible) {
 		return; // 隐藏期间不同步矩形
 	}
 	const DisplayServerEnums::WindowID win_id = win->get_window_id();

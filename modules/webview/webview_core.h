@@ -109,6 +109,10 @@ public:
 	// 返回 0 成功,-1 失败(未初始化 / id 不存在 / 句柄为空)。
 	int set_browser_visible(int32_t p_id, bool p_visible);
 
+	// 获取浏览器原生子窗口句柄(Windows: HWND 按 intptr_t;未初始化 / id 不存在 /
+	// 平台未支持时返回 0)。宿主用于焦点管理等平台交互。
+	intptr_t get_browser_native_handle(int32_t p_id) const;
+
 	// 导航到新 URL。返回 0 成功,-1 失败(未初始化 / id 不存在 / 无主 frame)。
 	int navigate_browser(int32_t p_id, const std::string &p_url);
 

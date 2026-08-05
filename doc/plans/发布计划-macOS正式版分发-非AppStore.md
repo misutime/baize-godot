@@ -70,7 +70,7 @@ codesign --force --sign "$IDENTITY" --options runtime --timestamp <editor-binary
 要点：
 - **`--options runtime`（hardened runtime）是公证的硬性要求**（macOS 10.14+ 公证拒绝未启用 hardened runtime 的二进制）。
 - **`--timestamp` 必须**（公证需要安全时间戳）。
-- **allow-jit 与 hardened runtime 的配合**：Apple 将 `com.apple.security.cs.allow-jit` 定义为 hardened runtime 的 JIT 例外（技术说明 TN3135：https://developer.apple.com/documentation/technotes/tn3135-on-mac-hardened-runtime）。Electron/Chromium 系应用（Electron 即用这组 entitlements）可正常通过公证——我们现有三项 entitlements 保持即可，无需为发布改动。
+- **allow-jit 与 hardened runtime 的配合**：Apple 将 `com.apple.security.cs.allow-jit` 定义为 hardened runtime 的 JIT 例外（技术说明 TN3135：https://developer.apple.com/documentation/technotes/tn3135-on-mac-hardened-runtime）。Electron/Chromium 系应用（Electron 即用这组 entitlements）可正常通过公证——我们现有三项 entitlements 保持即可，无需为发布改动。2
 - **身份切换**：ad-hoc（`--sign -`）→ Developer ID 后，签名 DR（designated requirement）稳定——顺带消除"每次构建 CDHash 变化"问题（当前用 `--use-mock-keychain` 已不受钥匙串 ACL 影响，发布同样保留 mock keychain，与"持久化走 C++ 侧"架构决策一致）。
 
 ## 5. 公证流程（打包后）

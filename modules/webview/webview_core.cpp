@@ -1229,6 +1229,17 @@ int WebViewCore::set_browser_visible(int32_t p_id, bool p_visible) {
 	return 0;
 }
 
+intptr_t WebViewCore::get_browser_native_handle(int32_t p_id) const {
+	if (impl_ == nullptr || !impl_->cef_initialized || impl_->cef_failed || impl_->cef_shutdown) {
+		return 0;
+	}
+	auto it = impl_->browsers.find(p_id);
+	if (it == impl_->browsers.end()) {
+		return 0;
+	}
+	return reinterpret_cast<intptr_t>(it->second.browser->GetHost()->GetWindowHandle());
+}
+
 int WebViewCore::navigate_browser(int32_t p_id, const std::string &p_url) {
 	if (impl_ == nullptr) {
 		return -1;

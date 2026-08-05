@@ -34,12 +34,30 @@
 #include "web_panel.h"
 
 #include "core/config/project_settings.h"
+#include "core/input/input.h"
 #include "core/object/callable_mp.h"
 #include "core/object/object.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
 #include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
+#include "servers/display/display_server.h"
+
+// Windows 平台:焦点双轨修复（SetFocus/命中测试）。Godot 头链已引入 windows.h 相关宏,
+// 局部取消 DELETE/PRINT 宏(本 TU 用不到 Key::DELETE/Key::PRINT,防展开破坏枚举引用)。
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#ifdef DELETE
+#undef DELETE
+#endif
+#ifdef PRINT
+#undef PRINT
+#endif
+#endif
 
 namespace {
 
@@ -142,6 +160,43 @@ void WebViewManager::shutdown_core() {
 
 void WebViewManager::pump() {
 	core_.pump();
+	poll_focus_return(); // 焦点双轨修复（每帧一次，与面板数无关）
+}
+
+void WebViewManager::poll_focus_return() {
+	// 窗口模式焦点双轨修复：CEF 子窗口持有 Windows 键盘焦点后，点击 Godot 自绘输入控件
+	// （LineEdit 等）不会自动转移 Windows 焦点——前台窗口（Engine）已激活，Windows 不
+	// 重新分配焦点，键盘事件继续被 CEF 子窗口吃掉，Godot 输入框收不到输入（实测：点过
+	// webui 输入框后，原生 Transform position 输入无反应）。
+	// 用 Godot 自身输入状态检测"Godot 侧鼠标按下"：点击 CEF 子窗口（webui）时事件不进
+	// Godot，Input 状态不更新；点击 Godot UI 时 Input 记录按下。故 Input 的按下沿 =
+	// 点击 Godot UI → SetFocus 把键盘焦点归还主窗口（多面板天然正确：每次按下只判一次，
+	// 且无需 Windows 线程输入队列——GetAsyncKeyState 在 Godot 线程恒 0，实测）。
+#if defined(_WIN32)
+	if (panels_.is_empty()) {
+		last_mouse_down_ = false;
+		return;
+	}
+	const bool down = Input::get_singleton()->is_mouse_button_pressed(MouseButton::LEFT);
+	if (!(down && !last_mouse_down_)) {
+		last_mouse_down_ = down;
+		return;
+	}
+	// Godot 侧按下沿：归还键盘焦点给主窗口（所有面板同一编辑器主窗口，取第一个面板的）
+	for (const KeyValue<int32_t, WebPanel *> &E : panels_) {
+		Window *win = E.value->get_window();
+		if (win == nullptr) {
+			continue;
+		}
+		const int64_t mh = DisplayServer::get_singleton()->window_get_native_handle(DisplayServerEnums::WINDOW_HANDLE, win->get_window_id());
+		if (mh != 0) {
+			::SetFocus(reinterpret_cast<HWND>(mh));
+			print_line("[WebView] focus-return: Godot 侧鼠标按下 → SetFocus(main) hwnd=" + itos(mh));
+		}
+		break;
+	}
+	last_mouse_down_ = down;
+#endif
 }
 
 void WebViewManager::register_panel(WebPanel *p_panel) {
@@ -174,6 +229,13 @@ void WebViewManager::set_browser_visible(int32_t p_id, bool p_visible) {
 	if (core_.is_initialized()) {
 		core_.set_browser_visible(p_id, p_visible);
 	}
+}
+
+int64_t WebViewManager::get_browser_native_handle(int32_t p_id) {
+	if (!core_.is_initialized()) {
+		return 0;
+	}
+	return core_.get_browser_native_handle(p_id);
 }
 
 void WebViewManager::destroy_browser(int32_t p_id) {

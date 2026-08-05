@@ -54,6 +54,7 @@ class WebViewManager {
 	HashMap<int32_t, WebPanel *> panels_;
 	int32_t next_browser_id_ = 0;
 	Object *pump_driver_ = nullptr; // SceneTree::process_frame 连接目标（每帧 pump；具体类型在 .cpp 匿名命名空间）
+	bool last_mouse_down_ = false; // 左键上一帧按下状态（按下沿检测，焦点修复）
 
 	void start_frame_pump(); // init_core 成功后挂载（幂等）
 	void stop_frame_pump(); // free_singleton 时卸载（幂等）
@@ -74,6 +75,12 @@ public:
 	void resize_browser(int32_t p_id, int32_t p_x, int32_t p_y, int32_t p_w, int32_t p_h);
 	// 显示/隐藏浏览器原生子窗口（面板可见性同步，窗口模式）。
 	void set_browser_visible(int32_t p_id, bool p_visible);
+	// 获取浏览器原生子窗口句柄（Windows: HWND；不可用返回 0）。
+	int64_t get_browser_native_handle(int32_t p_id);
+	// 焦点双轨修复（Windows，pump 每帧调用一次）：检测鼠标左键按下沿，命中测试
+	// WindowFromPoint 是否属于**任意**面板的 CEF 子窗口——不在任何 webui 内才把
+	// 键盘焦点归还主窗口（多面板下避免互相抢焦点，见实现注释）。
+	void poll_focus_return();
 	void destroy_browser(int32_t p_id);
 	void navigate_browser(int32_t p_id, const String &p_url);
 
