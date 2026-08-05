@@ -129,3 +129,24 @@
 **验证**：修复后启动回归通过（浏览器创建/页面 200/dock 注册正常）；dock 移动场景需用户实机复测（自动化无法驱动编辑器内 dock 拖拽）。
 
 **备注**：dock 关闭（`_close_dock` 移到 closed 父 + hide）与重新打开同样走 remove/add —— 修复后关闭时子窗口经可见性同步隐藏、重开时重建并显示，语义一致。
+
+## 9. 实测 bug 修复：非 OSR 后网页放大 2 倍（DPI 错配，2026-08-05）
+
+**现象**（用户实测）：非 OSR 改版后网页内部文字比 Godot 原生界面大约一倍多（~2 倍）；OSR 时代字体大小与原生一致。
+
+**根因**（实测数据链）：
+- 系统 200% 缩放（192dpi）同时作用于两者，但**响应方式不同**：
+  - CEF 子窗口：per-monitor DPI aware，200% 正确生效（`devicePixelRatio=2`，64 CSS px 参照块 = 128 物理 px 实测）；
+  - Godot 编辑器：`window_get_scale=1.0`（临时日志实测）——内容按逻辑=物理渲染，200% 未放大物理像素（EDSCALE 逻辑缩放，[editor-font] 实际字号 24px）；
+  - 错配结果：网页 24 CSS px → 48 物理 px，原生 24 逻辑 px → 24 物理 px → **网页 = 原生 2 倍**。
+- **OSR 时代为什么没这个问题**：`getScreenInfo` 回调硬编码 `device_scale_factor=1`（原注释 "M1b:无 DPI 缩放处理"）——CEF 强制 1:1 渲染，恰好与 Godot 的 1:1 一致。非 OSR 窗口模式 CEF 走系统 DPI，该硬编码丢失。
+
+**修复**（webview_core.cpp `AppDelegate::onBeforeCommandLineProcessing`）：加 Chromium 开关 `--force-device-scale-factor=1`——强制 CEF device_scale_factor=1，与 OSR 时代语义一致（1 CSS px = 1 Godot 逻辑 px）。
+
+**验证**（修复后实机）：
+- 页面 `devicePixelRatio` 2→**1**，`innerWidth` 160→**320**（CSS 视口 = 面板逻辑尺寸，与 OSR 时代一致）；
+- 标定：24 CSS px 块 → 24 物理 px、14 CSS px 块 → 14 物理 px（1:1）；
+- 字形物理高度（Python 像素测量）：网页"已连接" 26px = 原生 dock 标题"WebDock" **26px —— 完全一致**（网页 24 CSS px × EDSCALE 对齐）；
+- 原生菜单栏 12px 为 Godot 主题小字号（菜单栏非对标对象）。
+
+**遗留**：`--force-device-scale-factor=1` 为固定值——若未来 Godot 窗口支持真 DPI 缩放（window_get_scale>1），需改为传 Godot scale（create_browser 参数化），与 OSR 时代"恒 1"的简化一致，暂不处理。

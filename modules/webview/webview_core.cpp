@@ -277,6 +277,11 @@ struct WebViewCore::Impl {
 				// WebDock 只加载自家产物（index.html + assets，无远程/第三方内容），风险低。
 				// （用户裁决 2026-08-03：CEF 开关方案）
 				p_command_line->AppendSwitch("allow-file-access-from-files");
+				// 与宿主渲染对齐:Godot 编辑器内容按逻辑=物理渲染(window_get_scale=1,DPI 缩放
+				// 由 EDSCALE 逻辑缩放处理,见实测 diag-dpi: scale=1.0)。CEF 窗口模式默认
+				// per-monitor DPI aware(200% 屏 dpr=2)会把网页放大 2 倍——强制 device_scale_
+				// factor=1,与 OSR 时代 getScreenInfo 硬编码 1 的语义一致(1 CSS px = 1 Godot 逻辑 px)。
+				p_command_line->AppendSwitchWithValue("force-device-scale-factor", "1");
 #if defined(__APPLE__)
 				// NetworkService 在 mac 上启动时会访问钥匙串的 "Chromium Safe Storage"
 				// 项(OSCrypt cookie 加密密钥)。ad-hoc 签名每次构建/暂存都变 → CDHash 变 →
