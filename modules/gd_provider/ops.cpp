@@ -3,6 +3,7 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/io/file_access.h"
 #include "core/object/class_db.h"
 #include "core/object/property_info.h"
 #include "core/templates/pair.h"
@@ -18,6 +19,68 @@
 
 // ---- 内部工具（文件内静态） ----
 
+// 文件内错误构造（工具函数在 Ops 类外，无法访问私有 _err）。
+static Dictionary _op_err(const String &p_code, const String &p_message) {
+	Dictionary d;
+	d["ok"] = false;
+	Dictionary e;
+	e["code"] = p_code;
+	e["message"] = p_message;
+	d["error"] = e;
+	return d;
+}
+
+// 保存路径安全：只允许 res:// 项目内路径（禁止 .. 逃逸）或绝对路径（Windows 盘符 / 根斜杠开头），
+// 拒绝相对路径——Provider 进程 cwd 下写任意相对路径 = 任意文件写入。
+static bool _validate_save_path(const String &p_path, Dictionary &r_err) {
+	if (p_path.is_empty()) {
+		r_err = _op_err("invalid_params", "path 不能为空");
+		return false;
+	}
+	String rest;
+	bool is_res = false;
+	if (p_path.begins_with("res://")) {
+		is_res = true;
+		rest = p_path.substr(6);
+	} else if (p_path.length() >= 3 && p_path[1] == ':' && (p_path[2] == '/' || p_path[2] == '\\')) {
+		return true; // Windows 盘符绝对路径（X:\ 或 X:/）
+	} else if (p_path.begins_with("/") || p_path.begins_with("\\\\")) {
+		return true; // POSIX 根 / 或 UNC \\
+	} else {
+		r_err = _op_err("invalid_params", "保存路径必须是 res:// 项目内路径或绝对路径（拒绝相对路径）: " + p_path);
+		return false;
+	}
+	if (is_res) {
+		// res:// 内禁止 .. 逃逸（globalize_path 只做前缀替换，不解析 ..，res://../x 会写出项目）
+		const Vector<String> segs = rest.split("/");
+		for (const String &seg : segs) {
+			if (seg == "..") {
+				r_err = _op_err("invalid_params", "保存路径禁止 .. 逃逸: " + p_path);
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+static uint64_t _file_size(const String &p_path) {
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
+	return f.is_valid() ? f->get_length() : 0;
+}
+
+// 写盘验证：保存前后 mtime 与 size 均未变化 → 判定写入失败（EditorInterface 保存管线不返回写盘结果）。
+static bool _verify_saved(const String &p_path, uint64_t p_before_mtime, uint64_t p_before_size, Dictionary &r_err) {
+	if (!FileAccess::exists(p_path)) {
+		r_err = _op_err("save_failed", "保存失败：文件未写入: " + p_path);
+		return false;
+	}
+	if (FileAccess::get_modified_time(p_path) == p_before_mtime && _file_size(p_path) == p_before_size) {
+		r_err = _op_err("save_failed", "保存失败：文件未更新（写盘被拒绝或无写入权限）: " + p_path);
+		return false;
+	}
+	return true;
+}
+
 // 从 Dictionary 取数值成员（INT/FLOAT 均可；p_ints 时仅 INT）。
 // 有限性校验：JSON 溢出数字（如 1e400）→ +inf，拒绝写入场景；float 构建下 double 溢出也拒（与 h_set_node_position 一致）。
 static bool _num_member(const Dictionary &p_d, const String &p_key, bool p_ints, double &r_val) {
@@ -26,7 +89,12 @@ static bool _num_member(const Dictionary &p_d, const String &p_key, bool p_ints,
 		if (v.get_type() != Variant::INT) {
 			return false;
 		}
-		r_val = (double)(int64_t)v;
+		const int64_t i = (int64_t)v;
+		// Vector2i/3i/Rect2i 组件是 int32：拒绝 int64 溢出回绕（如 2147483648）
+		if (i < INT32_MIN || i > INT32_MAX) {
+			return false;
+		}
+		r_val = (double)i;
 		return true;
 	}
 	if (v.get_type() != Variant::INT && v.get_type() != Variant::FLOAT) {
@@ -198,10 +266,9 @@ Dictionary Ops::h_set_node_position(const Dictionary &p_args) {
 Dictionary Ops::h_get_tree(const Dictionary &p_args) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
-	if (!root) {
-		return _err("no_scene", "当前没有打开的编辑场景");
-	}
-	return _ok(serialize_tree(root));
+	// 无打开场景 → null（与 scene.changed 事件 payload.tree 语义一致，非错误）；
+	// 返回树本身（不包装 {tree:...}）——与 sdk get_tree 类型契约一致。
+	return _ok(root ? Variant(serialize_tree(root)) : Variant());
 }
 
 Dictionary Ops::h_get_props(const Dictionary &p_args) {
@@ -293,6 +360,11 @@ Dictionary Ops::h_create_node(const Dictionary &p_args) {
 	} else {
 		parent = root;
 	}
+	// 内部节点守卫：官方创建流程禁止挂到编辑器内部节点下（否则污染编辑器管理树）。
+	if (parent->is_internal()) {
+		memdelete(node);
+		return _err("invalid_params", "不能创建节点到内部节点下: " + p_args["parent_path"].operator String());
+	}
 	// 命名：显式 name 直接设置；缺省用类名（ClassDB::instantiate 已赋）。一律 validate_child_name 保唯一。
 	if (p_args.has("name")) {
 		const String name = p_args["name"].operator String();
@@ -314,6 +386,8 @@ Dictionary Ops::h_create_node(const Dictionary &p_args) {
 	if (sel) {
 		eurm->add_do_method(sel, "clear");
 		eurm->add_do_method(sel, "add_node", node);
+		// update 才发 selection_changed 信号（add_node 只标记 changed）——否则其他客户端/redo 收不到选中事件
+		eurm->add_do_method(sel, "update");
 	}
 	eurm->add_do_reference(node);
 	eurm->add_undo_method(parent, "remove_child", node);
@@ -336,6 +410,10 @@ Dictionary Ops::h_remove_node(const Dictionary &p_args) {
 	if (node == root) {
 		return _err("invalid_params", "不能删除场景根节点");
 	}
+	// 内部节点守卫：官方删除路径（SceneTreeDock::_delete_confirm）禁止删除编辑器内部节点。
+	if (node->is_internal()) {
+		return _err("invalid_params", "不能删除内部节点: " + p_args["node_path"].operator String());
+	}
 	Node *parent = node->get_parent();
 	// 子树（含自身）owner 快照：调用时节点仍挂树，遍历有效；undo 按原 owner 恢复。
 	Vector<Pair<Node *, Variant>> owner_snaps;
@@ -345,7 +423,9 @@ Dictionary Ops::h_remove_node(const Dictionary &p_args) {
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
 	eurm->create_action("Remove " + String(node->get_name()));
 	eurm->add_do_method(parent, "remove_child", node);
-	eurm->add_do_reference(node);
+	// 引用放 undo 侧（官方删除范式）：do 摘树后由 action 的 do 引用保活没问题，
+	// 但 remove→undo 恢复挂树后若用 add_do_reference，新 action 丢弃 redo 分支时会 memdelete 仍挂树的活节点。
+	eurm->add_undo_reference(node);
 	eurm->add_undo_method(parent, "add_child", node);
 	eurm->add_undo_method(parent, "move_child", node, orig_index);
 	for (const Pair<Node *, Variant> &snap : owner_snaps) {
@@ -361,16 +441,25 @@ Dictionary Ops::h_save_scene(const Dictionary &p_args) {
 	if (!root) {
 		return _err("no_scene", "当前没有打开的编辑场景");
 	}
-	if (root->get_scene_file_path().is_empty()) {
+	const String scene_path = root->get_scene_file_path();
+	if (scene_path.is_empty()) {
 		return _err("not_saved", "场景从未保存过，没有可用的保存路径");
 	}
+	// EditorInterface::save_scene 内部只检查根/路径后无条件调 void save_scene_as（写盘失败只弹编辑器警告，
+	// headless 下不可见）——保存前后对比文件 mtime/size 验证真实写入，失败不得伪造成功。
+	const uint64_t before_mtime = FileAccess::get_modified_time(scene_path);
+	const uint64_t before_size = _file_size(scene_path);
 	const Error err = ei->save_scene();
 	if (err != OK) {
 		// save_scene 内部对无根/无路径返回 ERR_CANT_CREATE（上面已预判映射，双保险）。
 		return _err("no_scene", "保存失败：场景不可用");
 	}
+	Dictionary verr;
+	if (!_verify_saved(scene_path, before_mtime, before_size, verr)) {
+		return verr;
+	}
 	Dictionary result;
-	result["path"] = root->get_scene_file_path();
+	result["path"] = scene_path;
 	return _ok(result);
 }
 
@@ -381,10 +470,18 @@ Dictionary Ops::h_save_scene_as(const Dictionary &p_args) {
 		return _err("no_scene", "当前没有打开的编辑场景");
 	}
 	const String path = p_args["path"].operator String();
-	if (path.is_empty()) {
-		return _err("invalid_params", "path 不能为空");
+	Dictionary perr;
+	if (!_validate_save_path(path, perr)) {
+		return perr;
 	}
+	// 与 save_scene 相同的写盘验证（save_scene_as 是 void）。
+	const uint64_t before_mtime = FileAccess::get_modified_time(path);
+	const uint64_t before_size = _file_size(path);
 	ei->save_scene_as(path);
+	Dictionary verr;
+	if (!_verify_saved(path, before_mtime, before_size, verr)) {
+		return verr;
+	}
 	Dictionary result;
 	result["path"] = path;
 	return _ok(result);
@@ -433,8 +530,6 @@ Dictionary Ops::h_get_project_info(const Dictionary &p_args) {
 	result["godot_version"] = version;
 	return _ok(result);
 }
-
-// ---- 内部工具 ----
 
 Node *Ops::_resolve_node(const String &p_path, Dictionary &r_err) {
 	// 路径守卫：禁止绝对路径（/ 开头）与 .. 逃逸（路径段 == ".."）。

@@ -8,7 +8,7 @@
  * 三包（godot-rpc/godot-process/godot-sdk）↔ Provider 连通回归。
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,9 @@ const PROVIDER_TOKEN = process.env.BAIZE_PROVIDER_TOKEN ?? "";
 const PROVIDER_URL = `ws://127.0.0.1:${PROVIDER_PORT}`;
 
 let child: ChildProcess | null = null;
+// 测试项目副本：save_scene_as 会改写场景并更新 scene_file_path（Godot 保存管线规范化：去 load_steps/加 unique_id），
+// 直接在 test-projects/provider 上跑会污染仓库——全部测试在临时副本上执行（review P2）。
+let projectCopy: string | null = null;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -91,16 +94,51 @@ async function connectSdk(): Promise<ReturnType<typeof createClient> & { close: 
 
 describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
   beforeAll(async () => {
-    child = spawn(GODOT_EXE, ["--path", TEST_PROJECT, "--editor", "--headless", "res://main.tscn"], {
+    // 临时副本（排除 .godot 编辑器缓存；首次启动 Godot 自动导入）
+    projectCopy = mkdtempSync(join(tmpdir(), "baize-e2e-"));
+    cpSync(TEST_PROJECT, projectCopy, {
+      recursive: true,
+      filter: (src) => !src.includes(join(TEST_PROJECT, ".godot")),
+    });
+    child = spawn(GODOT_EXE, ["--path", projectCopy, "--editor", "--headless", "res://main.tscn"], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
     await waitForLog(child, "gd_provider] WS server 就绪");
   }, 60000);
 
-  afterAll(() => {
-    child?.kill();
+  afterAll(async () => {
+    // 等 Godot 完全退出（Windows 文件句柄释放）再删副本，避免 EPERM；
+    // kill 在 Windows 为强制终止，exit 事件必然触发（异常挂起由 vitest hookTimeout 兜底）。
+    if (child && child.exitCode === null && !child.killed) {
+      const exited = new Promise<void>((resolve) => {
+        child!.once("exit", () => resolve());
+      });
+      child.kill();
+      await exited;
+    } else {
+      child?.kill();
+    }
     child = null;
+    if (projectCopy) {
+      // 包装器 kill 后 GUI 子进程经 Job 异步清理，句柄释放滞后于 exit 事件——
+      // 重试删除（最多 5s）；这是等待真实 OS 句柄释放，非猜测时长。
+      let lastErr: unknown;
+      for (let i = 0; i < 25; i++) {
+        try {
+          rmSync(projectCopy, { recursive: true, force: true });
+          lastErr = undefined;
+          break;
+        } catch (err) {
+          lastErr = err;
+          await sleep(200);
+        }
+      }
+      projectCopy = null;
+      if (lastErr) {
+        throw lastErr;
+      }
+    }
   });
 
   it("godot-rpc createWsTransport：hello 握手 + get_state", async () => {
@@ -371,7 +409,8 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
       expect(info.main_scene).toBe("res://main.tscn");
       expect(info.rendering_method).toBe("gl_compatibility");
       expect(info.godot_version).toMatch(/^4\.8/);
-      expect(info.project_path).toContain("test-projects/provider");
+      // 测试在临时副本上运行（baize-e2e-*），断言路径指向副本而非仓库内项目
+      expect(info.project_path).toContain("baize-e2e-");
     } finally {
       sdk.close();
     }

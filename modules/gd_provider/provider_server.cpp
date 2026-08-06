@@ -64,10 +64,15 @@ void ProviderServer::start() {
 	}
 	started_ = true;
 
-	// 事件源：连接 EditorSelection 信号（选中变化即时触发）+ 帧轮询 diff（位置变化）。
+	// 事件源：连接 EditorSelection 信号（选中变化即时触发）+ EditorUndoRedoManager::version_changed
+	// （任何 undo/redo 成功即触发——覆盖原生 UI 与能力面操作，含通用属性变更）+ 帧轮询 diff（兜底）。
 	EditorNode *ed = EditorNode::get_singleton();
 	if (ed && ed->get_editor_selection()) {
 		ed->get_editor_selection()->connect("selection_changed", callable_mp(this, &ProviderServer::_on_selection_changed));
+	}
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	if (eurm) {
+		eurm->connect("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
 	}
 
 	print_line("[gd_provider] WS server 就绪: ws://127.0.0.1:" + itos(listen_port_));
@@ -79,6 +84,10 @@ void ProviderServer::stop() {
 	EditorNode *ed = EditorNode::get_singleton();
 	if (ed && ed->get_editor_selection()) {
 		ed->get_editor_selection()->disconnect("selection_changed", callable_mp(this, &ProviderServer::_on_selection_changed));
+	}
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	if (eurm && eurm->is_connected("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed))) {
+		eurm->disconnect("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
 	}
 	// shutdown 通知（P2 review）：告知已认证客户端主动断开（否则 client 只靠断开重连退避）
 	for (Peer &p : peers_) {
@@ -105,6 +114,8 @@ void ProviderServer::stop() {
 	_tracked_selection_ = Array();
 	_tracked_positions_.clear();
 	_tree_signature_ = String();
+	_tree_dirty_ = true;
+	_last_tree_check_ms_ = 0;
 	_can_undo_ = false;
 	_can_redo_ = false;
 	started_ = false;
@@ -388,7 +399,12 @@ Dictionary ProviderServer::_dispatch(Peer &p_peer, const String &p_method, const
 		d["error"] = e;
 		return d;
 	}
-	return m->handler(args);
+	Dictionary result = m->handler(args);
+	// mutation 方法成功后立即推送（场景树/undo 栈事件），UI 无需等帧轮询
+	if (result.get("ok", false).operator bool() && _is_mutation_method(p_method)) {
+		_notify_scene_mutated();
+	}
+	return result;
 }
 
 Dictionary ProviderServer::_jsonrpc_error(const Dictionary &p_internal_error) {
@@ -458,9 +474,11 @@ void ProviderServer::_push_scene_changed() {
 
 void ProviderServer::_push_undo_stack_changed() {
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	_can_undo_ = eurm->has_undo();
+	_can_redo_ = eurm->has_redo();
 	Dictionary payload;
-	payload["can_undo"] = eurm->has_undo();
-	payload["can_redo"] = eurm->has_redo();
+	payload["can_undo"] = _can_undo_;
+	payload["can_redo"] = _can_redo_;
 	for (Peer &p : peers_) {
 		if (p.authenticated && p.peer.is_valid() && !p.dead) {
 			Dictionary notify;
@@ -470,6 +488,30 @@ void ProviderServer::_push_undo_stack_changed() {
 			_send(p, notify);
 		}
 	}
+}
+
+void ProviderServer::_on_undo_version_changed() {
+	// EditorUndoRedoManager::version_changed：undo/redo 成功时 emit。
+	// 任何动作（含原生 UI 与能力面操作）的撤销/重做都会经过它——统一触发场景与 undo 栈重推。
+	_notify_scene_mutated();
+}
+
+void ProviderServer::_notify_scene_mutated() {
+	// 能力面 mutation 分派成功 / undo/redo 后：立即推送场景与 undo 栈事件，并同步 diff 基线
+	// （避免帧轮询重复推送）；轮询保留作外部非 undo 变化的兜底。
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	_tree_signature_ = root ? _tree_signature(root) : String();
+	_tree_dirty_ = false;
+	_last_tree_check_ms_ = OS::get_singleton()->get_ticks_msec();
+	_push_scene_changed();
+	_push_undo_stack_changed();
+}
+
+bool ProviderServer::_is_mutation_method(const String &p_method) {
+	// 会改变场景树或 undo 栈的能力方法（分派成功后触发事件推送）。
+	return p_method == "scene.create_node" || p_method == "scene.remove_node" || p_method == "scene.set_prop" ||
+			p_method == "scene.set_node_position" || p_method == "editor.undo" || p_method == "editor.redo";
 }
 
 void ProviderServer::_on_selection_changed() {
@@ -507,10 +549,17 @@ void ProviderServer::_poll_state_diff() {
 	EditorNode *ed = EditorNode::get_singleton();
 
 	// 树结构 diff：无场景固定空串；签名变化 → scene.changed（带完整 tree）。
-	const String sig = root ? _tree_signature(root) : String();
-	if (sig != _tree_signature_) {
-		_tree_signature_ = sig;
-		_push_scene_changed();
+	// 节流：mutation/undo 后（_tree_dirty_）立即重算；否则 2s 兜底一次（覆盖非 undo 的外部变化），
+	// 避免每帧 O(N) 字符串遍历（review P2：大场景帧预算）。
+	const uint64_t now = OS::get_singleton()->get_ticks_msec();
+	if (_tree_dirty_ || now - _last_tree_check_ms_ > 2000) {
+		_last_tree_check_ms_ = now;
+		_tree_dirty_ = false;
+		const String sig = root ? _tree_signature(root) : String();
+		if (sig != _tree_signature_) {
+			_tree_signature_ = sig;
+			_push_scene_changed();
+		}
 	}
 
 	// undo/redo 栈 diff：has_undo/has_redo 变化 → editor.undo_stack_changed。

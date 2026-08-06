@@ -35,17 +35,24 @@ let client: GodotClient | null = null;
 let godotChild: ReturnType<typeof spawn> | null = null;
 let mainWindow: BrowserWindow | null = null;
 let quitting = false; // before-quit 编排中：不触发 respawn
+// 最近一次进程状态（缓存）：渲染进程晚订阅/窗口重建（macOS activate）/reload 后重放，避免面板永久"连接中"
+let lastGodotStatus: {
+  state: "starting" | "running" | "exited" | "error" | "restarting";
+  code?: number | null;
+  provider: "connecting" | "connected" | "disconnected";
+} | null = null;
 
 function log(msg: string): void {
   console.log(`[app:main] ${msg}`);
 }
 
-/** 下行 Godot 进程/连接状态给渲染进程（视口面板数据源）。 */
+/** 下行 Godot 进程/连接状态给渲染进程（视口面板数据源）；缓存供晚订阅/新窗口重放。 */
 function broadcastGodotStatus(payload: {
   state: "starting" | "running" | "exited" | "error" | "restarting";
   code?: number | null;
   provider: "connecting" | "connected" | "disconnected";
 }): void {
+  lastGodotStatus = payload;
   mainWindow?.webContents.send("godot:process", payload);
 }
 
@@ -67,6 +74,8 @@ function scheduleGodotRestart(delayMs: number): void {
 function startGodot(): void {
   if (!existsSync(GODOT_EXE)) {
     console.error(`[app:main] Godot 编辑器不存在: ${GODOT_EXE}\n请先执行 task dev 构建。`);
+    // 早退路径也要下行状态（否则面板停留在"连接中"且无任何提示）
+    broadcastGodotStatus({ state: "error", provider: "disconnected" });
     scheduleGodotRestart(5000); // exe 尚未产出（构建中）：持续重试直到可用（review）
     return;
   }
@@ -144,6 +153,12 @@ function createWindow(): void {
     event.preventDefault();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // 页面加载完成后重放最近进程状态（晚订阅/Reload/macOS 重建窗口后面板不永久"连接中"）
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (lastGodotStatus) {
+      mainWindow?.webContents.send("godot:process", lastGodotStatus);
+    }
+  });
 
   // 诊断：渲染进程 console/加载错误转发到主进程 stdout（GUI 无输出面板）
   mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {

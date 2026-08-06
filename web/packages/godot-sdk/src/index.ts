@@ -101,7 +101,7 @@ export interface ProjectInfo {
 export interface GodotClient {
   scene: {
     /** 返回场景树根节点（无打开场景时抛 no_scene 错误）。 */
-    get_tree: () => Promise<TreeNode>;
+    get_tree: () => Promise<TreeNode | null>;
     get_props: (params: { node_path: string }) => Promise<PropInfo[]>;
     set_prop: (params: { node_path: string; prop: string; value: unknown }) => Promise<Record<string, never>>;
     create_node: (params: {
@@ -136,7 +136,7 @@ export interface GodotClient {
 export function createClient(transport: Transport): GodotClient {
   return {
     scene: {
-      get_tree: defineMethod<EmptyParams, TreeNode>(transport, "scene.get_tree"),
+      get_tree: defineMethod<EmptyParams, TreeNode | null>(transport, "scene.get_tree"),
       get_props: defineMethod<{ node_path: string }, PropInfo[]>(transport, "scene.get_props"),
       set_prop: defineMethod<{ node_path: string; prop: string; value: unknown }, Record<string, never>>(
         transport,

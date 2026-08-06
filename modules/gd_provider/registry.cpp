@@ -68,7 +68,7 @@ void Registry::_register_all() {
 	register_method("scene.set_node_position", "设置 Node3D 位置（undo 入栈，与人工一致）", _schema({ { "node_path", node_path_param }, { "position", position_param } }, { "node_path", "position" }), Ops::h_set_node_position);
 
 	// —— M1 场景能力面：树/属性读写/增删节点/保存（2026-08-06） ——
-	register_method("scene.get_tree", "读取编辑场景树（TreeNode 递归结构；无场景返回 null）", _schema({}, {}), Ops::h_get_tree);
+	register_method("scene.get_tree", "读取编辑场景树（TreeNode 递归结构；无打开场景 → null）", _schema({}, {}), Ops::h_get_tree);
 
 	Dictionary prop_param = _str_param("属性名（get_props 返回的 name）");
 	Dictionary value_param;

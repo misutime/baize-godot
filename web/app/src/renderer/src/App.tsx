@@ -10,7 +10,7 @@
  * - 右栏：scene.get_props / set_prop 驱动的 Inspector（标量 + Vector/Color 轴输入，
  *   本地编辑态草稿防止事件回写覆盖未提交输入）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createIpcTransport } from "@baize/godot-rpc";
 import { createClient, type EditorStatePayload, type PropInfo, type TreeNode } from "@baize/godot-sdk";
 
@@ -29,6 +29,18 @@ declare global {
       }) => void) => () => void;
     };
   }
+}
+
+/** 提取 RpcCallError 的内部字符串码（Provider 放 error.data.code；message 是中文，正则匹配不可靠）。 */
+function errorCode(e: unknown): string | undefined {
+  if (e && typeof e === "object" && "data" in e) {
+    const data = e.data;
+    if (data && typeof data === "object" && "code" in data) {
+      const code = data.code;
+      return typeof code === "string" ? code : undefined;
+    }
+  }
+  return undefined;
 }
 
 const client = createClient(
@@ -274,6 +286,9 @@ export default function App(): React.JSX.Element {
     code?: number | null;
     provider: "connecting" | "connected" | "disconnected";
   } | null>(null);
+  // review 修复：get_props 请求代际（防过期响应覆盖）+ 选中路径基线（草稿按节点作用域清空）
+  const propsGenRef = useRef(0);
+  const selectedPathRef = useRef<string | null>(null);
 
   const selectedPath = state?.selection[0] ?? null;
 
@@ -282,17 +297,23 @@ export default function App(): React.JSX.Element {
       setProps(null);
       return;
     }
+    const gen = ++propsGenRef.current; // 请求代际：快速切选 A→B 时丢弃 A 的过期响应
     try {
       const p = await client.scene.get_props({ node_path: path });
+      if (gen !== propsGenRef.current) {
+        return; // 过期响应
+      }
       setProps(p);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/invalid_node/.test(msg)) {
+      if (gen !== propsGenRef.current) {
+        return; // 过期响应
+      }
+      if (errorCode(e) === "invalid_node") {
         // 选中节点已被删除（事件竞态）：静默清空，不报错
         setProps(null);
         return;
       }
-      setError(msg);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -301,17 +322,14 @@ export default function App(): React.JSX.Element {
       const s = await client.editor.get_state();
       setState(s);
       setError(null);
-      try {
-        // get_tree 成功直接返回树根（无打开场景时抛 no_scene 错误，属正常状态）
-        setTree(await client.scene.get_tree());
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/no_scene/.test(msg)) {
-          setTree(null);
-        } else {
-          setError(msg);
-        }
+      // 选中变化时清空属性草稿（草稿只属于原节点；未提交值不得写进新选中的节点）
+      const newSel = s.selection[0] ?? null;
+      if (newSel !== selectedPathRef.current) {
+        selectedPathRef.current = newSel;
+        setPropDrafts({});
       }
+      // get_tree：无打开场景 → null（非错误，与 scene.changed 事件语义一致）
+      setTree(await client.scene.get_tree());
       await refreshProps(s.selection[0] ?? null);
       return true;
     } catch (e) {
@@ -349,6 +367,9 @@ export default function App(): React.JSX.Element {
     const unsubUndo = client.editor.on_undo_stack_changed((p) => {
       // 轻量更新 undo/redo 可用性（避免整树刷新打断操作）
       setState((prev) => (prev ? { ...prev, can_undo: p.can_undo, can_redo: p.can_redo } : prev));
+      // undo/redo 会回退属性/树（set_prop/create/remove 都入 undo 栈）：刷新投影保持 Inspector 与 Godot 一致
+      // （refresh 重拉 props，未提交草稿保留——选中未变时不清空）
+      void refresh();
     });
     const unsubScene = client.editor.on_scene_changed(() => void refresh());
     // M1 收尾：Godot 进程/连接状态订阅（项目名拉取并入 refresh 就绪路径）
