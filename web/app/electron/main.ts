@@ -40,6 +40,20 @@ function log(msg: string): void {
   console.log(`[app:main] ${msg}`);
 }
 
+/** Godot 异常（退出/spawn 失败）后的受控重启（非退出编排时；review P3）。 */
+function scheduleGodotRestart(delayMs: number): void {
+  if (quitting) {
+    return;
+  }
+  setTimeout(() => {
+    if (!quitting && !godotChild) {
+      log("Godot 异常，自动重启…");
+      startGodot();
+      client?.connect(); // transport failed 后 connect() 会重建
+    }
+  }, delayMs);
+}
+
 function startGodot(): void {
   if (!existsSync(GODOT_EXE)) {
     console.error(`[app:main] Godot 编辑器不存在: ${GODOT_EXE}\n请先执行 task dev 构建。`);
@@ -56,21 +70,13 @@ function startGodot(): void {
   godotChild.on("exit", (code) => {
     log(`Godot 进程退出（code=${code}）`);
     godotChild = null;
-    // 非退出编排的异常退出（崩溃/误关窗口）：受控 respawn（review P2——宿主 owns Godot 生命周期）
-    if (!quitting) {
-      setTimeout(() => {
-        if (!quitting && !godotChild) {
-          log("Godot 异常退出，自动重启…");
-          startGodot();
-          client?.connect(); // transport failed 后 connect() 会重建
-        }
-      }, 1000);
-    }
+    scheduleGodotRestart(1000); // 异常退出：1s 后受控重启（崩溃/误关窗口）
   });
   godotChild.on("error", (err) => {
     // spawn 失败（exe 被删/无权限等）：记录并清理，不触发 uncaught error 退出主进程（review）
     console.error(`[app:main] Godot spawn 失败: ${err.message}`);
     godotChild = null;
+    scheduleGodotRestart(5000); // 配置类问题：5s 后重试（构建中 exe 临时锁等可恢复）
   });
 }
 
