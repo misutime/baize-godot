@@ -39,7 +39,7 @@ export default defineConfig(({ command }) => {
               minify: isBuild,
               outDir: "dist-electron/main",
               rolldownOptions: {
-                external: ["electron"],
+                external: ["electron"], // node: 内置模块自动外部
               },
             },
           },
