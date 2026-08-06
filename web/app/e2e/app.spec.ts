@@ -34,8 +34,19 @@ test("preload 桥已暴露 window.godot（contextBridge 三能力）", async () 
 });
 
 test("视口状态面板离开初始「连接中…」（Godot 进程有确定状态）", async () => {
-  // Godot exe 存在与否都会广播确定状态（running/error/exited/restarting）——断言面板不卡在"连接中"
+  const statusLoc = page.getByText(/Godot 进程：/);
+  let prev = "";
+  // spawn 后立即广播的"运行中"可能是瞬态（随后权限错误/立即退出）——等状态稳定（连续两次一致）
+  // 再断言，避免瞬时态误通过（review PR#3 测试覆盖限制）。
   await expect
-    .poll(async () => page.getByText(/Godot 进程：/).textContent(), { timeout: 30_000 })
+    .poll(
+      async () => {
+        const cur = (await statusLoc.textContent()) ?? "";
+        const stable = cur === prev && cur !== "";
+        prev = cur;
+        return stable ? cur : "";
+      },
+      { timeout: 35_000, intervals: [500, 1000] },
+    )
     .toMatch(/运行中|启动失败|已退出|重启中/);
 });
