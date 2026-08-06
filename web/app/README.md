@@ -85,6 +85,7 @@ flowchart LR
 | 上下文隔离 | `contextIsolation: true` | 同上 |
 | Node 集成 | `nodeIntegration: false` | 同上 |
 | preload 形态 | **CommonJS `.cjs`**（sandbox 下 ESM 不可用） | `vite.config.ts` preload 输出 |
+| dev 启动参数 | `onstart` 显式 `startup(['.'])`——插件默认 `['.', '--no-sandbox']` 会全局关沙箱 | `vite.config.ts` |
 | 暴露面 | 仅 `{ request, onEvent, onProcessStatus }`，不暴露 ipcRenderer | `preload/index.ts` |
 | 方法白名单 | 仅 `scene.` / `editor.` 前缀 | `main/ipc.ts` |
 | 来源校验 | `e.sender` 必须为主窗口 | `main/ipc.ts` |
@@ -138,7 +139,7 @@ flowchart LR
 | `BAIZE_PROVIDER_TOKEN` | 空（dev 宽松） | Provider 认证 token |
 | `BAIZE_PROJECT_PATH` | `dev-parallel/test-projects/provider` | Godot 打开的工程路径 |
 | `VSCODE_DEBUG` | 未设置 | `=0` 关闭 dev 模式 DevTools；任意值启用构建 sourcemap |
-| `VITE_DEV_SERVER_URL` | 插件注入 | dev 时由 vite-plugin-electron 自动注入，勿手动设置 |
+| `VITE_DEV_SERVER_URL` | 插件注入 | dev 时由 vite-plugin-electron 自动注入（主进程规范化为 127.0.0.1），勿手动设置 |
 
 ### 调试
 

@@ -28,6 +28,11 @@ export default defineConfig(({ command }) => {
       electronSimple({
         main: {
           input: "electron/main/index.ts",
+          // 插件默认 argv=['.', '--no-sandbox'] 会全局关闭 Chromium 沙箱（webPreferences.sandbox 失效，
+          // 与 prod 不一致）——显式以无 --no-sandbox 的 argv 启动/重启（review PR#3 P1）。
+          onstart: async ({ startup }) => {
+            await startup(["."]);
+          },
           options: {
             build: {
               sourcemap,
@@ -41,6 +46,15 @@ export default defineConfig(({ command }) => {
         },
         preload: {
           input: "electron/preload/index.ts",
+          // preload 重建：渲染层在线时走 reload（vite full-reload 让页面重新执行 preload）；
+          // electron 不在线（首次构建竞态：最后完成的环境触发启动）时用无 --no-sandbox 的 argv 拉起，与 main 一致。
+          onstart: async ({ startup, reload }) => {
+            if ((process as unknown as { electronApp?: unknown }).electronApp) {
+              reload();
+            } else {
+              await startup(["."]);
+            }
+          },
           options: {
             build: {
               sourcemap: sourcemap ? "inline" : undefined,
