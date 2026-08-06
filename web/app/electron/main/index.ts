@@ -31,8 +31,9 @@ app.on("second-instance", () => {
       state.mainWindow.restore();
     }
     state.mainWindow.focus();
-  } else {
-    // macOS window-all-closed 不退出：窗口全关后仍持有单实例锁，第二实例需重建窗口（activate 不保证触发）。
+  } else if (app.isReady()) {
+    // macOS window-all-closed 不退出：窗口全关后仍持有单实例锁，第二实例重建窗口（activate 不保证触发）。
+    // ready 前到达的第二实例无需处理——whenReady 回调即将创建窗口（提前 new BrowserWindow 会抛错）。
     createWindow();
   }
 });
