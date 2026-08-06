@@ -2,97 +2,56 @@
 
 本文件是 baize-godot fork 的强制开发规则，AI 与开发者均须遵守。与全局规范冲突时，本文件优先（fork 特有约束）。
 
-## 1. CEF 集成分层（结构性约束，勿尝试绕过）
+## 1. 架构总览（2026-08-06 更新：Godot Core + Electron UI + TS 脚本层）
 
-webview 模块的 CEF 集成有**编译期强制的分层**，任何改动不得破坏：
+**当前架构**（替代已删除的 CEF WebDock / Node sidecar 旧架构，详见
+`doc/plans/整体架构-Godot核心-ElectronUI-TSScript-设计方案.md`）：
 
 ```text
-modules/att_webview/
-├── webview_core.h     ← API 面：纯 C++（std::string/std::function，零 Godot 类型）
-├── webview_core.cpp   ← CEF 专属 TU：必须 include CEF 头，禁止 include 任何 Godot 头
-├── web_panel/webview_manager/register_types  ← Godot 壳层：可用 Godot 设施（print_line 等），只 include webview_core.h
+Electron（全新 UI 层）→ GodotClient → WS/JSON-RPC → Godot Provider → Godot Core
 ```
 
-### 1.1 TU 冲突规则（硬约束，实测 C2365）
-- Godot 的 `core/typedefs.h` → `error_list.h` 定义 `enum Error`（含 `ERR_OUT_OF_MEMORY` 等成员）
-- CEF 的 `include/internal/cef_types.h` → `cef_net_error_list.h` 定义 `net_error` 枚举（成员同名）
-- **两者在同一编译单元共存必然 C2365 重定义，与 include 顺序无关**
-- 因此：**webview_core.cpp（及任何 include CEF 头的 TU）禁止 include 任何 Godot 头**（含全经 typedefs.h 链的一切）
-- 核心层日志/计时用标准库（stderr / std::chrono）；Godot 侧日志由壳层负责
-- 壳层 TU 只 include `webview_core.h`（纯 C++），不 include CEF 头，故可用 Godot 设施
+- **Godot Core**：Godot 进程整体（引擎 + 编辑器核心 + 渲染服务 + TS 运行时 + Provider）；
+- **Godot Provider**：Core 内的对外服务出口，四层——**Ops**（操作层：官方 API 编排成语义用例）、
+  **Registry**（能力注册表：方法/参数/错误码/事件声明，唯一事实源）、**Transport**（传输层：
+  WS/JSON-RPC/认证/预算）、**Events**（事件层：diff 推送）；
+- **GodotClient**：Electron/Node 消费方（WS 连接/RPC/事件订阅/生命周期）。
 
-### 1.2 API 边界规则
-- `webview_core.h` 保持纯 C++：回调经 `std::function`，禁止 Godot 对象穿越
-- Godot 对象不进入 CefViewCore delegate；CEF 对象不穿透到 WebPanel 产品 API
-- 回调在主线程（pump 内）同步触发；paint 缓冲仅回调期间有效，宿主必须拷贝
+**关键决策**（均已在架构文档固化，改决策需先改文档）：
+
+| # | 决策 |
+|---|---|
+| D1 | Godot 独立进程 + IPC（WS/JSON-RPC），不做进程内直调（Electron 无法加载 GDExtension） |
+| D2 | Godot 默认 `--editor --headless` 运行（逻辑完整）；视口渲染另配 GPU 上下文 |
+| D3 | TS 脚本 = fork 模块直接 `ScriptServer::register_language`（继承 ScriptLanguage，不走 GDExtension） |
+| D4 | 单一协议 + 类型单源（@baize/rpc），所有进程外消费方共用 |
+| D5 | 数据真相一律在 Godot（三层：磁盘持久化/会话/运行）；Electron 只发语义命令、收事件投影 |
+| D6 | 能力面以 Registry 为唯一事实源，通道只做协议适配 |
+| D7 | 双前端并存（原生 UI + Electron，共享磁盘真相）→ 最终态完全取代原生 UI |
+| D8 | 传输定案：WS over TCP loopback 唯一通道，不预建替代（序列化维持 JSON） |
+
+**GDExtension 定位**：不用作能力层/脚本层载体（原因见
+`doc/plans/GDExtension机制澄清与选型-为什么能力层不用它.md`）。
+
+**旧架构清理**（2026-08-06，feature/electron-core 分支）：`modules/att_webview`（CEF 全链）、
+`modules/att_editor_ops`、`modules/att_nodejs_sidecar`、`thirdparty/cefviewcore`、`web/ui` 旧壳、
+CEF 构建脚本已删除；`editor/themes/editor_fonts` 恢复上游。历史见 git，勿从历史恢复旧代码到工作区。
 
 ## 2. 构建流程
 
-- **task 是核心构建入口**（Taskfile.yml 定义全部构建任务：dev/pro/stage-webview/ui-build/dev-install）；
-  **just 是便捷别名，指向 task**（justfile 的 dev / webview-stage 委托 `task dev` / `task stage-webview`，
-  另提供 dev-run 直接启动裸可执行文件）。构建逻辑都在 build.py 与 stage 脚本，两者等效。
-- 构建已自动化（2026-08-03 起）：`task dev`（或 `just dev`）→ `misc/scripts/build.py` 内置
-  stage-webview 前后钩子——构建前 `--prebuild-only` 确保 `libcef_dll_wrapper.a`（首次自动下载
-  CEF SDK + cmake 预构建），构建后完整暂存（bin/ 级 + mac .app bundle 内
-  `Contents/Frameworks` + `Contents/Resources/webview/ui`）。无需手动先跑 stage。
-- 首次克隆 / 换 CEF 版本：直接 `task dev` 即可（预构建缺失时自动下载）；换版本改
-  `modules/att_webview/SCsub` 的 `CEF_SDK_VERSION` 常量
-- UI 变更：`task ui-build`（React 壳 → bin/webview/ui，下次构建自动入 bundle）
-- 手动重暂存（可选）：`task stage-webview`（或 `just webview-stage`），幂等秒级
-
-## 3. CEF SDK 缓存机制（依赖缓存 + 自动下载 + 手动覆盖）
-
-- 默认缓存根：`<repo>/bin/cef-dist/`（git 忽略）
-- 环境变量覆盖：`CEF_DIST_ROOT=<任意位置>`（CI/共享，最高优先）
-- 缓存结构：`<root>/<CEF_SDK_VERSION>/cef_binary_<CEF_SDK_VERSION>_windows64/`
-- 定位优先级：① 已解压 SDK → ② 缓存 tar.bz2（手动放包=离线）→ ③ 自动下载 → ④ 报错
-- 定位逻辑统一在 `misc/scripts/cef_dist.py`（SCsub 与 stage 共用，禁复制）
-- **CEF 版本锁定**：`CEF_SDK_VERSION` 只在 `modules/att_webview/SCsub` 定义（单点），开发者不能指定版本
-
-## 4. 构建系统坑（已踩，勿重蹈）
-
-### 4.1 SCsub 调外部构建
-- 当前形态：CefViewCore 源码（`thirdparty/cefviewcore`）**编入 SCons**；`libcef_dll_wrapper.lib` + `CefViewWing.exe` + CEF 运行时由 **stage 预构建**（不随每次 scons）
-- SCsub 配置期**不联网、不下载**（`allow_download=False`）；下载只发生在 stage
-
-### 4.2 Godot SCons 环境坑（本仓库独有的触发点）
-- **WINDIR 缺失**：SCons 默认 ENV 精简，缺 WINDIR 会让 cmake/MSBuild 在 CompilerId 阶段死等——外部构建命令必须用完整 `os.environ`
-- **redirect_build_objects emitter**：SCsub 阶段 `LIBS` 里的裸库名会被误判为构建目标（加平台后缀报 LNK1181）——系统库必须走 `LINKFLAGS`
-- **mySubProcess 编码**：`methods.py` 的 `Popen(text=True)` 无 encoding，GBK 解码海量 UTF-8 输出会死——大输出命令重定向到文件或不经 SCons
-- 这些坑只影响"SCsub 内调外部构建系统"，Godot 第三方库（Jolt/Embree）源码编入不受影响
-
-## 5. CefViewCore 修改授权（vendor 断开上游）
-
-- `thirdparty/cefviewcore` 已 vendor（上游 commit `6d4a405252be014b2bb72c1f39fa6c03f416daf1`，MIT），**与上游断开，可自由修改**
-- 修改时保留 LICENSE；升级 CEF 版本时自维护 diff
-- **CEF 官方层不改**：`refers/cef` 源码树（不构建，成本巨大）与 `cef-dist/` 预编译 SDK（黑盒二进制）都是只读依赖，通过锁版本管理
-
-## 6. CEF 编译要求（已实测）
-
-- CEF 151 头文件必须 **C++20**（`convertible_to` concept）+ `NOMINMAX` + `WIN32_LEAN_AND_MEAN`
-- **NDEBUG 必须**（CEF 侧源文件）：Release wrapper 把 `~RefCountedThreadSafeBase` 内联为 `= default`，Godot dev 构建不定义 NDEBUG 时 `DCHECK_IS_ON()=true` 引用外部析构 → LNK2019
-- CEF 静态库 CRT 必须与 Godot 一致：Godot 默认 `/MT`（`use_static_cpp=True`），stage 预构建 `-DSTATIC_CRT=ON`
-- 每个浏览器独立 `CefViewBrowserClient` + delegate；OSR 用 `windowless_rendering_enabled + external_begin_frame_enabled`
-  （**2026-08-03 修复后为 internal_begin_frame**：`external_begin_frame_enabled=0`，CEF 内部帧源按
-  `windowless_frame_rate=60` 驱动，宿主每帧 `CefDoMessageLoopWork` 泵送，不再 `SendExternalBeginFrame`）
-
-## 7. 平台支持现状
-
-- **Windows x86_64 MSVC** 与 **macOS arm64/x64（clang）** 双平台（`modules/att_webview/SCsub` 平台门控，其他平台显式报错）
-- mac 实机验证记录：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`；
-  internal_begin_frame 修复（2026-08-03）为共享代码，**mac 需复验**
-- `cef_dist.py` 的 `sdk_dir_suffix()` 按宿主自动判定（windows64/macosarm64/macosx64）
+- **task 是唯一构建入口**（Taskfile.yml：dev/pro/dev-install/pro-install/dev-run）。构建逻辑在 `misc/scripts/build.py`。
+- `task dev` → `build.py` → scons 构建编辑器（已去除 CEF 预构建/暂存钩子，恢复原版流程）。
+- 构建产物：`bin/godot.windows.editor.*.exe` + `*.console.exe`（console 版日志直出终端，Electron 驱动用）。
 
 ## 9. Godot 测试时限（30 秒规则，强制）
 
 打开 Godot 编辑器做验证/排障的命令（如
 `./bin/godot.windows.editor.dev.x86_64.console.exe --path <项目> --editor > 日志 2>&1 &`）：
 
-- **默认 30 秒内自动关闭**（sleep 30 → 采样日志 → Stop-Process 清理全部 godot/CefViewWing 进程）
+- **默认 30 秒内自动关闭**（sleep 30 → 采样日志 → Stop-Process 清理全部 godot 进程）
 - 只需确认打开状态/页面加载/生成日志的场景：30 秒足够，**禁止拖到 1-2 分钟**
 - 需要长时间持续的（长时间稳定性、内存增长、GPU/性能采样等）可突破 30 秒，但必须说明理由
-- **每次测试后必须清理残留进程**（`Stop-Process -Name 'godot.windows*','CefViewWing'`），
-  残留双开会触发 CEF 同 root 单例冲突（CefInitialize failed）并污染后续测试
+- **每次测试后必须清理残留进程**（`Stop-Process -Name 'godot.windows*'`），残留进程污染后续测试
 
 ## 9.1 交互类验证流程（强制：禁止模拟点击窗口）
 
@@ -100,7 +59,7 @@ modules/att_webview/
 
 交互/焦点/UI 行为类验证（点击顺序、焦点转移、输入生效等）统一走**用户协助流程**：
 
-1. **构建带日志输出的版本**：在关键决策点打印可观测标记（如 `focus-return: …`、页面 console 转发 `[key-diag]`），日志量控制在不刷屏（事件触发才打）
+1. **构建带日志输出的版本**：在关键决策点打印可观测标记（如 `focus-return: …`），日志量控制在不刷屏（事件触发才打）
 2. **打开 Godot**（编辑器 + 目标项目，按 §9 的 30 秒规则取舍运行时长）
 3. **指导用户点击/操作**：给出清晰操作序列与每步预期日志标记
 4. **用户操作完，分析日志**：以日志证据 + 用户结论双重确认，再决定是否迭代
@@ -117,42 +76,40 @@ modules/att_webview/
 
 - 适用：本仓库所有**新建**的 C++ 头/源文件（及后续 web/ TS 工程文件按各自生态惯例，
   TS 可省或同用 SPDX 单行）
-- **既有文件不动**：Godot 上游文件（含 `modules/att_webview/` 现有文件）保留原版权块
+- **既有文件不动**：Godot 上游文件保留原版权块
 - 合规依据：MIT 许可由 SPDX 标识 + 仓库 LICENSE 文件满足；Godot 上游 4.x 新文件也逐步转
   SPDX 单行风格
 
-## 12. 编码规范与中文优先（2026-08-03 更新，用户裁决）
+## 12. 编码规范与中文优先（2026-08-03 用户裁决）
 
 **fork 立场（用户裁决）**：本仓库是 Godot 的 fork——**不被上游历史负担束缚**。上游为兼容/性能保留的旧契约（如 `String(const char*)` 的 Latin-1 语义）与中文优先冲突时直接改进（标注 FORK-CUSTOM），不必因"上游没这么做"而妥协。
 
 **中文优先（用户裁决）**：项目第一语言是中文——代码/日志/文档/UI 的字符串默认中文；全链路 UTF-8。
 
-**全链路 UTF-8**（CEF ↔ Godot ↔ 协议 JSON ↔ 文件），防乱码关键：
+**全链路 UTF-8**（Electron ↔ Godot ↔ 协议 JSON ↔ 文件），防乱码关键：
 
 - **FORK-CUSTOM（b175d92bd6）**：`String(const char*)` 已改为**智能解码**——合法 UTF-8（含纯 ASCII）按 UTF-8 解码，非法序列回退 Latin-1（兼容字节透传）。C++ 中文字面量/UTF-8 数据直接构造即正确——**旧硬规则"必须 String::utf8()"已废除**；显式 `String::utf8()` 仍可用于强制 UTF-8 语义（外部二进制等）
-- 转出给 CEF/外部用 `.utf8()`（CharString）
+- 转出给外部（Electron/Node/文件）用 `.utf8()`（CharString）
 - 协议 JSON：`JSON::stringify/parse_string` 默认 UTF-8
 - 文件/页面：Godot 文本默认 UTF-8；HTML 必须带 `<meta charset="utf-8">`
 - 日志：中文日志可直接写（String 构造已 UTF-8）；显示依赖终端代码页——Godot 输出面板/UTF-8 终端正常，GBK 控制台需 `chcp 65001`（显示层，非数据问题）
 
-## 13. web/ TS 工程：目录结构 + tsconfig 规范（2026-08-05 更新）
+## 13. web/ TS 工程规范
 
-- **目录结构（2026-08-05 决策：packages/ 收被消费的库）**：顶层只放"可运行的宿主"——
-  `web/ui`（@baize/ui，前端面板）、`web/runtime`（@baize/sidecar，Node sidecar 宿主）；
-  `web/packages/` 放被消费的库：`packages/sdk`（@baize/ui-sdk，CEF 桥客户端，被 ui 消费）、
-  `packages/rpc`（@baize/rpc，三端 JSON-RPC 消息类型，被 runtime 消费）。
-  新增 TS 包按此归类：可运行宿主放顶层，被多端消费的库进 packages/。
+- **目录结构（2026-08-06 定案）**：`web/app` 放 Electron 应用（唯一可运行宿主：主进程 electron/main.ts + preload + 渲染进程 React UI，包名 @baize/app）；
+  `web/packages/` 放被消费的库——
+  `packages/godot-rpc`（@baize/godot-rpc，JSON-RPC 契约 + 传输核心：类型/配对/ws·ipc·inproc 实现，零依赖）、
+  `packages/godot-sdk`（@baize/godot-sdk，能力面客户端：方法绑定 + 事件订阅 + react hooks，依赖 rpc）、
+  `packages/godot-process`（@baize/godot-process，Electron 主进程宿主：spawn Godot/生命周期/日志/转发，依赖 rpc）。
+  消费关系：app 主进程 → godot-process → godot-rpc；app 渲染进程 → godot-sdk → godot-rpc。
+  新增 TS 包按此归类：可运行宿主放顶层（app），被多端消费的纯协议/客户端库进 packages/ 并命名 `godot-*`。
 - **禁止使用 `baseUrl`**：TS 5.0 起已弃用（`ignoreDeprecations` 仅静默到 6.0），TS 7.0 将移除。
-  2026-08-05 已移除 `web/ui/tsconfig.json` 的 `baseUrl`（其余 packages/sdk、runtime、packages/rpc 及 *.build.json 均无，不需改）。
-- **`paths` 自 TS 4.1 起不依赖 `baseUrl`**：无 `baseUrl` 时路径映射相对 tsconfig.json 所在目录解析，
-  与旧 `baseUrl: "."` 写法等价。新增 tsconfig 或添加 paths 别名时直接写相对条目，不要加 `baseUrl`。
-- 验证命令：`web/ui` 下 `npm run typecheck`（即 `tsc --noEmit`）；升级 TypeScript 后注意此类弃用告警。
+  无 `baseUrl` 时 `paths` 相对 tsconfig.json 所在目录解析，新增别名直接写相对条目。
+- 验证命令：各包 `npm run typecheck`（`tsc --noEmit`）；升级 TypeScript 后注意此类弃用告警。
 
-## 10. 文档索引
+## 14. 文档索引
 
-- 方案总览：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++生态复核与从零选型.md`
-- mac 验证：`doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++路线-mac验证指南.md`
-- GPU 验证：`doc/plans/验证计划-CEF-GPU加速-Win先行.md`
-- 第二日实施：`doc/plans/实施计划-第二日-双向桥与输入交互.md`
-- 双通道协议收敛（评估中）：`doc/plans/Godot编辑器UI重构方案-TS路线-双通道协议收敛-评估方案.md`
-- 历史（已归档）：`doc/plans/已完成-历史文档/`（构建集成方案分析、E0-CEF验证、RouteB-分发边界说明等）
+- **当前架构**：`doc/plans/整体架构-Godot核心-ElectronUI-TSScript-设计方案.md`（决策链 D1-D8、术语、调用链路、能力层设计、视口策略）
+- **GDExtension 澄清**：`doc/plans/GDExtension机制澄清与选型-为什么能力层不用它.md`
+- **现状分析**：`doc/plans/当前代码现状与方向分析.md`
+- 历史（已归档）：`doc/plans/已完成-历史文档/`（CEF 集成选型、OSR 渲染选型、NodeSidecar 实施记录等旧架构文档）

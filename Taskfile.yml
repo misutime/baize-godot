@@ -6,6 +6,9 @@ dotenv:
 
 vars:
   PYTHON: '{{if eq .OS "windows"}}python{{else}}python3{{end}}'
+  # dev-run 用：平台对应开发版可执行文件（console 版日志直出终端）与测试项目路径
+  GODOT_EXE: '{{if eq .OS "windows"}}bin/godot.windows.editor.dev.x86_64.console.exe{{else}}bin/godot.macos.editor.dev.arm64{{end}}'
+  TEST_PROJECT: '{{if eq .OS "windows"}}D:/misutime/104_game/refers/test-project{{else}}../refers/test-project{{end}}'
 
 tasks:
   default:
@@ -22,17 +25,6 @@ tasks:
   pro:
     desc: "构建当前平台 pro 版编辑器"
     cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
-
-  stage-webview:
-    desc: "预构建 CEF 产物（libcef_dll_wrapper + CefViewWing + CEF 运行时）并暂存到分发目录（首次/换 CEF 版本才构建，产物存在则跳过）；UI 暂存复用 stage_ui（React 壳需先 ui-build）"
-    cmd: '{{.PYTHON}} misc/scripts/stage_webview.py'
-
-  ui-build:
-    desc: "构建 WebDock React 壳（web/ui）并暂存到 bin/webview/ui/（dock 加载 webview/ui/index.html）"
-    cmds:
-      - pnpm --dir web/ui build
-      - '{{.PYTHON}} misc/scripts/stage_ui.py'
-
 
   dev-install:
     desc: "构建并安装开发版编辑器"
@@ -53,3 +45,7 @@ tasks:
           JOBS: '{{.JOBS | default "16"}}'
       - mkdir -p ~/Applications
       - ditto bin/godot_macos_editor.app ~/Applications/Godot.app
+
+  dev-run:
+    desc: "直接运行开发版编辑器（原生/headless 调试；测试项目路径见 TEST_PROJECT）"
+    cmd: '"{{.GODOT_EXE}}" --path {{.TEST_PROJECT}} --editor'

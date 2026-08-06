@@ -37,8 +37,6 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/builtin_fonts.gen.h"
 #include "editor/themes/editor_scale.h"
-#include "modules/att_editor_ops/ops.h" // 默认字体解析路径运行时存储（Ops::set_resolved_fonts）
-#include "modules/att_webview/webview_runtime_path.h" // 运行时根目录（.app bundle 启动时 exe_dir 在 bundle 内）
 #include "scene/resources/font.h"
 #include "scene/scene_string_names.h"
 
@@ -114,34 +112,6 @@ Ref<FontVariation> make_bold_font(const Ref<Font> &p_font, double p_embolden, Ty
 	return font_var;
 }
 
-// 默认字体加载信息（运行时快照）：editor_register_fonts 填充，
-// editor_print_font_load_info 输出（立即 + 主窗口就绪后补打）。
-struct EditorFontLoadInfo {
-	bool valid = false;
-	String path; // 实际加载路径（空 = 内置回退）
-	int bytes = 0; // 真实读入字节数
-	int default_font_size = 0; // main_font_size × EDSCALE（实际渲染字号）
-	int main_font_size = 0;
-	float edscale = 1.0f;
-};
-static EditorFontLoadInfo s_font_load_info;
-
-// 输出默认字体加载信息（诊断级，DEV_ENABLED）。
-void editor_print_font_load_info() {
-	if (!s_font_load_info.valid) {
-		return;
-	}
-#ifdef DEV_ENABLED
-	if (s_font_load_info.path.is_empty()) {
-		print_line("[editor-font] 默认字体回退内置 Inter（外部分发缺失/不可读）");
-	} else {
-		// 中文日志正常：String(const char*) 已按 UTF-8 智能解码（fork 定制，根治乱码）。
-		print_line("[editor-font] 默认字体已加载: " + s_font_load_info.path + " bytes=" + itos(s_font_load_info.bytes));
-		print_line("[editor-font] 实际字号: " + itos(s_font_load_info.default_font_size) + "px (main_font_size=" + itos(s_font_load_info.main_font_size) + " x EDSCALE=" + String::num(s_font_load_info.edscale) + ")");
-	}
-#endif
-}
-
 void editor_register_fonts(const Ref<Theme> &p_theme) {
 	Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
 
@@ -185,39 +155,8 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	const int default_font_size = int(EDITOR_GET("interface/editor/fonts/main_font_size")) * EDSCALE;
 	const float embolden_strength = 0.6;
 
-// 默认主字体：外部分发字体优先（bin/webview/ui/fonts/，与 WebDock 共享同一文件，
-// 两边字形一致；Noto Sans CJK SC = 思源黑体，SIL OFL）。缺失/不可读回退内置 Inter。
-// 实际生效路径经 Ops::set_resolved_fonts 写入运行时存储（非持久化——防机器
-// 绝对路径写入 editor_settings-*.tres），WebDock 桥读取，字体来源单一（此处决策）。
-	const String bundled_main_font = webview_ui_root_dir()
-										  .path_join("webview/ui/fonts/NotoSansCJKsc-Regular.otf");
-	const String bundled_bold_font = webview_ui_root_dir()
-										 .path_join("webview/ui/fonts/NotoSansCJKsc-Bold.otf");
-	// 进程级 static 字节缓冲：normal+MSDF 共享同一份（避免 16MB 文件 4 次全读 + 64MB 缓冲，审查 E5）。
-	static Vector<uint8_t> s_bundled_main_data;
-	static Vector<uint8_t> s_bundled_bold_data;
-	if (s_bundled_main_data.is_empty()) {
-		s_bundled_main_data = FileAccess::get_file_as_bytes(bundled_main_font);
-	}
-	// 验证：字节非空才算加载成功（exists 只判存在，损坏/不可读文件需走回退，审查 E4）。
-	const bool use_bundled_main_font = !s_bundled_main_data.is_empty();
-	Ref<Font> default_font;
-	Ref<Font> default_font_msdf;
-	String resolved_main_font = ""; // 实际生效路径（运行时存储，供 WebDock 桥）
-	String resolved_bold_font = "";
-	if (use_bundled_main_font) {
-		default_font = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-		default_font_msdf = load_internal_font(s_bundled_main_data.ptr(), s_bundled_main_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
-		resolved_main_font = bundled_main_font;
-		s_font_load_info = { true, bundled_main_font, static_cast<int>(s_bundled_main_data.size()), default_font_size, int(EDITOR_GET("interface/editor/fonts/main_font_size")), EDSCALE };
-	} else {
-		default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-		default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
-		// 回退为异常部署（外部分发字体缺失/损坏）：无条件警告（review E4 留口，用户可确认）。
-		WARN_PRINT("[editor-font] 默认字体回退内置 Inter：外部分发字体缺失或不可读 (" + bundled_main_font + ")");
-		s_font_load_info = { true, String(), 0, default_font_size, int(EDITOR_GET("interface/editor/fonts/main_font_size")), EDSCALE };
-	}
-	editor_print_font_load_info(); // 立即输出（console exe 可见）；GUI 版由主窗口就绪后补打
+	Ref<Font> default_font = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+	Ref<Font> default_font_msdf = load_internal_font(_font_Inter_Regular, _font_Inter_Regular_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 
 	Dictionary default_features;
 	default_features["calt"] = false; // Disable contextual alternates by default.
@@ -272,17 +211,11 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	if (!noto_cjk_path.is_empty()) {
 		load_external_font(noto_cjk_path, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
 	}
-	if (use_bundled_main_font) {
-		// 思源为主字体覆盖 CJK——无需 DroidSansFallback（内置数组随之编译期剔除，省 ~1.19MB）。
-	} else {
-		// Inter 回退：恢复嵌入式 CJK 回退（DroidSansFallback，zh/ko 覆盖）——否则回退路径
-		// 中文/韩文缺字（DroidSansJapanese 显式禁用 zh/ko，审查 E1）。
-		Ref<FontFile> fallback_font = load_internal_font(_font_DroidSansFallback, _font_DroidSansFallback_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
-		fallback_font->set_language_support_override("ja", false);
-		fallback_font->set_language_support_override("zh", true);
-		fallback_font->set_language_support_override("ko", true);
-		fallback_font->set_language_support_override("*", false);
-	}
+	Ref<FontFile> fallback_font = load_internal_font(_font_DroidSansFallback, _font_DroidSansFallback_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
+	fallback_font->set_language_support_override("ja", false);
+	fallback_font->set_language_support_override("zh", true);
+	fallback_font->set_language_support_override("ko", true);
+	fallback_font->set_language_support_override("*", false);
 	Ref<FontFile> japanese_font = load_internal_font(_font_DroidSansJapanese, _font_DroidSansJapanese_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks);
 	japanese_font->set_language_support_override("ja", true);
 	japanese_font->set_language_support_override("zh", false);
@@ -291,27 +224,8 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	default_font->set_fallbacks(fallbacks);
 	default_font_msdf->set_fallbacks(fallbacks);
 
-	Ref<Font> default_font_bold;
-	Ref<Font> default_font_bold_msdf;
-	if (use_bundled_main_font) {
-		if (s_bundled_bold_data.is_empty()) {
-			s_bundled_bold_data = FileAccess::get_file_as_bytes(bundled_bold_font);
-		}
-		if (!s_bundled_bold_data.is_empty()) {
-			default_font_bold = load_internal_font(s_bundled_bold_data.ptr(), s_bundled_bold_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-			default_font_bold_msdf = load_internal_font(s_bundled_bold_data.ptr(), s_bundled_bold_data.size(), font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
-			resolved_bold_font = bundled_bold_font;
-		} else {
-			// Bold 文件缺失/损坏：Regular + embolden 合成（与 fallback 粗体同机制），无独立路径。
-			default_font_bold = make_bold_font(default_font, embolden_strength);
-			default_font_bold_msdf = make_bold_font(default_font_msdf, embolden_strength);
-		}
-	} else {
-		default_font_bold = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
-		default_font_bold_msdf = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
-	}
-	// 解析路径写入运行时存储（Regular 回退时 bold 一并清空——防陈旧路径残留，审查 E3）。
-	Ops::set_resolved_fonts(resolved_main_font, resolved_bold_font);
+	Ref<FontFile> default_font_bold = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false);
+	Ref<FontFile> default_font_bold_msdf = load_internal_font(_font_Inter_Bold, _font_Inter_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, font_allow_msdf);
 
 	TypedArray<Font> fallbacks_bold;
 	Ref<FontFile> arabic_font_bold = load_internal_font(_font_Vazirmatn_Bold, _font_Vazirmatn_Bold_size, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks_bold);
@@ -328,6 +242,7 @@ void editor_register_fonts(const Ref<Theme> &p_theme) {
 	if (!noto_cjk_bold_path.is_empty()) {
 		load_external_font(noto_cjk_bold_path, font_hinting, font_antialiasing, true, font_subpixel_positioning, font_disable_embedded_bitmaps, false, &fallbacks_bold);
 	}
+	Ref<FontVariation> fallback_font_bold = make_bold_font(fallback_font, embolden_strength, &fallbacks_bold);
 	Ref<FontVariation> japanese_font_bold = make_bold_font(japanese_font, embolden_strength, &fallbacks_bold);
 
 	if (OS::get_singleton()->has_feature("system_fonts")) {

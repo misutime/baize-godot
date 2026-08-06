@@ -53,39 +53,12 @@ def main() -> None:
 
     print(f"Running preset '{args.preset}': {' '.join(scons_args)}")
 
-    # 引擎链接依赖 CEF 预构建产物（libcef_dll_wrapper.a）——先确保（已就绪时秒级跳过）。
-    pre_stage = subprocess.run(
-        [sys.executable, "misc/scripts/stage_webview.py", "--prebuild-only"],
-        cwd=REPO_ROOT,
-    )
-    if pre_stage.returncode != 0:
-        print("[build.py] ERROR: CEF 预构建失败（见上方 stage-webview 输出）", file=sys.stderr)
-        sys.exit(pre_stage.returncode)
-
     try:
         subprocess.run(["scons"] + scons_args, check=True)
     except FileNotFoundError:
         subprocess.run(
             [sys.executable, "-m", "SCons.Script"] + scons_args, check=True
         )
-
-    # 引擎构建后暂存 CEF 运行时：bin/（裸可执行文件流程）+ mac .app bundle 内
-    # （scons generate_bundle 每次 rmtree 重建 bundle，必须在构建后重新暂存，
-    # 否则启动台/双击启动的 .app 缺运行时——见 stage_webview.stage_bundles）。
-    # 发布签名构建（bundle_sign_identity=... 传入 scons）时透传该身份，bundle 外层
-    # 重签名沿用正式身份而非 ad-hoc（否则会降级 scons 的签名，见 stage_bundles）。
-    sign_identity = ""
-    for arg in extra:
-        if arg.startswith("bundle_sign_identity="):
-            sign_identity = arg.split("=", 1)[1]
-            break
-    post_stage_cmd = [sys.executable, "misc/scripts/stage_webview.py"]
-    if sign_identity:
-        post_stage_cmd.append(f"--sign-identity={sign_identity}")
-    post_stage = subprocess.run(post_stage_cmd, cwd=REPO_ROOT)
-    if post_stage.returncode != 0:
-        print("[build.py] ERROR: CEF 运行时暂存失败（见上方 stage-webview 输出）", file=sys.stderr)
-        sys.exit(post_stage.returncode)
 
 
 if __name__ == "__main__":

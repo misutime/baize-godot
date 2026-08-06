@@ -33,8 +33,3 @@
 #include "scene/resources/theme.h"
 
 void editor_register_fonts(const Ref<Theme> &p_theme);
-
-// 补打默认字体加载信息（诊断级，DEV_ENABLED）：editor_register_fonts 在主题创建时
-// 执行（早于输出面板接管），GUI 版早期 print_line 丢失——主窗口就绪后（如
-// WebDockPlugin 注册时）调用本函数在输出面板可见。
-void editor_print_font_load_info();

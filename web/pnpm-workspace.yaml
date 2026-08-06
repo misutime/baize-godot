@@ -1,7 +1,5 @@
 packages:
-  - ui
   - packages/*
-  - runtime
 # pnpm 11：依赖构建权限用 allowBuilds（onlyBuiltDependencies 已废弃，占位字符串不生效）；
 # esbuild 需要 postinstall 下载平台二进制。
 allowBuilds:
