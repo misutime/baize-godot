@@ -68,7 +68,10 @@ function createClient(): void {
     onStateChange: (s) =>
       broadcastGodotStatus({
         state: "running",
-        provider: s === "connected" ? "connecting" : s === "reconnecting" ? "connecting" : "disconnected",
+        provider:
+          s === "connecting" || s === "reconnecting" || s === "connected"
+            ? "connecting" // connected = WS 已开但认证未完成（onReady 才报已连接）
+            : "disconnected",
       }),
   });
   // Provider 事件 → 渲染进程：下行转发

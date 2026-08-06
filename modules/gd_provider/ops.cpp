@@ -77,24 +77,34 @@ static bool _scene_is_unsaved(const String &p_path) {
 }
 
 // 写盘验证：EditorInterface 保存管线不返回写盘结果（失败只弹编辑器警告，headless 不可见）。
-// 判据 = 保存后当前场景不再处于"未保存"状态（set_scene_as_saved 仅在 ResourceSaver 成功时执行），
-// 新旧路径双查：save_scene_as 到新路径时脏状态在原路径下跟踪（review）；
+// 判据 = 保存后当前编辑场景不再"未保存"（set_scene_as_saved 仅在 ResourceSaver 成功时执行）；
+// 只查 orig（保存前当前场景路径）：save_as 后当前场景路径已变为新路径，目标路径可能是
+// 其他标签打开的脏场景（查 target 会误报，review）；save_scene 同路径时 orig == target。
+// 覆盖已存在目标（save_scene_as）时另要求目标内容变化（md5）——源场景可能干净，
+// unsaved 信号不可用，"exists + 无 unsaved"会漏报覆盖未发生（review 裁定需修）。
 // 不用 mtime/size 对比（Unix 秒级精度同秒重写误报）。
-static bool _verify_saved(const String &p_path, const String &p_orig_scene_path, Dictionary &r_err) {
+static bool _verify_saved(const String &p_path, const String &p_orig_scene_path, const String *p_before_md5, Dictionary &r_err) {
 	if (!FileAccess::exists(p_path)) {
 		r_err = _op_err("save_failed", "保存失败：文件未写入: " + p_path);
 		return false;
 	}
+	if (p_before_md5) {
+		// 覆盖场景：目标内容必须变化（保存同内容到同内容目标是近乎不可能的误报场景）
+		if (FileAccess::get_md5(p_path) == *p_before_md5) {
+			r_err = _op_err("save_failed", "保存失败：目标文件未被覆盖（写盘被拒绝或无写入权限）: " + p_path);
+			return false;
+		}
+	}
 	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_unsaved_scenes();
-	const String target = ProjectSettings::get_singleton()->localize_path(p_path);
 	const String orig = ProjectSettings::get_singleton()->localize_path(p_orig_scene_path);
 	for (const String &u : unsaved) {
-		if (u == target || u == orig) {
+		if (u == orig) {
 			r_err = _op_err("save_failed", "保存失败：场景仍标记为未保存（写盘被拒绝或无写入权限）: " + p_path);
 			return false;
 		}
 	}
-	// 本来就干净的场景：保存管线已执行（成功才走 set_scene_as_saved），内容无变化属合法，接受成功。
+	// 本来就干净的场景（同路径保存）：保存管线已执行（成功才走 set_scene_as_saved），
+	// 内容无变化属合法，接受成功（引擎不暴露写盘结果，见 review 裁定）。
 	return true;
 }
 
@@ -473,7 +483,7 @@ Dictionary Ops::h_save_scene(const Dictionary &p_args) {
 		return _err("no_scene", "保存失败：场景不可用");
 	}
 	Dictionary verr;
-	if (!_verify_saved(scene_path, scene_path, verr)) {
+	if (!_verify_saved(scene_path, scene_path, nullptr, verr)) {
 		return verr;
 	}
 	Dictionary result;
@@ -493,11 +503,13 @@ Dictionary Ops::h_save_scene_as(const Dictionary &p_args) {
 		return perr;
 	}
 	// 与 save_scene 相同的写盘验证（save_scene_as 是 void；判据 = 保存后当前场景不再未保存，
-	// 新旧路径双查——保存前记录原路径，保存后 get_scene_file_path 已变为新路径）。
+	// 覆盖已存在目标时另验目标内容变化——保存前记录原路径与目标 md5）。
 	const String orig_path = root->get_scene_file_path();
+	const bool target_exists = FileAccess::exists(path);
+	const String before_md5 = target_exists ? FileAccess::get_md5(path) : String();
 	ei->save_scene_as(path);
 	Dictionary verr;
-	if (!_verify_saved(path, orig_path, verr)) {
+	if (!_verify_saved(path, orig_path, target_exists ? &before_md5 : nullptr, verr)) {
 		return verr;
 	}
 	Dictionary result;

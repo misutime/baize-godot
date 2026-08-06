@@ -399,8 +399,10 @@ export default function App(): React.JSX.Element {
       // 消费事件树（避免重新 get_tree 全量拉取——属性编辑会推完整树，双拉浪费，review）
       setTree(p.tree);
       if (!p.tree) {
-        // 场景关闭（外部/兜底轮询）：清选中/props/草稿基线，避免对旧路径发 get_props 报错（review）
+        // 场景关闭（外部/兜底轮询）：清选中/props/草稿基线 + state.selection，
+        // 避免对旧路径发 get_props 报错、Delete/Inspector 指向已删节点（review）
         selectedPathRef.current = null;
+        setState((prev) => (prev ? { ...prev, selection: [], has_scene: false } : prev));
         setProps(null);
         setPropDrafts({});
         return;
