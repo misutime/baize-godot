@@ -1,0 +1,3 @@
+# 构建产物（tsdown 主进程/preload、vite 渲染进程）
+dist-electron/
+dist/

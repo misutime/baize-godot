@@ -1,7 +1,7 @@
 # GDExtension 机制澄清与选型——为什么 Godot Provider 不用它作为能力层
 
 > 面向团队：澄清 GDExtension 的准确定位，消除"GDExtension = Godot 暴露的能力接口、可直接使用、可提供所有功能、不需要 Ops 层"的误解。
-> 事实来源：本项目 Godot 4.8 dev 源码 + 官方文档（D:/misutime/104_game/godot-docs）。
+> 事实来源：本项目 Godot 4.8 dev 源码 + 官方 Godot 文档（godot-docs）。
 > 状态：2026-08-06。
 
 ---

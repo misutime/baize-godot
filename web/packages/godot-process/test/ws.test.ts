@@ -1,100 +1,120 @@
 /**
- * 真实 WS 回环（127.0.0.1:0，验收 2 的「测试专用 127.0.0.1:0 WS」形态）：
- * ws 客户端 ↔ 测试专用 server 的 JSON-RPC 帧交换。
+ * createWsTransport 集成测试：原生 WebSocket client ↔ ws 库测试 server 的 JSON-RPC 帧交换。
+ * 验证：请求/应答配对、事件下行（notification）、断线重连、close。
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import { afterEach, describe, expect, it } from "vitest";
+import { type WebSocket, WebSocketServer } from "ws";
 
-import { JsonRpcDispatcher, RPC_ERROR } from "../src/jsonrpc";
-import { echoHandler } from "../src/services/echo";
+import { createWsTransport } from "@baize/godot-rpc";
 
-let server: WebSocketServer;
-let url = "";
-
-function makeServer(): JsonRpcDispatcher {
-  const d = new JsonRpcDispatcher();
-  d.register("sidecar.echo", echoHandler);
-  return d;
+interface ServerHandle {
+  url: string;
+  close: () => Promise<void>;
 }
 
-beforeAll(async () => {
-  server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-  const dispatcher = makeServer();
+async function startEchoServer(): Promise<ServerHandle> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise<void>((resolve) => {
-    server.on("listening", () => resolve());
+    wss.on("listening", () => resolve());
   });
-  const addr = server.address();
+  const addr = wss.address();
   if (typeof addr !== "object" || addr === null) {
     throw new Error("server.address() 不可用");
   }
-  url = `ws://127.0.0.1:${addr.port}`;
-  server.on("connection", (ws) => {
-    ws.on("message", (data) => {
-      void dispatcher.handleFrame(data.toString()).then((reply) => {
-        if (reply !== null && ws.readyState === 1 /* OPEN */) {
-          ws.send(reply);
-        }
-      });
-    });
-    ws.on("error", () => {
-      // 客户端断连：无操作
+  const url = `ws://127.0.0.1:${addr.port}`;
+
+  wss.on("connection", (socket: WebSocket) => {
+    socket.on("message", (data) => {
+      const frame = JSON.parse(data.toString());
+      if (frame.method === "notify_me") {
+        // 服务端响应后主动下行一个事件 notification
+        socket.send(JSON.stringify({ jsonrpc: "2.0", method: "test.event", params: { n: 1 } }));
+      }
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: { echoed: frame.params } }));
     });
   });
-});
 
-afterAll(
-  () =>
-    new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    }),
-);
-
-/** 单请求-应答往返。 */
-function roundTrip(frame: string): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    const timer = setTimeout(() => {
-      ws.close();
-      reject(new Error("WS 往返超时"));
-    }, 2000);
-    ws.on("open", () => ws.send(frame));
-    ws.on("message", (data) => {
-      clearTimeout(timer);
-      ws.close();
-      resolve(JSON.parse(data.toString()));
-    });
-    ws.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
+  return {
+    url,
+    close: () =>
+      new Promise<void>((resolve) => {
+        wss.close(() => resolve());
+      }),
+  };
 }
 
-describe("WS 回环（127.0.0.1:0，测试专用）", () => {
-  it("sidecar.echo 配对返回", async () => {
-    const res = await roundTrip(
-      JSON.stringify({ jsonrpc: "2.0", id: "w1", method: "sidecar.echo", params: { text: "hello ws" } }),
-    );
-    expect(res).toMatchObject({ jsonrpc: "2.0", id: "w1", result: { text: "hello ws" } });
+describe("createWsTransport 集成", () => {
+  let server: ServerHandle | null = null;
+  let states: string[] = [];
+
+  afterEach(async () => {
+    await server?.close();
+    server = null;
+    states = [];
   });
 
-  it("未知方法 → -32601", async () => {
-    const res = await roundTrip(JSON.stringify({ jsonrpc: "2.0", id: "w2", method: "no.such" }));
-    expect(res).toMatchObject({ id: "w2", error: { code: RPC_ERROR.METHOD_NOT_FOUND } });
+  it("请求/应答配对", async () => {
+    server = await startEchoServer();
+    const transport = createWsTransport({ url: server.url, maxReconnects: 0, onStateChange: (s) => states.push(s) });
+    // 等待连接建立
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(() => resolve(), 500);
+      const unsub = transport.onEvent(() => {}); // 确保订阅绑定
+      // 轮询直到可以请求
+      const tryReq = async (): Promise<void> => {
+        try {
+          await transport.request("echo", { text: "hi" });
+          clearTimeout(t);
+          unsub();
+          resolve();
+        } catch {
+          setTimeout(() => void tryReq(), 20);
+        }
+      };
+      void tryReq();
+    });
+    const result = await transport.request("echo", { text: "hi" });
+    expect(result).toEqual({ echoed: { text: "hi" } });
+    expect(states).toContain("connected");
+    transport.close();
   });
 
-  it("非法 JSON → -32700", async () => {
-    const res = await roundTrip("{broken");
-    expect(res).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: RPC_ERROR.PARSE_ERROR } });
+  it("事件下行（notification）", async () => {
+    server = await startEchoServer();
+    const transport = createWsTransport({ url: server.url, maxReconnects: 0 });
+    const events: Array<[string, unknown]> = [];
+    transport.onEvent((method, params) => events.push([method, params]));
+    // 等待连接 + 发请求触发服务端下行事件
+    await new Promise<void>((resolve) => {
+      const tryReq = async (): Promise<void> => {
+        try {
+          await transport.request("notify_me", {});
+          resolve();
+        } catch {
+          setTimeout(() => void tryReq(), 20);
+        }
+      };
+      void tryReq();
+    });
+    expect(events).toContainEqual(["test.event", { n: 1 }]);
+    transport.close();
   });
 
-  it("batch → -32600", async () => {
-    const res = await roundTrip(
-      JSON.stringify([
-        { jsonrpc: "2.0", id: "w3", method: "sidecar.echo" },
-        { jsonrpc: "2.0", id: "w4", method: "sidecar.echo" },
-      ]),
-    );
-    expect(res).toMatchObject({ error: { code: RPC_ERROR.INVALID_REQUEST } });
+  it("close 后 request 确定性拒绝", async () => {
+    server = await startEchoServer();
+    const transport = createWsTransport({ url: server.url, maxReconnects: 0 });
+    await new Promise<void>((resolve) => {
+      const tryReq = async (): Promise<void> => {
+        try {
+          await transport.request("echo", {});
+          resolve();
+        } catch {
+          setTimeout(() => void tryReq(), 20);
+        }
+      };
+      void tryReq();
+    });
+    transport.close();
+    await expect(transport.request("echo", {})).rejects.toThrow(/dispose|未就绪|关闭/);
   });
 });

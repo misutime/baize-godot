@@ -1,12 +1,13 @@
 {
   "name": "@baize/godot-rpc",
   "version": "0.1.0",
-  "description": "三端共享 JSON-RPC 2.0 消息类型（信封/方法/事件 payload）：Godot sidecar_server（C++）↔ Node sidecar（web/runtime）↔ CEF sdk（web/packages/sdk）。纯类型包，零运行时依赖",
+  "description": "JSON-RPC 契约与传输核心：类型/编解码/配对（RpcClient）/Transport 接口 + ws·ipc 实现（零运行时依赖，纯 TS）",
   "type": "module",
   "license": "MIT",
   "exports": {
     ".": {
-      "types": "./src/index.ts"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     }
   },
   "files": [
@@ -15,9 +16,11 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
   }
 }
