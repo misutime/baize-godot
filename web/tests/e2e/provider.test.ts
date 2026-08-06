@@ -24,6 +24,7 @@ const GODOT_EXE = `${REPO_ROOT}bin/${
 }`;
 const TEST_PROJECT = `${REPO_ROOT}test-projects/provider`;
 const PROVIDER_PORT = process.env.BAIZE_PROVIDER_PORT ?? "23009";
+const PROVIDER_TOKEN = process.env.BAIZE_PROVIDER_TOKEN ?? "";
 const PROVIDER_URL = `ws://127.0.0.1:${PROVIDER_PORT}`;
 
 let child: ChildProcess | null = null;
@@ -59,7 +60,7 @@ async function connectSdk(): Promise<ReturnType<typeof createClient> & { close: 
   const transport = createWsTransport({ url: PROVIDER_URL, maxReconnects: 0 });
   for (let i = 0; i < 50; i++) {
     try {
-      await transport.request("hello", { token: "" });
+      await transport.request("hello", { token: PROVIDER_TOKEN });
       return Object.assign(createClient(transport), { close: () => transport.close() });
     } catch {
       await sleep(50);
@@ -84,7 +85,7 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
 
   it("godot-rpc createWsTransport：hello 握手 + get_state", async () => {
     const transport = createWsTransport({ url: PROVIDER_URL, maxReconnects: 0 });
-    const hello = await transport.request("hello", { token: "" });
+    const hello = await transport.request("hello", { token: PROVIDER_TOKEN });
     expect(hello.ok).toBe(true);
     expect(typeof hello.version).toBe("string");
     const state = await transport.request("editor.get_state");
@@ -94,7 +95,7 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
   });
 
   it("godot-process GodotClient：认证握手 + invoke 读位置", async () => {
-    const client = new GodotClient({ url: PROVIDER_URL, token: "", backoffSeconds: [0.05], maxReconnects: 2 });
+    const client = new GodotClient({ url: PROVIDER_URL, token: PROVIDER_TOKEN, backoffSeconds: [0.05], maxReconnects: 2 });
     const deadline = Date.now() + 5000;
     while (!client.isConnected && Date.now() < deadline) {
       await sleep(30);

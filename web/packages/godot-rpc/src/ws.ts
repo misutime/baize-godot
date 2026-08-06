@@ -46,6 +46,7 @@ export function createWsTransport(options: WsTransportOptions): Transport {
 
   function flushQueue(): void {
     for (const q of requestQueue.splice(0)) {
+      clearTimeout(q.timer); // 排队 timer 不再需要（review P3：句柄不滞留）
       if (rpc) {
         rpc.invoke(q.method, q.params, q.timeoutMs).then(q.resolve, q.reject);
       } else {

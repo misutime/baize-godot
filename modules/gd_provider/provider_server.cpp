@@ -73,6 +73,11 @@ void ProviderServer::start() {
 
 void ProviderServer::stop() {
 	stop_frame_pump();
+	// 断开事件源信号（stop→start 防重复 connect/事件丢失，review P3）
+	EditorNode *ed = EditorNode::get_singleton();
+	if (ed && ed->get_editor_selection()) {
+		ed->get_editor_selection()->disconnect("selection_changed", callable_mp(this, &ProviderServer::_on_selection_changed));
+	}
 	// shutdown 通知（P2 review）：告知已认证客户端主动断开（否则 client 只靠断开重连退避）
 	for (Peer &p : peers_) {
 		if (p.authenticated && p.peer.is_valid() && !p.dead) {

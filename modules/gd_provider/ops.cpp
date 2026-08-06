@@ -123,12 +123,13 @@ Dictionary Ops::h_set_node_position(const Dictionary &p_args) {
 	if (!Math::is_finite(fx) || !Math::is_finite(fy) || !Math::is_finite(fz)) {
 		return _err("invalid_params", "position 必须为 {x,y,z} 有限数字");
 	}
-	// 单精度转换可能溢出（如 1e308 → float Inf）：转 float 后再校验（review P1）
-	const float ffx = (float)fx;
-	const float ffy = (float)fy;
-	const float ffz = (float)fz;
-	if (!Math::is_finite(ffx) || !Math::is_finite(ffy) || !Math::is_finite(ffz)) {
-		return _err("invalid_params", "position 超出单精度范围");
+	// 引擎精度转换可能溢出（float 构建下 1e308 → Inf）：转 real_t 后再校验（review P1；
+	// 用 real_t 而非硬编码 float——REAL_T_IS_DOUBLE 构建下 double 坐标不被误拒，review 回归）
+	const real_t rx = (real_t)fx;
+	const real_t ry = (real_t)fy;
+	const real_t rz = (real_t)fz;
+	if (!Math::is_finite(rx) || !Math::is_finite(ry) || !Math::is_finite(rz)) {
+		return _err("invalid_params", "position 超出引擎精度范围");
 	}
 	Dictionary err;
 	Node3D *node = _resolve_node3d(p_args["node_path"], err);
@@ -138,7 +139,7 @@ Dictionary Ops::h_set_node_position(const Dictionary &p_args) {
 	const Vector3 old_pos = node->get_position();
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
 	eurm->create_action("Set Position");
-	eurm->add_do_method(node, "set_position", Vector3(ffx, ffy, ffz));
+	eurm->add_do_method(node, "set_position", Vector3(rx, ry, rz));
 	eurm->add_undo_method(node, "set_position", old_pos);
 	eurm->commit_action();
 	return _ok(Dictionary());

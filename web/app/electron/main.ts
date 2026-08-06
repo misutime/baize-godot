@@ -34,6 +34,7 @@ const RENDERER_DEV_URL = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:51
 let client: GodotClient | null = null;
 let godotChild: ReturnType<typeof spawn> | null = null;
 let mainWindow: BrowserWindow | null = null;
+let quitting = false; // before-quit 编排中：不触发 respawn
 
 function log(msg: string): void {
   console.log(`[app:main] ${msg}`);
@@ -55,6 +56,21 @@ function startGodot(): void {
   godotChild.on("exit", (code) => {
     log(`Godot 进程退出（code=${code}）`);
     godotChild = null;
+    // 非退出编排的异常退出（崩溃/误关窗口）：受控 respawn（review P2——宿主 owns Godot 生命周期）
+    if (!quitting) {
+      setTimeout(() => {
+        if (!quitting && !godotChild) {
+          log("Godot 异常退出，自动重启…");
+          startGodot();
+          client?.connect(); // transport failed 后 connect() 会重建
+        }
+      }, 1000);
+    }
+  });
+  godotChild.on("error", (err) => {
+    // spawn 失败（exe 被删/无权限等）：记录并清理，不触发 uncaught error 退出主进程（review）
+    console.error(`[app:main] Godot spawn 失败: ${err.message}`);
+    godotChild = null;
   });
 }
 
@@ -66,8 +82,8 @@ function setupIpc(): void {
     if (!ALLOWED_METHOD_PREFIXES.some((p) => typeof method === "string" && method.startsWith(p))) {
       throw new Error(`方法不在白名单: ${String(method)}`);
     }
-    if (e.senderFrame?.url.startsWith("file://") !== true && !e.senderFrame?.url.startsWith("http://localhost")) {
-      throw new Error("拒绝非本应用窗口的请求");
+    if (e.sender !== mainWindow?.webContents) {
+      throw new Error("拒绝非主窗口的请求"); // sender 身份校验（review 安全）
     }
     if (!client) {
       throw new Error("Godot 未连接");
@@ -102,6 +118,12 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(dirname(fileURLToPath(import.meta.url)), "../dist/index.html"));
   }
+  // 防导航：渲染进程只允许加载本应用页面（review 安全——阻止被导航到任意 URL）
+  mainWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
   // 诊断：渲染进程 console/加载错误转发到主进程 stdout（GUI 无输出面板）
   mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
     console.log();
@@ -135,6 +157,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  quitting = true;
   // 退出编排：停止重连 + 关 WS（Godot 进程随 app 退出由 OS 回收；正式版由 godot-process 编排 shutdown）
   client?.dispose();
   client = null;
