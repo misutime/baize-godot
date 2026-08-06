@@ -39,14 +39,17 @@ export default function App(): React.JSX.Element {
 
   const selectedPath = state?.selection[0] ?? null;
 
-  const refresh = async (): Promise<boolean> => {
+  const refresh = async (options?: { resetEditing?: boolean }): Promise<boolean> => {
     try {
       const s = await client.editor.get_state();
       setState(s);
       if (s.selection.length > 0) {
         const pos = await client.scene.get_node_position({ node_path: s.selection[0] });
         setPosition(pos);
-        setEditing(pos);
+        // 编辑框只在选中变化/首次加载时初始化；位置事件（position_changed）不覆盖用户输入
+        if (options?.resetEditing ?? true) {
+          setEditing(pos);
+        }
       } else {
         setPosition(null);
         setEditing(null);
@@ -76,9 +79,9 @@ export default function App(): React.JSX.Element {
       }
     };
     void poll();
-    // 事件驱动刷新：选中/位置变化（IPC 事件通道不依赖认证，随时可订阅）
-    const unsubSel = client.editor.on_selection_changed(() => void refresh());
-    const unsubPos = client.editor.on_position_changed(() => void refresh());
+    // 事件驱动刷新：选中变化重置编辑框；位置变化只更新显示（不覆盖输入）
+    const unsubSel = client.editor.on_selection_changed(() => void refresh({ resetEditing: true }));
+    const unsubPos = client.editor.on_position_changed(() => void refresh({ resetEditing: false }));
     return () => {
       cancelled = true;
       if (timer) {

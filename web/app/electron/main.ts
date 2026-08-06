@@ -43,7 +43,7 @@ function startGodot(): void {
   }
   const project = process.env.BAIZE_PROJECT_PATH ?? DEFAULT_PROJECT;
   log(`spawn Godot: ${GODOT_EXE} --path ${project} --editor --headless`);
-  godotChild = spawn(GODOT_EXE, ["--path", project, "--editor", "--headless"], {
+  godotChild = spawn(GODOT_EXE, ["--path", project, "--editor"], {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -82,6 +82,9 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+
+  // 调试期默认打开右侧 DevTools（开发面板；正式发布时移除或加开关）
+  mainWindow.webContents.openDevTools({ mode: "right" });
 
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL(RENDERER_DEV_URL);
