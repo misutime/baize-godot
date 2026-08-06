@@ -23,7 +23,8 @@ const GODOT_EXE = `${REPO_ROOT}bin/${
     : "godot.macos.editor.dev.arm64"
 }`;
 const TEST_PROJECT = `${REPO_ROOT}test-projects/provider`;
-const PROVIDER_URL = "ws://127.0.0.1:23009";
+const PROVIDER_PORT = process.env.BAIZE_PROVIDER_PORT ?? "23009";
+const PROVIDER_URL = `ws://127.0.0.1:${PROVIDER_PORT}`;
 
 let child: ChildProcess | null = null;
 
