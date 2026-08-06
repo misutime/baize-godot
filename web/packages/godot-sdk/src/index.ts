@@ -39,11 +39,29 @@ export interface UndoStackChangedPayload {
   can_redo: boolean;
 }
 
+/** 场景树节点（递归）。path 为场景相对路径："." = 根，子节点用根 get_path_to 的结果。 */
+export interface TreeNode {
+  /** 场景相对路径（"." = 根，子节点用根 get_path_to 的结果）。 */
+  path: string;
+  /** 节点名称。 */
+  name: string;
+  /** Godot 类名，如 "Node3D"。 */
+  type: string;
+  children: TreeNode[];
+}
+
+/** 节点属性信息（Inspector 用）。value 为可 JSON 编码值或 null。 */
+export interface PropInfo {
+  name: string;
+  /** Godot Variant 类型名，如 "float"/"Vector3"。 */
+  type: string;
+  editable: boolean;
+  value: unknown;
+}
+
 export interface SceneChangedPayload {
-  /** 是否有编辑场景根（false = 无打开场景）。 */
-  has_scene: boolean;
-  /** 当前场景文件路径（新建未保存场景为空串）。 */
-  scene_path: string;
+  /** 场景树（null = 无打开场景）。 */
+  tree: TreeNode | null;
 }
 
 export interface EditorStatePayload {
@@ -56,6 +74,16 @@ export interface EditorStatePayload {
 /** 客户端实例：能力方法 + 事件订阅（绑定给定 transport）。 */
 export interface GodotClient {
   scene: {
+    /** 返回场景树根节点（无打开场景时抛 no_scene 错误）。 */
+    get_tree: () => Promise<TreeNode>;
+    get_props: (params: { node_path: string }) => Promise<PropInfo[]>;
+    set_prop: (params: { node_path: string; prop: string; value: unknown }) => Promise<Record<string, never>>;
+    create_node: (params: {
+      type: string;
+      name?: string;
+      parent_path?: string;
+    }) => Promise<{ node_path: string }>;
+    remove_node: (params: { node_path: string }) => Promise<Record<string, never>>;
     get_node_position: (params: { node_path: string }) => Promise<Vec3>;
     set_node_position: (params: { node_path: string; position: Vec3 }) => Promise<Record<string, never>>;
   };
@@ -64,6 +92,8 @@ export interface GodotClient {
     select_node: (params: { node_path: string }) => Promise<Record<string, never>>;
     undo: () => Promise<Record<string, never>>;
     redo: () => Promise<Record<string, never>>;
+    save_scene: () => Promise<{ path: string }>;
+    save_scene_as: (params: { path: string }) => Promise<{ path: string }>;
     on_selection_changed: (listener: (payload: SelectionChangedPayload) => void) => () => void;
     on_position_changed: (listener: (payload: PositionChangedPayload) => void) => () => void;
     on_undo_stack_changed: (listener: (payload: UndoStackChangedPayload) => void) => () => void;
@@ -77,6 +107,17 @@ export interface GodotClient {
 export function createClient(transport: Transport): GodotClient {
   return {
     scene: {
+      get_tree: defineMethod<EmptyParams, TreeNode>(transport, "scene.get_tree"),
+      get_props: defineMethod<{ node_path: string }, PropInfo[]>(transport, "scene.get_props"),
+      set_prop: defineMethod<{ node_path: string; prop: string; value: unknown }, Record<string, never>>(
+        transport,
+        "scene.set_prop",
+      ),
+      create_node: defineMethod<{ type: string; name?: string; parent_path?: string }, { node_path: string }>(
+        transport,
+        "scene.create_node",
+      ),
+      remove_node: defineMethod<{ node_path: string }, Record<string, never>>(transport, "scene.remove_node"),
       get_node_position: defineMethod<{ node_path: string }, Vec3>(transport, "scene.get_node_position"),
       set_node_position: defineMethod<{ node_path: string; position: Vec3 }, Record<string, never>>(
         transport,
@@ -88,10 +129,12 @@ export function createClient(transport: Transport): GodotClient {
       select_node: defineMethod<{ node_path: string }, Record<string, never>>(transport, "editor.select_node"),
       undo: defineMethod<EmptyParams, Record<string, never>>(transport, "editor.undo"),
       redo: defineMethod<EmptyParams, Record<string, never>>(transport, "editor.redo"),
+      save_scene: defineMethod<EmptyParams, { path: string }>(transport, "editor.save_scene"),
+      save_scene_as: defineMethod<{ path: string }, { path: string }>(transport, "editor.save_scene_as"),
       on_selection_changed: defineEvent<SelectionChangedPayload>(transport, "editor.selection_changed"),
       on_position_changed: defineEvent<PositionChangedPayload>(transport, "editor.node_position_changed"),
       on_undo_stack_changed: defineEvent<UndoStackChangedPayload>(transport, "editor.undo_stack_changed"),
-      on_scene_changed: defineEvent<SceneChangedPayload>(transport, "editor.scene_changed"),
+      on_scene_changed: defineEvent<SceneChangedPayload>(transport, "scene.changed"),
     },
     transport,
   };

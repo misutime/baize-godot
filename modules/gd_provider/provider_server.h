@@ -28,7 +28,8 @@
 // - request id 一律 string；batch 显式拒绝（-32600）；server 拒 response 输入；
 // - 错误码 -32601/-32602/-32000，内部字符串码入 error.data.code；
 // - 能力方法从 Registry 查询分派（find + validate_args + handler）；
-// - 事件下行 = notification（selection_changed / node_position_changed）。
+// - 事件下行 = notification（selection_changed / node_position_changed / scene.changed /
+//   editor.undo_stack_changed）。
 //
 // 认证：client 首帧 hello（params { token }）校验；token 从 env BAIZE_PROVIDER_TOKEN
 // 读（Electron spawn 时下发）；env 缺失时警告并跳过校验（本地 dev 宽松模式）。
@@ -78,8 +79,13 @@ class ProviderServer : public Object {
 	// 事件源（Events 层）：EditorSelection 信号 + 帧轮询 diff。
 	void _on_selection_changed();
 	void _poll_state_diff();
+	void _push_scene_changed();
+	void _push_undo_stack_changed();
 	Array _tracked_selection_;
 	HashMap<ObjectID, Vector3> _tracked_positions_;
+	String _tree_signature_; // 树结构 diff 基线（无场景固定空串）
+	bool _can_undo_ = false;
+	bool _can_redo_ = false;
 
 public:
 	static ProviderServer *get_singleton(); // 惰性创建

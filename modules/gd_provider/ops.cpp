@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include "ops.h"
 
+#include "core/object/class_db.h"
+#include "core/object/property_info.h"
+#include "core/templates/pair.h"
 #include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
@@ -8,6 +11,49 @@
 #include "scene/3d/node_3d.h"
 
 #ifdef TOOLS_ENABLED
+
+// ---- 内部工具（文件内静态） ----
+
+// 从 Dictionary 取数值成员（INT/FLOAT 均可；p_ints 时仅 INT）。
+// 有限性校验：JSON 溢出数字（如 1e400）→ +inf，拒绝写入场景；float 构建下 double 溢出也拒（与 h_set_node_position 一致）。
+static bool _num_member(const Dictionary &p_d, const String &p_key, bool p_ints, double &r_val) {
+	const Variant v = p_d.get(p_key, Variant());
+	if (p_ints) {
+		if (v.get_type() != Variant::INT) {
+			return false;
+		}
+		r_val = (double)(int64_t)v;
+		return true;
+	}
+	if (v.get_type() != Variant::INT && v.get_type() != Variant::FLOAT) {
+		return false;
+	}
+	r_val = v;
+	if (!Math::is_finite(r_val)) {
+		return false;
+	}
+	const real_t r = (real_t)r_val;
+	if (!Math::is_finite(r)) {
+		return false;
+	}
+	return true;
+}
+
+static bool _num2_from_dict(const Dictionary &p_d, bool p_ints, double &rx, double &ry) {
+	return _num_member(p_d, "x", p_ints, rx) && _num_member(p_d, "y", p_ints, ry);
+}
+
+static bool _num3_from_dict(const Dictionary &p_d, bool p_ints, double &rx, double &ry, double &rz) {
+	return _num_member(p_d, "x", p_ints, rx) && _num_member(p_d, "y", p_ints, ry) && _num_member(p_d, "z", p_ints, rz);
+}
+
+// 遍历子树（含自身）快照 owner，供 remove_node 的 undo 恢复。
+static void _collect_owner_snapshot(Node *p_node, Vector<Pair<Node *, Variant>> &r_snaps) {
+	r_snaps.push_back(Pair<Node *, Variant>(p_node, p_node->get_owner()));
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		_collect_owner_snapshot(p_node->get_child(i), r_snaps);
+	}
+}
 
 Dictionary Ops::_ok(const Variant &p_result) {
 	Dictionary d;
@@ -145,9 +191,204 @@ Dictionary Ops::h_set_node_position(const Dictionary &p_args) {
 	return _ok(Dictionary());
 }
 
+Dictionary Ops::h_get_tree(const Dictionary &p_args) {
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		return _err("no_scene", "当前没有打开的编辑场景");
+	}
+	return _ok(serialize_tree(root));
+}
+
+Dictionary Ops::h_get_props(const Dictionary &p_args) {
+	Dictionary err;
+	Node *node = _resolve_node(p_args["node_path"], err);
+	if (!node) {
+		return err;
+	}
+	List<PropertyInfo> plist;
+	node->get_property_list(&plist);
+	Array result;
+	for (const PropertyInfo &pi : plist) {
+		// 过滤：NIL 类型 / 无 PROPERTY_USAGE_EDITOR / PROPERTY_USAGE_INTERNAL 不对外暴露。
+		if (pi.type == Variant::NIL || !(pi.usage & PROPERTY_USAGE_EDITOR) || (pi.usage & PROPERTY_USAGE_INTERNAL)) {
+			continue;
+		}
+		Variant encoded;
+		const bool encodable = _encode_value(node->get(pi.name), encoded);
+		Dictionary entry;
+		entry["name"] = pi.name;
+		entry["type"] = Variant::get_type_name(pi.type);
+		entry["editable"] = !(pi.usage & PROPERTY_USAGE_READ_ONLY) && encodable;
+		entry["value"] = encodable ? encoded : Variant();
+		result.append(entry);
+	}
+	return _ok(result);
+}
+
+Dictionary Ops::h_set_prop(const Dictionary &p_args) {
+	Dictionary err;
+	Node *node = _resolve_node(p_args["node_path"], err);
+	if (!node) {
+		return err;
+	}
+	const String prop_name = p_args["prop"].operator String();
+	// 在 get_property_list 中找到属性且可编辑（与 get_props 的 editable 判定一致）。
+	List<PropertyInfo> plist;
+	node->get_property_list(&plist);
+	Variant::Type prop_type = Variant::NIL;
+	bool editable = false;
+	for (const PropertyInfo &pi : plist) {
+		if (pi.name == prop_name) {
+			prop_type = pi.type;
+			editable = (pi.usage & PROPERTY_USAGE_EDITOR) && !(pi.usage & PROPERTY_USAGE_READ_ONLY) && !(pi.usage & PROPERTY_USAGE_INTERNAL);
+			break;
+		}
+	}
+	if (prop_type == Variant::NIL || !editable) {
+		return _err("invalid_params", "属性不存在或不可编辑: " + prop_name);
+	}
+	Variant decoded;
+	if (!_decode_value(p_args["value"], prop_type, decoded)) {
+		return _err("invalid_params", "属性值无法解码为 " + Variant::get_type_name(prop_type) + ": " + prop_name);
+	}
+	const Variant old_value = node->get(prop_name);
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	eurm->create_action("Set " + prop_name);
+	eurm->add_do_method(node, "set", prop_name, decoded);
+	eurm->add_undo_method(node, "set", prop_name, old_value);
+	eurm->commit_action();
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_create_node(const Dictionary &p_args) {
+	const String type = p_args["type"].operator String();
+	// 先验类型：空/未知/非 Node 类直接拒绝（避免 instantiate 出 RefCounted 后再清理）；
+	// 抽象类（无 creation_func）→ instantiate 返回 null。
+	if (type.is_empty() || !ClassDB::is_parent_class(type, "Node")) {
+		return _err("invalid_params", "无法实例化节点类型（空/未知/非 Node 类）: " + type);
+	}
+	Node *node = Object::cast_to<Node>(ClassDB::instantiate(type));
+	if (!node) {
+		return _err("invalid_params", "无法实例化节点类型（抽象类）: " + type);
+	}
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		memdelete(node);
+		return _err("no_scene", "当前没有打开的编辑场景");
+	}
+	Dictionary err;
+	Node *parent = nullptr;
+	if (p_args.has("parent_path")) {
+		parent = _resolve_node(p_args["parent_path"], err);
+		if (!parent) {
+			memdelete(node);
+			return err;
+		}
+	} else {
+		parent = root;
+	}
+	// 命名：显式 name 直接设置；缺省用类名（ClassDB::instantiate 已赋）。一律 validate_child_name 保唯一。
+	if (p_args.has("name")) {
+		const String name = p_args["name"].operator String();
+		if (!name.is_empty()) {
+			node->set_name(name);
+		}
+	}
+	// 唯一化：validate_child_name 只返回不设置，需显式 set_name（add_child(_, true) 虽兜底，但显式设置使返回路径与树一致）
+	const String unique_name = parent->validate_child_name(node);
+	node->set_name(unique_name);
+
+	// undo 模式与 editor/docks/scene_tree_dock.cpp 的人工创建一致（add_child → set_owner → 选中）。
+	EditorNode *ed = EditorNode::get_singleton();
+	EditorSelection *sel = ed ? ed->get_editor_selection() : nullptr;
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	eurm->create_action("Create " + type);
+	eurm->add_do_method(parent, "add_child", node, true);
+	eurm->add_do_method(node, "set_owner", root);
+	if (sel) {
+		eurm->add_do_method(sel, "clear");
+		eurm->add_do_method(sel, "add_node", node);
+	}
+	eurm->add_do_reference(node);
+	eurm->add_undo_method(parent, "remove_child", node);
+	eurm->commit_action();
+
+	// commit 已执行 add_child，此刻 get_path_to 有效（根下相对路径，直接子无 "./" 前缀）。
+	Dictionary result;
+	result["node_path"] = String(root->get_path_to(node));
+	return _ok(result);
+}
+
+Dictionary Ops::h_remove_node(const Dictionary &p_args) {
+	Dictionary err;
+	Node *node = _resolve_node(p_args["node_path"], err);
+	if (!node) {
+		return err;
+	}
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (node == root) {
+		return _err("invalid_params", "不能删除场景根节点");
+	}
+	Node *parent = node->get_parent();
+	// 子树（含自身）owner 快照：调用时节点仍挂树，遍历有效；undo 按原 owner 恢复。
+	Vector<Pair<Node *, Variant>> owner_snaps;
+	_collect_owner_snapshot(node, owner_snaps);
+	const int orig_index = node->get_index();
+
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	eurm->create_action("Remove " + String(node->get_name()));
+	eurm->add_do_method(parent, "remove_child", node);
+	eurm->add_do_reference(node);
+	eurm->add_undo_method(parent, "add_child", node);
+	eurm->add_undo_method(parent, "move_child", node, orig_index);
+	for (const Pair<Node *, Variant> &snap : owner_snaps) {
+		eurm->add_undo_method(snap.first, "set_owner", snap.second);
+	}
+	eurm->commit_action();
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_save_scene(const Dictionary &p_args) {
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		return _err("no_scene", "当前没有打开的编辑场景");
+	}
+	if (root->get_scene_file_path().is_empty()) {
+		return _err("not_saved", "场景从未保存过，没有可用的保存路径");
+	}
+	const Error err = ei->save_scene();
+	if (err != OK) {
+		// save_scene 内部对无根/无路径返回 ERR_CANT_CREATE（上面已预判映射，双保险）。
+		return _err("no_scene", "保存失败：场景不可用");
+	}
+	Dictionary result;
+	result["path"] = root->get_scene_file_path();
+	return _ok(result);
+}
+
+Dictionary Ops::h_save_scene_as(const Dictionary &p_args) {
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		return _err("no_scene", "当前没有打开的编辑场景");
+	}
+	const String path = p_args["path"].operator String();
+	if (path.is_empty()) {
+		return _err("invalid_params", "path 不能为空");
+	}
+	ei->save_scene_as(path);
+	Dictionary result;
+	result["path"] = path;
+	return _ok(result);
+}
+
 // ---- 内部工具 ----
 
-Node3D *Ops::_resolve_node3d(const String &p_path, Dictionary &r_err) {
+Node *Ops::_resolve_node(const String &p_path, Dictionary &r_err) {
 	// 路径守卫：禁止绝对路径（/ 开头）与 .. 逃逸（路径段 == ".."）。
 	if (p_path.begins_with("/") || p_path.begins_with("//")) {
 		r_err = _err("invalid_params", "禁止绝对路径: " + p_path);
@@ -172,12 +413,367 @@ Node3D *Ops::_resolve_node3d(const String &p_path, Dictionary &r_err) {
 		return nullptr;
 	}
 	// 归属校验：必须是编辑场景根自身或其子孙（get_node_or_null 接受 ".." 父级遍历可逃逸）。
+	if (target != root && !root->is_ancestor_of(target)) {
+		r_err = _err("invalid_node", "找不到节点: " + p_path);
+		return nullptr;
+	}
+	return target;
+}
+
+Node3D *Ops::_resolve_node3d(const String &p_path, Dictionary &r_err) {
+	Node *target = _resolve_node(p_path, r_err);
+	if (!target) {
+		return nullptr;
+	}
 	Node3D *node = Object::cast_to<Node3D>(target);
-	if (!node || (target != root && !root->is_ancestor_of(target))) {
-		r_err = _err("invalid_node", "找不到节点或节点不是 Node3D: " + p_path);
+	if (!node) {
+		r_err = _err("invalid_node", "节点不是 Node3D: " + p_path);
 		return nullptr;
 	}
 	return node;
+}
+
+Dictionary Ops::serialize_tree(Node *p_scene_root) {
+	return _tree_dict(p_scene_root, p_scene_root);
+}
+
+Dictionary Ops::_tree_dict(Node *p_node, Node *p_scene_root) {
+	Dictionary d;
+	d["path"] = p_node == p_scene_root ? String(".") : String(p_scene_root->get_path_to(p_node));
+	d["name"] = p_node->get_name();
+	d["type"] = p_node->get_class();
+	Array children;
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		Node *child = p_node->get_child(i);
+		if (child->is_internal()) {
+			continue;
+		}
+		children.append(_tree_dict(child, p_scene_root));
+	}
+	d["children"] = children;
+	return d;
+}
+
+bool Ops::_encode_value(const Variant &p_value, Variant &r_out) {
+	switch (p_value.get_type()) {
+		case Variant::NIL:
+			r_out = Variant(); // → null
+			return true;
+		case Variant::BOOL:
+		case Variant::INT:
+		case Variant::FLOAT:
+		case Variant::STRING:
+			r_out = p_value;
+			return true;
+		case Variant::STRING_NAME:
+			r_out = p_value.operator String();
+			return true;
+		case Variant::NODE_PATH:
+			r_out = p_value.operator String();
+			return true;
+		case Variant::VECTOR2: {
+			const Vector2 v = p_value;
+			Dictionary d;
+			d["x"] = v.x;
+			d["y"] = v.y;
+			r_out = d;
+			return true;
+		}
+		case Variant::VECTOR2I: {
+			const Vector2i v = p_value;
+			Dictionary d;
+			d["x"] = v.x;
+			d["y"] = v.y;
+			r_out = d;
+			return true;
+		}
+		case Variant::VECTOR3: {
+			const Vector3 v = p_value;
+			Dictionary d;
+			d["x"] = v.x;
+			d["y"] = v.y;
+			d["z"] = v.z;
+			r_out = d;
+			return true;
+		}
+		case Variant::VECTOR3I: {
+			const Vector3i v = p_value;
+			Dictionary d;
+			d["x"] = v.x;
+			d["y"] = v.y;
+			d["z"] = v.z;
+			r_out = d;
+			return true;
+		}
+		case Variant::VECTOR4: {
+			const Vector4 v = p_value;
+			Dictionary d;
+			d["x"] = v.x;
+			d["y"] = v.y;
+			d["z"] = v.z;
+			d["w"] = v.w;
+			r_out = d;
+			return true;
+		}
+		case Variant::COLOR: {
+			const Color c = p_value;
+			Dictionary d;
+			d["r"] = c.r;
+			d["g"] = c.g;
+			d["b"] = c.b;
+			d["a"] = c.a;
+			r_out = d;
+			return true;
+		}
+		case Variant::RECT2: {
+			const Rect2 r = p_value;
+			Dictionary pos;
+			pos["x"] = r.position.x;
+			pos["y"] = r.position.y;
+			Dictionary size;
+			size["x"] = r.size.x;
+			size["y"] = r.size.y;
+			Dictionary d;
+			d["position"] = pos;
+			d["size"] = size;
+			r_out = d;
+			return true;
+		}
+		case Variant::RECT2I: {
+			const Rect2i r = p_value;
+			Dictionary pos;
+			pos["x"] = r.position.x;
+			pos["y"] = r.position.y;
+			Dictionary size;
+			size["x"] = r.size.x;
+			size["y"] = r.size.y;
+			Dictionary d;
+			d["position"] = pos;
+			d["size"] = size;
+			r_out = d;
+			return true;
+		}
+		case Variant::TRANSFORM2D: {
+			const Transform2D t = p_value;
+			Dictionary x, y, origin;
+			x["x"] = t.columns[0].x;
+			x["y"] = t.columns[0].y;
+			y["x"] = t.columns[1].x;
+			y["y"] = t.columns[1].y;
+			origin["x"] = t.columns[2].x;
+			origin["y"] = t.columns[2].y;
+			Dictionary d;
+			d["x"] = x;
+			d["y"] = y;
+			d["origin"] = origin;
+			r_out = d;
+			return true;
+		}
+		case Variant::TRANSFORM3D: {
+			const Transform3D t = p_value;
+			const Basis &b = t.basis;
+			Dictionary bx, by, bz, origin;
+			bx["x"] = b.rows[0].x;
+			bx["y"] = b.rows[1].x;
+			bx["z"] = b.rows[2].x;
+			by["x"] = b.rows[0].y;
+			by["y"] = b.rows[1].y;
+			by["z"] = b.rows[2].y;
+			bz["x"] = b.rows[0].z;
+			bz["y"] = b.rows[1].z;
+			bz["z"] = b.rows[2].z;
+			origin["x"] = t.origin.x;
+			origin["y"] = t.origin.y;
+			origin["z"] = t.origin.z;
+			Dictionary basis;
+			basis["x"] = bx;
+			basis["y"] = by;
+			basis["z"] = bz;
+			Dictionary d;
+			d["basis"] = basis;
+			d["origin"] = origin;
+			r_out = d;
+			return true;
+		}
+		default:
+			return false; // Array/Dictionary/Resource/枚举等不可编码
+	}
+}
+
+bool Ops::_decode_value(const Variant &p_value, Variant::Type p_type, Variant &r_out) {
+	switch (p_type) {
+		case Variant::BOOL:
+			if (p_value.get_type() != Variant::BOOL) {
+				return false;
+			}
+			r_out = p_value;
+			return true;
+		case Variant::INT:
+			if (p_value.get_type() != Variant::INT) {
+				return false;
+			}
+			r_out = p_value;
+			return true;
+		case Variant::FLOAT:
+			if (p_value.get_type() == Variant::INT) {
+				r_out = (double)(int64_t)p_value; // INT 可作 FLOAT 源
+				return true;
+			}
+			if (p_value.get_type() == Variant::FLOAT && Math::is_finite((double)p_value)) {
+				r_out = p_value;
+				return true;
+			}
+			return false;
+		case Variant::STRING:
+			if (p_value.get_type() != Variant::STRING) {
+				return false;
+			}
+			r_out = p_value;
+			return true;
+		case Variant::STRING_NAME:
+			if (p_value.get_type() != Variant::STRING) {
+				return false;
+			}
+			r_out = StringName(p_value.operator String());
+			return true;
+		case Variant::NODE_PATH:
+			if (p_value.get_type() != Variant::STRING) {
+				return false;
+			}
+			r_out = NodePath(p_value.operator String());
+			return true;
+		case Variant::VECTOR2: {
+			double x, y;
+			if (p_value.get_type() != Variant::DICTIONARY || !_num2_from_dict(p_value.operator Dictionary(), false, x, y)) {
+				return false;
+			}
+			r_out = Vector2(x, y);
+			return true;
+		}
+		case Variant::VECTOR2I: {
+			double x, y;
+			if (p_value.get_type() != Variant::DICTIONARY || !_num2_from_dict(p_value.operator Dictionary(), true, x, y)) {
+				return false;
+			}
+			r_out = Vector2i((int64_t)x, (int64_t)y);
+			return true;
+		}
+		case Variant::VECTOR3: {
+			double x, y, z;
+			if (p_value.get_type() != Variant::DICTIONARY || !_num3_from_dict(p_value.operator Dictionary(), false, x, y, z)) {
+				return false;
+			}
+			r_out = Vector3(x, y, z);
+			return true;
+		}
+		case Variant::VECTOR3I: {
+			double x, y, z;
+			if (p_value.get_type() != Variant::DICTIONARY || !_num3_from_dict(p_value.operator Dictionary(), true, x, y, z)) {
+				return false;
+			}
+			r_out = Vector3i((int64_t)x, (int64_t)y, (int64_t)z);
+			return true;
+		}
+		case Variant::VECTOR4: {
+			double x, y, z, w;
+			if (p_value.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const Dictionary d = p_value.operator Dictionary();
+			if (!_num3_from_dict(d, false, x, y, z) || !_num_member(d, "w", false, w)) {
+				return false;
+			}
+			r_out = Vector4(x, y, z, w);
+			return true;
+		}
+		case Variant::COLOR: {
+			if (p_value.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const Dictionary d = p_value.operator Dictionary();
+			double r, g, b, a;
+			if (!_num_member(d, "r", false, r) || !_num_member(d, "g", false, g) || !_num_member(d, "b", false, b) || !_num_member(d, "a", false, a)) {
+				return false;
+			}
+			r_out = Color(r, g, b, a);
+			return true;
+		}
+		case Variant::RECT2:
+		case Variant::RECT2I: {
+			if (p_value.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const bool ints = p_type == Variant::RECT2I;
+			const Dictionary d = p_value.operator Dictionary();
+			const Variant pos = d.get("position", Variant());
+			const Variant size = d.get("size", Variant());
+			if (pos.get_type() != Variant::DICTIONARY || size.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			double px, py, sx, sy;
+			if (!_num2_from_dict(pos.operator Dictionary(), ints, px, py) || !_num2_from_dict(size.operator Dictionary(), ints, sx, sy)) {
+				return false;
+			}
+			if (ints) {
+				r_out = Rect2i((int64_t)px, (int64_t)py, (int64_t)sx, (int64_t)sy);
+			} else {
+				r_out = Rect2(px, py, sx, sy);
+			}
+			return true;
+		}
+		case Variant::TRANSFORM2D: {
+			if (p_value.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const Dictionary d = p_value.operator Dictionary();
+			const Variant x = d.get("x", Variant());
+			const Variant y = d.get("y", Variant());
+			const Variant origin = d.get("origin", Variant());
+			if (x.get_type() != Variant::DICTIONARY || y.get_type() != Variant::DICTIONARY || origin.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			double xx, xy, yx, yy, ox, oy;
+			if (!_num2_from_dict(x.operator Dictionary(), false, xx, xy) || !_num2_from_dict(y.operator Dictionary(), false, yx, yy) || !_num2_from_dict(origin.operator Dictionary(), false, ox, oy)) {
+				return false;
+			}
+			Transform2D t2d;
+			t2d.columns[0] = Vector2(xx, xy); // x 轴列向量 = {x,y}（与 _encode_value 互逆）
+			t2d.columns[1] = Vector2(yx, yy);
+			t2d.columns[2] = Vector2(ox, oy);
+			r_out = t2d;
+			return true;
+		}
+		case Variant::TRANSFORM3D: {
+			if (p_value.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const Dictionary d = p_value.operator Dictionary();
+			const Variant basis = d.get("basis", Variant());
+			const Variant origin = d.get("origin", Variant());
+			if (basis.get_type() != Variant::DICTIONARY || origin.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			const Dictionary bd = basis.operator Dictionary();
+			const Variant bx = bd.get("x", Variant());
+			const Variant by = bd.get("y", Variant());
+			const Variant bz = bd.get("z", Variant());
+			if (bx.get_type() != Variant::DICTIONARY || by.get_type() != Variant::DICTIONARY || bz.get_type() != Variant::DICTIONARY) {
+				return false;
+			}
+			double bxx, bxy, bxz, byx, byy, byz, bzx, bzy, bzz, ox, oy, oz;
+			if (!_num3_from_dict(bx.operator Dictionary(), false, bxx, bxy, bxz) || !_num3_from_dict(by.operator Dictionary(), false, byx, byy, byz) || !_num3_from_dict(bz.operator Dictionary(), false, bzx, bzy, bzz) || !_num3_from_dict(origin.operator Dictionary(), false, ox, oy, oz)) {
+				return false;
+			}
+			Basis b3;
+			b3.set_column(0, Vector3(bxx, bxy, bxz)); // basis.x 列向量 = {x,y,z}（与 _encode_value 互逆）
+			b3.set_column(1, Vector3(byx, byy, byz));
+			b3.set_column(2, Vector3(bzx, bzy, bzz));
+			r_out = Transform3D(b3, Vector3(ox, oy, oz));
+			return true;
+		}
+		default:
+			return false; // 契约外类型（Array/Dictionary/Resource/枚举等）不可解码
+	}
 }
 
 #endif // TOOLS_ENABLED

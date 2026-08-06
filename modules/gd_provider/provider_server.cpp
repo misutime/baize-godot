@@ -4,9 +4,11 @@
 #include "core/io/json.h"
 #include "core/object/callable_mp.h"
 #include "core/string/print_string.h"
+#include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
-#include "editor/editor_data.h"
+#include "editor/editor_undo_redo_manager.h"
+#include "ops.h"
 #include "registry.h"
 #include "scene/main/scene_tree.h"
 
@@ -102,6 +104,9 @@ void ProviderServer::stop() {
 	peers_.clear();
 	_tracked_selection_ = Array();
 	_tracked_positions_.clear();
+	_tree_signature_ = String();
+	_can_undo_ = false;
+	_can_redo_ = false;
 	started_ = false;
 }
 
@@ -420,6 +425,53 @@ Dictionary ProviderServer::_jsonrpc_error_doc(int p_code, const String &p_messag
 
 // ---- 事件源（Events 层） ----
 
+// 树结构 diff 签名：递归拼接 name+type+子节点顺序（跳过 is_internal 子节点）。
+// 无场景时由调用方固定为空串；节点名不允许含 '/' 与 ':'，拼接无歧义。
+static String _tree_signature(Node *p_root) {
+	String sig = String(p_root->get_name()) + ":" + p_root->get_class();
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Node *child = p_root->get_child(i);
+		if (child->is_internal()) {
+			continue;
+		}
+		sig += "/" + _tree_signature(child);
+	}
+	return sig;
+}
+
+void ProviderServer::_push_scene_changed() {
+	// 向所有已认证 peer 推送完整树（无场景 → tree: null）。
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	Dictionary payload;
+	payload["tree"] = root ? Variant(Ops::serialize_tree(root)) : Variant();
+	for (Peer &p : peers_) {
+		if (p.authenticated && p.peer.is_valid() && !p.dead) {
+			Dictionary notify;
+			notify["jsonrpc"] = "2.0";
+			notify["method"] = "scene.changed";
+			notify["params"] = payload;
+			_send(p, notify);
+		}
+	}
+}
+
+void ProviderServer::_push_undo_stack_changed() {
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	Dictionary payload;
+	payload["can_undo"] = eurm->has_undo();
+	payload["can_redo"] = eurm->has_redo();
+	for (Peer &p : peers_) {
+		if (p.authenticated && p.peer.is_valid() && !p.dead) {
+			Dictionary notify;
+			notify["jsonrpc"] = "2.0";
+			notify["method"] = "editor.undo_stack_changed";
+			notify["params"] = payload;
+			_send(p, notify);
+		}
+	}
+}
+
 void ProviderServer::_on_selection_changed() {
 	// 选中变化即时推送（信号触发）。
 	EditorNode *ed = EditorNode::get_singleton();
@@ -453,6 +505,24 @@ void ProviderServer::_poll_state_diff() {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	EditorNode *ed = EditorNode::get_singleton();
+
+	// 树结构 diff：无场景固定空串；签名变化 → scene.changed（带完整 tree）。
+	const String sig = root ? _tree_signature(root) : String();
+	if (sig != _tree_signature_) {
+		_tree_signature_ = sig;
+		_push_scene_changed();
+	}
+
+	// undo/redo 栈 diff：has_undo/has_redo 变化 → editor.undo_stack_changed。
+	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
+	const bool can_undo = eurm->has_undo();
+	const bool can_redo = eurm->has_redo();
+	if (can_undo != _can_undo_ || can_redo != _can_redo_) {
+		_can_undo_ = can_undo;
+		_can_redo_ = can_redo;
+		_push_undo_stack_changed();
+	}
+
 	if (!root || !ed) {
 		return;
 	}
