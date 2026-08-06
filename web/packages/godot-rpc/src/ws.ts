@@ -32,6 +32,33 @@ export function createWsTransport(options: WsTransportOptions): Transport {
   let generation = 0; // 防旧连接回调穿越（关闭旧连接后忽略其事件）
   // 事件监听器：连接建立/重连后绑定到当前 RpcClient（未连接时订阅不丢失）
   const eventListeners = new Set<(method: string, params: unknown) => void>();
+  // 未连接时的请求队列：连接建立后自动发送（调用方不关心连接时序）；断线/关闭时确定性拒绝
+  interface QueuedCall {
+    method: string;
+    params?: unknown;
+    timeoutMs?: number;
+    resolve: (v: unknown) => void;
+    reject: (e: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+  const requestQueue: QueuedCall[] = [];
+
+  function flushQueue(): void {
+    for (const q of requestQueue.splice(0)) {
+      if (rpc) {
+        rpc.invoke(q.method, q.params, q.timeoutMs).then(q.resolve, q.reject);
+      } else {
+        q.reject(new Error("连接已关闭，排队请求清空"));
+      }
+    }
+  }
+
+  function rejectQueue(reason: string): void {
+    for (const q of requestQueue.splice(0)) {
+      clearTimeout(q.timer);
+      q.reject(new Error(reason));
+    }
+  }
 
   function bindEventListeners(): void {
     for (const listener of eventListeners) {
@@ -91,6 +118,7 @@ export function createWsTransport(options: WsTransportOptions): Transport {
       // 计数由 resetReconnectBudget（上层握手成功后）显式归零。
       rpc = new RpcClient((text) => socket.send(text));
       bindEventListeners(); // 重连后事件监听器绑定到新 RpcClient
+      flushQueue(); // 发送排队请求
       setState("connected");
     };
 
@@ -108,6 +136,7 @@ export function createWsTransport(options: WsTransportOptions): Transport {
         return;
       }
       failPending("连接关闭");
+      rejectQueue("连接关闭"); // 排队请求确定性拒绝（不悬挂）
       rpc = null;
       scheduleReconnect();
     };
@@ -123,11 +152,23 @@ export function createWsTransport(options: WsTransportOptions): Transport {
 
   return {
     request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
-      const client = rpc;
-      if (!client) {
-        return Promise.reject(new Error(`传输未就绪（${state}）：${method}`));
+      if (closed) {
+        return Promise.reject(new Error("传输已关闭"));
       }
-      return client.invoke<T>(method, params, timeoutMs);
+      if (rpc) {
+        return rpc.invoke<T>(method, params, timeoutMs);
+      }
+      // 未连接：排队（连接建立后发送）；超时兜底（默认 10s）
+      return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const idx = requestQueue.findIndex((q) => q.timer === timer);
+          if (idx >= 0) {
+            requestQueue.splice(idx, 1);
+            reject(new Error(`排队请求超时（${timeoutMs ?? 10000}ms）: ${method}`));
+          }
+        }, timeoutMs ?? 10000);
+        requestQueue.push({ method, params, timeoutMs, resolve: resolve as (v: unknown) => void, reject, timer });
+      });
     },
     onEvent(listener) {
       eventListeners.add(listener);
@@ -145,6 +186,7 @@ export function createWsTransport(options: WsTransportOptions): Transport {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      rejectQueue("传输已关闭");
       if (rpc) {
         rpc.dispose();
         rpc = null;

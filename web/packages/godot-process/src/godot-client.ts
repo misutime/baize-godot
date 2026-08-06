@@ -62,7 +62,8 @@ export class GodotClient {
       throw new Error("缺少 BAIZE_GODOT_WS_URL：GodotClient 需要 Godot WS 地址");
     }
     if (this.token === "") {
-      throw new Error("缺少 BAIZE_GODOT_TOKEN：Godot 面握手需要 token（Godot spawn 时应经 env 下发）");
+      // dev 宽松模式：Provider 侧 BAIZE_PROVIDER_TOKEN 未设置时不校验 token（对齐）
+      console.warn("[godot] BAIZE_GODOT_TOKEN 未设置——dev 宽松模式（hello 不携带有效 token）");
     }
     this.helloTimeoutMs = options.helloTimeoutMs ?? DEFAULT_HELLO_TIMEOUT_MS;
     this.onReady = options.onReady;

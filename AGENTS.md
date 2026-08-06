@@ -43,6 +43,21 @@ CEF 构建脚本已删除；`editor/themes/editor_fonts` 恢复上游。历史�
 - `task dev` → `build.py` → scons 构建编辑器（已去除 CEF 预构建/暂存钩子，恢复原版流程）。
 - 构建产物：`bin/godot.windows.editor.*.exe` + `*.console.exe`（console 版日志直出终端，Electron 驱动用）。
 
+## 3. 测试规则（2026-08-06 确立）
+
+**分层**：
+
+| 层 | 方式 | 覆盖对象 |
+|---|---|---|
+| TS 单测 | `pnpm test`（web/ 下各包 vitest） | godot-rpc/godot-sdk/godot-process 的纯逻辑（协议编解码/配对/传输/绑定） |
+| 端到端集成 | `pnpm test:e2e`（web/）或 `task verify-provider` | **gd_provider（C++ Provider）行为**——Godot 模块无单测框架且依赖编辑器单例，端到端断言（spawn headless 编辑器 + 三包链路 + 错误契约）为可靠验证方式 |
+
+**强制规则**：
+- 改动三包代码：必须跑对应包单测 + typecheck（`cd web/packages/<pkg> && npx vitest run && npx tsc --noEmit`）；
+- **改动 gd_provider：必须跑 `task verify-provider`**（自动 spawn headless 编辑器 + 断言 + 清理进程）；前置：`task dev` 构建产物 + 测试项目（`test-projects/provider`，仓库内）；
+- **测试项目一律放仓库内**（`test-projects/`），禁止项目外绝对路径（换机器失效——已踩过 refers/ 外部路径坑）；
+- 新能力方法/协议变更：e2e 补断言（读写验证 + 错误契约）；新 TS 纯逻辑：补单测（协议向量/配对语义）。
+
 ## 9. Godot 测试时限（30 秒规则，强制）
 
 打开 Godot 编辑器做验证/排障的命令（如

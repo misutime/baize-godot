@@ -11,6 +11,9 @@ importers:
       '@biomejs/biome':
         specifier: latest
         version: 2.5.7
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
 
   packages/godot-process:
     dependencies:

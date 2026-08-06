@@ -29,7 +29,8 @@ export interface SelectionChangedPayload {
 }
 
 export interface PositionChangedPayload {
-  node_id: number;
+  /** 场景相对路径（与 C++ Provider 事件契约一致）。 */
+  node_path: string;
   position: Vec3;
 }
 

@@ -7,9 +7,11 @@
     "build": "pnpm -r --filter \"./packages/*\" run build",
     "test": "pnpm -r run test",
     "lint": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "latest"
+    "@biomejs/biome": "latest",
+    "vitest": "^3.0.0"
   }
 }

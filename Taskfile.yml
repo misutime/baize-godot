@@ -8,7 +8,7 @@ vars:
   PYTHON: '{{if eq .OS "windows"}}python{{else}}python3{{end}}'
   # dev-run 用：平台对应开发版可执行文件（console 版日志直出终端）与测试项目路径
   GODOT_EXE: '{{if eq .OS "windows"}}bin/godot.windows.editor.dev.x86_64.console.exe{{else}}bin/godot.macos.editor.dev.arm64{{end}}'
-  TEST_PROJECT: '{{if eq .OS "windows"}}D:/misutime/104_game/refers/test-project{{else}}../refers/test-project{{end}}'
+  TEST_PROJECT: 'test-projects/provider'
 
 tasks:
   default:
@@ -49,3 +49,7 @@ tasks:
   dev-run:
     desc: "直接运行开发版编辑器（原生/headless 调试；测试项目路径见 TEST_PROJECT）"
     cmd: '"{{.GODOT_EXE}}" --path {{.TEST_PROJECT}} --editor'
+
+  verify-provider:
+    desc: "gd_provider 端到端集成测试（vitest e2e；需先 task dev 构建）"
+    cmd: 'pnpm --dir web run test:e2e'
