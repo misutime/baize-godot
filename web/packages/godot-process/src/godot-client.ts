@@ -39,6 +39,8 @@ export interface GodotClientOptions {
   helloTimeoutMs?: number;
   /** 每次握手成功后回调（含重连成功）；供上层日志/事件重订阅钩子。 */
   onReady?: (client: GodotClient, hello: HelloResult) => void;
+  /** 状态机变化回调（connecting/connected/reconnecting/failed/disposed）；供上层连接状态展示。 */
+  onStateChange?: (state: GodotClientState) => void;
 }
 
 export class GodotClient {
@@ -47,6 +49,7 @@ export class GodotClient {
   private readonly token: string;
   private readonly helloTimeoutMs: number;
   private readonly onReady?: (client: GodotClient, hello: HelloResult) => void;
+  private readonly onStateChange?: (state: GodotClientState) => void;
   private readonly projectPath: string | undefined;
 
   private state_: GodotClientState = "idle";
@@ -73,6 +76,7 @@ export class GodotClient {
     }
     this.helloTimeoutMs = options.helloTimeoutMs ?? DEFAULT_HELLO_TIMEOUT_MS;
     this.onReady = options.onReady;
+    this.onStateChange = options.onStateChange;
     this.projectPath = options.projectPath;
 
     this.transport = createWsTransport({
@@ -145,6 +149,7 @@ export class GodotClient {
     this.transportEventUnsub?.();
     this.transportEventUnsub = null;
     this.transport.close();
+    this.onStateChange?.(this.state_); // 状态面板感知优雅停机（review）
   }
 
   /** 订阅 Provider 下行事件（editor.selection_changed 等）。transport 重建后自动重绑。 */
@@ -197,6 +202,7 @@ export class GodotClient {
       default:
         break;
     }
+    this.onStateChange?.(this.state_);
   }
 
   /** 认证握手：成功 → ready + epoch+1 + onReady；失败 → 日志（传输层负责重连）。 */

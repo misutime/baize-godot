@@ -21,6 +21,9 @@ export default defineConfig({
     outDir: "dist",
   },
   server: {
+    // 固定 IPv4 loopback：vite 默认 localhost 在部分环境解析为 ::1（IPv6），
+    // 与 dev 脚本 wait-on tcp:127.0.0.1:5173 的检查不一致 → wait-on 永不通过、electron 不启动。
+    host: "127.0.0.1",
     port: 5173,
     strictPort: true,
   },
