@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ops.h"
 
+#include "editor/editor_data.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
@@ -43,6 +44,51 @@ Dictionary Ops::h_get_state(const Dictionary &p_args) {
 	result["can_undo"] = EditorUndoRedoManager::get_singleton()->has_undo();
 	result["can_redo"] = EditorUndoRedoManager::get_singleton()->has_redo();
 	return _ok(result);
+}
+
+Dictionary Ops::h_select_node(const Dictionary &p_args) {
+	// 路径守卫（与 _resolve_node3d 同规则，但接受任意 Node——选中不限于 Node3D）。
+	const String p_path = p_args["node_path"];
+	if (p_path.begins_with("/") || p_path.begins_with("//")) {
+		return _err("invalid_params", "禁止绝对路径: " + p_path);
+	}
+	const Vector<String> segs = p_path.split("/");
+	for (const String &seg : segs) {
+		if (seg == "..") {
+			return _err("invalid_params", "禁止路径逃逸（..）: " + p_path);
+		}
+	}
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
+	if (!root) {
+		return _err("no_scene", "当前没有打开的编辑场景");
+	}
+	Node *target = p_path == "." ? root : root->get_node_or_null(NodePath(p_path));
+	if (!target || (target != root && !root->is_ancestor_of(target))) {
+		return _err("invalid_node", "找不到节点: " + p_path);
+	}
+	// 替换选择（与人工点击一致）：清空 → 选中 → update（触发 selection_changed 全链路）。
+	EditorSelection *sel = EditorNode::get_singleton()->get_editor_selection();
+	sel->clear();
+	sel->add_node(target);
+	sel->update();
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_undo(const Dictionary &p_args) {
+	const bool ok = EditorUndoRedoManager::get_singleton()->undo();
+	if (!ok) {
+		return _err("nothing_to_undo", "没有可撤销的操作");
+	}
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_redo(const Dictionary &p_args) {
+	const bool ok = EditorUndoRedoManager::get_singleton()->redo();
+	if (!ok) {
+		return _err("nothing_to_redo", "没有可重做的操作");
+	}
+	return _ok(Dictionary());
 }
 
 Dictionary Ops::h_get_node_position(const Dictionary &p_args) {

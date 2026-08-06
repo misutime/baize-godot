@@ -121,6 +121,11 @@ export class GodotClient {
     this.transport.close();
   }
 
+  /** 订阅 Provider 下行事件（editor.selection_changed 等）。返回退订函数。 */
+  onEvent(listener: (method: string, params: unknown) => void): () => void {
+    return this.transport.onEvent(listener);
+  }
+
   get epoch(): number {
     return this.epoch_;
   }

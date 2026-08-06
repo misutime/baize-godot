@@ -22,6 +22,9 @@ class Ops {
 public:
 	// Registry handler（薄转发）。
 	static Dictionary h_get_state(const Dictionary &p_args);
+	static Dictionary h_select_node(const Dictionary &p_args);
+	static Dictionary h_undo(const Dictionary &p_args);
+	static Dictionary h_redo(const Dictionary &p_args);
 	static Dictionary h_get_node_position(const Dictionary &p_args);
 	static Dictionary h_set_node_position(const Dictionary &p_args);
 

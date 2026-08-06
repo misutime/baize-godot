@@ -46,6 +46,13 @@ export interface SceneChangedPayload {
   scene_path: string;
 }
 
+export interface EditorStatePayload {
+  has_scene: boolean;
+  selection: string[];
+  can_undo: boolean;
+  can_redo: boolean;
+}
+
 /** 客户端实例：能力方法 + 事件订阅（绑定给定 transport）。 */
 export interface GodotClient {
   scene: {
@@ -55,6 +62,8 @@ export interface GodotClient {
     set_node_position: (params: { node_path: string; position: Vec3 }) => Promise<Record<string, never>>;
   };
   editor: {
+    get_state: () => Promise<EditorStatePayload>;
+    select_node: (params: { node_path: string }) => Promise<Record<string, never>>;
     undo: () => Promise<Record<string, never>>;
     redo: () => Promise<Record<string, never>>;
     on_selection_changed: (listener: (payload: SelectionChangedPayload) => void) => () => void;
@@ -79,6 +88,8 @@ export function createClient(transport: Transport): GodotClient {
       ),
     },
     editor: {
+      get_state: defineMethod<EmptyParams, EditorStatePayload>(transport, "editor.get_state"),
+      select_node: defineMethod<{ node_path: string }, Record<string, never>>(transport, "editor.select_node"),
       undo: defineMethod<EmptyParams, Record<string, never>>(transport, "editor.undo"),
       redo: defineMethod<EmptyParams, Record<string, never>>(transport, "editor.redo"),
       on_selection_changed: defineEvent<SelectionChangedPayload>(transport, "editor.selection_changed"),

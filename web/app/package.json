@@ -1,0 +1,41 @@
+{
+  "name": "@baize/app",
+  "version": "0.1.0",
+  "description": "baize-godot 编辑器 Electron 应用（渲染进程 React UI + 主进程 godot-process）",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"tsdown -c tsdown.config.main.ts --watch\" \"tsdown -c tsdown.config.preload.ts --watch\" \"wait-on tcp:127.0.0.1:5173 dist-electron/main.js dist-electron/preload.cjs && cross-env NODE_ENV=development electron .\"",
+    "build": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsdown -c tsdown.config.main.ts && tsdown -c tsdown.config.preload.ts && vite build",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@baize/godot-process": "workspace:*",
+    "@baize/godot-rpc": "workspace:*",
+    "@baize/godot-sdk": "workspace:*",
+    "clsx": "^2.1.1",
+    "radix-ui": "^1.6.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.0.0",
+    "class-variance-authority": "latest",
+    "lucide-react": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^43.3.0",
+    "tailwindcss": "^4.3.3",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "wait-on": "^8.0.0"
+  }
+}

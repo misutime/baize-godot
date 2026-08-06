@@ -17,7 +17,8 @@ export interface IpcTransportDeps {
 
 /** 创建基于 Electron IPC 的 Transport（配对在主进程，此处为纯转发）。 */
 export function createIpcTransport(deps: IpcTransportDeps): Transport {
-  const log = deps.log ?? (() => {});
+  // 多订阅集合：多个事件（selection/position 等）可并存——不能用单订阅覆盖
+  const listeners = new Set<(method: string, params: unknown) => void>();
   let eventUnsub: (() => void) | null = null;
 
   return {
@@ -26,19 +27,26 @@ export function createIpcTransport(deps: IpcTransportDeps): Transport {
       return result as T;
     },
     onEvent(listener) {
-      if (eventUnsub) {
-        log("[ipc] onEvent 重复订阅：先退订旧监听");
-        eventUnsub();
+      listeners.add(listener);
+      if (!eventUnsub) {
+        eventUnsub = deps.onEvent((method, params) => {
+          for (const l of listeners) {
+            l(method, params);
+          }
+        });
       }
-      eventUnsub = deps.onEvent(listener);
       return () => {
-        eventUnsub?.();
-        eventUnsub = null;
+        listeners.delete(listener);
+        if (listeners.size === 0 && eventUnsub) {
+          eventUnsub();
+          eventUnsub = null;
+        }
       };
     },
     close() {
       eventUnsub?.();
       eventUnsub = null;
+      listeners.clear();
     },
   };
 }

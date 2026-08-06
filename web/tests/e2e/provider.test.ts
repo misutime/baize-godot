@@ -113,6 +113,32 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
     }
   });
 
+  it("选中/undo/redo：select_node + set_node_position 后 undo 回退、redo 恢复", async () => {
+    const sdk = await connectSdk();
+    try {
+      const before = await sdk.scene.get_node_position({ node_path: "./Cube" });
+      await sdk.editor.select_node({ node_path: "./Cube" });
+      const state = await sdk.editor.get_state();
+      expect(state.selection).toContain("Cube");
+
+      await sdk.scene.set_node_position({ node_path: "./Cube", position: { x: 11, y: 12, z: 13 } });
+      expect(await sdk.scene.get_node_position({ node_path: "./Cube" })).toEqual({ x: 11, y: 12, z: 13 });
+
+      await sdk.editor.undo();
+      expect(await sdk.scene.get_node_position({ node_path: "./Cube" })).toEqual(before); // undo 回退
+
+      await sdk.editor.redo();
+      expect(await sdk.scene.get_node_position({ node_path: "./Cube" })).toEqual({ x: 11, y: 12, z: 13 }); // redo 恢复
+
+      // 还原场景位置
+      await sdk.editor.undo();
+      await sdk.scene.set_node_position({ node_path: "./Cube", position: before });
+      await sdk.editor.undo(); // 撤销还原操作
+    } finally {
+      sdk.close();
+    }
+  });
+
   it("错误契约：路径逃逸/不存在节点/未注册方法/溢出数字", async () => {
     const sdk = await connectSdk();
     try {

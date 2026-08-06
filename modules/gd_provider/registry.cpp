@@ -55,6 +55,9 @@ void Registry::_register_all() {
 	register_method("editor.get_state", "编辑器状态（场景/选中/undo 栈）", _schema({}, {}), Ops::h_get_state);
 
 	const Dictionary node_path_param = _str_param("场景相对路径（\".\" = 根；禁止绝对路径/..）");
+	register_method("editor.select_node", "选中场景节点（与人工点击一致，走 EditorSelection）", _schema({ { "node_path", node_path_param } }, { "node_path" }), Ops::h_select_node);
+	register_method("editor.undo", "撤销上一步", _schema({}, {}), Ops::h_undo);
+	register_method("editor.redo", "重做上一步", _schema({}, {}), Ops::h_redo);
 	register_method("scene.get_node_position", "读取 Node3D 位置 {x,y,z}", _schema({ { "node_path", node_path_param } }, { "node_path" }), Ops::h_get_node_position);
 
 	Dictionary position_props;
