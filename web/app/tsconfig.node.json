@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["electron/**/*.ts", "tsdown.config.*.ts"]
+  "include": ["electron/**/*.ts", "src/shared/**/*.ts", "vite.config.ts", "playwright.config.ts"]
 }
