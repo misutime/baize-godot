@@ -100,7 +100,7 @@ flowchart LR
 
 `vite.config.ts` 内 `electronSimple` 同时构建 main/preload：
 
-- **dev**：`vite` 一条命令——构建 main/preload（watch）→ 起渲染 dev server → 注入 `VITE_DEV_SERVER_URL` → 自动拉起 electron；main/preload 改动自动重建并重启 electron。渲染层加载 dev server（HMR）。
+- **dev**：`vite` 一条命令——构建 main/preload（watch）→ 起渲染 dev server → 注入 `VITE_DEV_SERVER_URL` → 自动拉起 electron；**main 改动自动重建并重启 electron，preload 改动重建后触发渲染层 reload**（vite full-reload 让页面重新执行 preload）。渲染层加载 dev server（HMR）。
 - **build**：`vite build`——渲染层 → `dist/`，main/preload（压缩）→ `dist-electron/`。
 - **start**：`electron .` 读 `package.json main` → `dist-electron/main/index.js` → `loadFile(dist/index.html)`（无 `VITE_DEV_SERVER_URL` 即生产路径）。
 - 打包策略：`@baize/*` 为 TS 源码 exports（`exports` 直指 `src/`），**必须打进 main bundle**（仅外置 `electron`）；node 内置模块自动外部。

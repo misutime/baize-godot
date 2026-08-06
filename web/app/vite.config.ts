@@ -9,7 +9,7 @@ import { electronSimple } from "vite-plugin-electron/multi-env";
  * 单配置构建链（借鉴 electron-vite-react 模板）：
  * - 渲染进程：vite 标准（React + Tailwind 4）；
  * - 主进程/preload：vite-plugin-electron（electronSimple）同配置构建到 dist-electron/，
- *   dev 自动拉起 electron 并注入 VITE_DEV_SERVER_URL，main/preload 改动自动重启；
+ *   dev 自动拉起 electron 并注入 VITE_DEV_SERVER_URL，main 改动自动重启，preload 改动触发渲染层 reload；
  * - @baize/* workspace 包是 TS 源码 exports，必须打进主进程产物（不外部化），
  *   仅 electron 保持外部（运行时由 Electron 提供）；node: 内置模块自动外部。
  */
