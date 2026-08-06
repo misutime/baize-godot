@@ -55,6 +55,10 @@ export class GodotClient {
   /** 成功握手次数（每次成功连接 +1）。 */
   private epoch_ = 0;
   private disposed = false;
+  /** 用户事件监听器集合：transport 重建后重新绑定（review 回归） */
+  private readonly eventListeners = new Set<(method: string, params: unknown) => void>();
+  /** 当前 transport 的事件退订（重建时清理） */
+  private transportEventUnsub: (() => void) | null = null;
 
   constructor(options: GodotClientOptions = {}) {
     const url = options.url ?? process.env.BAIZE_GODOT_WS_URL ?? "";
@@ -78,12 +82,19 @@ export class GodotClient {
       onStateChange: (state) => this.handleTransportState(state),
       log: (msg) => console.log(`[godot] ${msg}`),
     });
+    this.bindTransportEvents();
+  }
 
-    // Provider stop() 下行 shutdown 通知 → 立即 dispose（停止重连循环）
-    this.transport.onEvent((method) => {
+  /** 绑定/重绑事件分发到当前 transport（重建后调用；listener 集合不丢失——review 回归）。 */
+  private bindTransportEvents(): void {
+    this.transportEventUnsub?.();
+    this.transportEventUnsub = this.transport.onEvent((method, params) => {
       if (method === "shutdown" && !this.disposed) {
         console.log("[godot] 收到 shutdown 通知，停止连接循环");
         this.dispose();
+      }
+      for (const listener of this.eventListeners) {
+        listener(method, params);
       }
     });
   }
@@ -102,12 +113,7 @@ export class GodotClient {
         onStateChange: (state) => this.handleTransportState(state),
         log: (msg) => console.log(`[godot] ${msg}`),
       });
-      this.transport.onEvent((method) => {
-        if (method === "shutdown" && !this.disposed) {
-          console.log("[godot] 收到 shutdown 通知，停止连接循环");
-          this.dispose();
-        }
-      });
+      this.bindTransportEvents(); // 重建后重绑用户 listener（review 回归）
     }
     console.log(`[godot] 连接 Godot WS`);
     this.state_ = "connecting";
@@ -135,12 +141,18 @@ export class GodotClient {
     this.disposed = true;
     this.ready = false;
     this.state_ = "disposed";
+    this.eventListeners.clear();
+    this.transportEventUnsub?.();
+    this.transportEventUnsub = null;
     this.transport.close();
   }
 
-  /** 订阅 Provider 下行事件（editor.selection_changed 等）。返回退订函数。 */
+  /** 订阅 Provider 下行事件（editor.selection_changed 等）。transport 重建后自动重绑。 */
   onEvent(listener: (method: string, params: unknown) => void): () => void {
-    return this.transport.onEvent(listener);
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
   }
 
   get epoch(): number {
