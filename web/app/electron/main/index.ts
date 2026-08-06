@@ -31,6 +31,9 @@ app.on("second-instance", () => {
       state.mainWindow.restore();
     }
     state.mainWindow.focus();
+  } else {
+    // macOS window-all-closed 不退出：窗口全关后仍持有单实例锁，第二实例需重建窗口（activate 不保证触发）。
+    createWindow();
   }
 });
 
