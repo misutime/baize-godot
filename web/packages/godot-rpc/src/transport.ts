@@ -14,6 +14,8 @@ export interface Transport {
   close(): void;
   /** 重置重连预算（上层认证/会话成功后调用；no-op 实现可省略语义）。 */
   resetReconnectBudget?(): void;
+  /** 断开当前连接并触发重连（认证失败等场景；不置终态，区别于 close）。 */
+  disconnectReconnect?(): void;
 }
 
 /** 连接状态（ws 传输上报，供上层显示/重连编排）。 */

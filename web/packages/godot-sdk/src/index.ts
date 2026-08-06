@@ -56,8 +56,6 @@ export interface EditorStatePayload {
 /** 客户端实例：能力方法 + 事件订阅（绑定给定 transport）。 */
 export interface GodotClient {
   scene: {
-    get_node_count: () => Promise<number>;
-    create_node: (params: { name: string }) => Promise<number>;
     get_node_position: (params: { node_path: string }) => Promise<Vec3>;
     set_node_position: (params: { node_path: string; position: Vec3 }) => Promise<Record<string, never>>;
   };
@@ -79,8 +77,6 @@ export interface GodotClient {
 export function createClient(transport: Transport): GodotClient {
   return {
     scene: {
-      get_node_count: defineMethod<EmptyParams, number>(transport, "scene.get_node_count"),
-      create_node: defineMethod<{ name: string }, number>(transport, "scene.create_node"),
       get_node_position: defineMethod<{ node_path: string }, Vec3>(transport, "scene.get_node_position"),
       set_node_position: defineMethod<{ node_path: string; position: Vec3 }, Record<string, never>>(
         transport,

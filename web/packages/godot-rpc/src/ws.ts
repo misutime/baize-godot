@@ -31,7 +31,8 @@ export function createWsTransport(options: WsTransportOptions): Transport {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0; // 防旧连接回调穿越（关闭旧连接后忽略其事件）
   // 事件监听器：连接建立/重连后绑定到当前 RpcClient（未连接时订阅不丢失）
-  const eventListeners = new Set<(method: string, params: unknown) => void>();
+  // listener → rpc 退订函数映射（退订时同时断开 rpc 侧，防旧监听残留——review P2）
+  const eventListeners = new Map<(method: string, params: unknown) => void, () => void>();
   // 未连接时的请求队列：连接建立后自动发送（调用方不关心连接时序）；断线/关闭时确定性拒绝
   interface QueuedCall {
     method: string;
@@ -61,8 +62,11 @@ export function createWsTransport(options: WsTransportOptions): Transport {
   }
 
   function bindEventListeners(): void {
-    for (const listener of eventListeners) {
-      rpc?.onNotification(listener);
+    for (const [listener] of eventListeners) {
+      const unsub = rpc?.onNotification(listener);
+      if (unsub) {
+        eventListeners.set(listener, unsub);
+      }
     }
   }
 
@@ -81,6 +85,7 @@ export function createWsTransport(options: WsTransportOptions): Transport {
 
   function scheduleReconnect(): void {
     if (closed || reconnectCount >= maxReconnects) {
+      rejectQueue("重连达上限"); // 排队请求确定性拒绝（不悬挂到超时）
       setState("failed");
       return;
     }
@@ -155,8 +160,12 @@ export function createWsTransport(options: WsTransportOptions): Transport {
       if (closed) {
         return Promise.reject(new Error("传输已关闭"));
       }
-      if (rpc) {
+      if (rpc && ws?.readyState === WebSocket.OPEN) {
         return rpc.invoke<T>(method, params, timeoutMs);
+      }
+      if (rpc) {
+        rpc.failAllPending("连接关闭（CLOSING 竞态）");
+        rpc = null;
       }
       // 未连接：排队（连接建立后发送）；超时兜底（默认 10s）
       return new Promise<T>((resolve, reject) => {
@@ -171,14 +180,30 @@ export function createWsTransport(options: WsTransportOptions): Transport {
       });
     },
     onEvent(listener) {
-      eventListeners.add(listener);
-      rpc?.onNotification(listener); // 已连接：立即绑定
+      if (!eventListeners.has(listener)) {
+        const unsub = rpc?.onNotification(listener); // 已连接：立即绑定
+        eventListeners.set(listener, unsub ?? (() => {}));
+      }
       return () => {
+        eventListeners.get(listener)?.(); // 退订 rpc 侧（防旧监听残留）
         eventListeners.delete(listener);
       };
     },
     resetReconnectBudget(): void {
       reconnectCount = 0;
+    },
+    disconnectReconnect(): void {
+      if (closed || !ws) {
+        return;
+      }
+      // 断开当前 socket：onclose 正常触发（gen 不变）→ failPending + scheduleReconnect（不置 closed）
+      const socket = ws;
+      ws = null;
+      socket.onclose = null;
+      socket.close();
+      failPending("认证失败，主动重连");
+      rpc = null;
+      scheduleReconnect();
     },
     close(): void {
       closed = true;
@@ -186,6 +211,10 @@ export function createWsTransport(options: WsTransportOptions): Transport {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      for (const [, unsub] of eventListeners) {
+        unsub();
+      }
+      eventListeners.clear();
       rejectQueue("传输已关闭");
       if (rpc) {
         rpc.dispose();

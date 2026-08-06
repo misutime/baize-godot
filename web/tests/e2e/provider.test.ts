@@ -16,7 +16,12 @@ import { GodotClient } from "../../packages/godot-process/src/godot-client.ts";
 import { createWsTransport } from "../../packages/godot-rpc/src/index.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-const GODOT_EXE = `${REPO_ROOT}bin/godot.windows.editor.dev.x86_64.console.exe`;
+// 跨平台 exe（review P2）：与 Taskfile 的 GODOT_EXE 规则一致
+const GODOT_EXE = `${REPO_ROOT}bin/${
+  process.platform === "win32"
+    ? "godot.windows.editor.dev.x86_64.console.exe"
+    : "godot.macos.editor.dev.arm64"
+}`;
 const TEST_PROJECT = `${REPO_ROOT}test-projects/provider`;
 const PROVIDER_URL = "ws://127.0.0.1:23009";
 
@@ -64,7 +69,7 @@ async function connectSdk(): Promise<ReturnType<typeof createClient> & { close: 
 
 describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
   beforeAll(async () => {
-    child = spawn(GODOT_EXE, ["--path", TEST_PROJECT, "--editor", "--headless"], {
+    child = spawn(GODOT_EXE, ["--path", TEST_PROJECT, "--editor", "--headless", "res://main.tscn"], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -142,21 +147,41 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
   it("错误契约：路径逃逸/不存在节点/未注册方法/溢出数字", async () => {
     const sdk = await connectSdk();
     try {
-      const expectErr = async (fn: () => Promise<unknown>, code: string) => {
+      // 同时断言 JSON-RPC 数值码（-32601/-32602/-32000）与内部字符串码（review P3 测试缺口）
+      const expectErr = async (
+        fn: () => Promise<unknown>,
+        code: number,
+        internalCode: string,
+      ): Promise<boolean> => {
         try {
           await fn();
           return false;
         } catch (e) {
-          const err = e as { data?: { code?: string }; message?: string };
-          return err.data?.code === code || err.message?.includes(code);
+          const err = e as { code?: number; data?: { code?: string }; message?: string };
+          return err.code === code && (err.data?.code === internalCode || err.message?.includes(internalCode));
         }
       };
-      expect(await expectErr(() => sdk.scene.get_node_position({ node_path: "../escape" }), "invalid_params")).toBe(true);
-      expect(await expectErr(() => sdk.scene.get_node_position({ node_path: "./Nope" }), "invalid_node")).toBe(true);
-      expect(await expectErr(() => sdk.transport.request("nope.method", {}), "method_not_found")).toBe(true);
+      expect(
+        await expectErr(() => sdk.scene.get_node_position({ node_path: "../escape" }), -32602, "invalid_params"),
+      ).toBe(true);
+      expect(
+        await expectErr(() => sdk.scene.get_node_position({ node_path: "./Nope" }), -32000, "invalid_node"),
+      ).toBe(true);
+      expect(
+        await expectErr(() => sdk.transport.request("nope.method", {}), -32601, "method_not_found"),
+      ).toBe(true);
       expect(
         await expectErr(
           () => sdk.scene.set_node_position({ node_path: "./Cube", position: { x: 1e400, y: 0, z: 0 } }),
+          -32602,
+          "invalid_params",
+        ),
+      ).toBe(true);
+      // 有限 double 但单精度溢出（1e308 → float Inf）：必须拒绝（review P1 测试缺口）
+      expect(
+        await expectErr(
+          () => sdk.scene.set_node_position({ node_path: "./Cube", position: { x: 1e308, y: 0, z: 0 } }),
+          -32602,
           "invalid_params",
         ),
       ).toBe(true);

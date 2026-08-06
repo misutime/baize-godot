@@ -24,7 +24,10 @@ const GODOT_EXE = resolve(
     : "bin/godot.macos.editor.dev.arm64",
 );
 const DEFAULT_PROJECT = resolve(REPO_ROOT, "test-projects/provider");
-const PROVIDER_URL = "ws://127.0.0.1:23009";
+// 端口/token 与 Provider 同源（env；缺省 dev 宽松）——review P2
+const PROVIDER_PORT = process.env.BAIZE_PROVIDER_PORT ?? "23009";
+const PROVIDER_URL = `ws://127.0.0.1:${PROVIDER_PORT}`;
+const PROVIDER_TOKEN = process.env.BAIZE_PROVIDER_TOKEN ?? "";
 // 渲染进程 dev server（vite）端口；prod 用 dist/ 产物
 const RENDERER_DEV_URL = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173";
 
@@ -57,7 +60,15 @@ function startGodot(): void {
 
 function setupIpc(): void {
   // 渲染进程 → Provider：经主进程转发（token/端口不出渲染进程）
-  ipcMain.handle("godot:request", async (_e, method: string, params: unknown) => {
+  // 方法白名单：只允许能力面命名空间（review P2：防任意方法调用）
+  const ALLOWED_METHOD_PREFIXES = ["scene.", "editor."];
+  ipcMain.handle("godot:request", async (e, method: string, params: unknown) => {
+    if (!ALLOWED_METHOD_PREFIXES.some((p) => typeof method === "string" && method.startsWith(p))) {
+      throw new Error(`方法不在白名单: ${String(method)}`);
+    }
+    if (e.senderFrame?.url.startsWith("file://") !== true && !e.senderFrame?.url.startsWith("http://localhost")) {
+      throw new Error("拒绝非本应用窗口的请求");
+    }
     if (!client) {
       throw new Error("Godot 未连接");
     }
@@ -106,7 +117,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   startGodot();
   // Provider 启动需要几秒（编辑器核心初始化）——GodotClient 带退避重连，无需显式等待
-  client = new GodotClient({ url: PROVIDER_URL, token: "" });
+  client = new GodotClient({ url: PROVIDER_URL, token: PROVIDER_TOKEN });
   setupIpc();
   createWindow();
 

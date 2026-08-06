@@ -44,11 +44,23 @@ export default function App(): React.JSX.Element {
       const s = await client.editor.get_state();
       setState(s);
       if (s.selection.length > 0) {
-        const pos = await client.scene.get_node_position({ node_path: s.selection[0] });
-        setPosition(pos);
-        // 编辑框只在选中变化/首次加载时初始化；位置事件（position_changed）不覆盖用户输入
-        if (options?.resetEditing ?? true) {
-          setEditing(pos);
+        try {
+          const pos = await client.scene.get_node_position({ node_path: s.selection[0] });
+          setPosition(pos);
+          // 编辑框只在选中变化/首次加载时初始化；位置事件（position_changed）不覆盖用户输入
+          if (options?.resetEditing ?? true) {
+            setEditing(pos);
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/invalid_node/.test(msg)) {
+            // 选中非 Node3D：隐藏位置编辑，不报错、不轮询（review UX）
+            setPosition(null);
+            setEditing(null);
+          } else {
+            setError(msg);
+            return false;
+          }
         }
       } else {
         setPosition(null);
@@ -92,6 +104,15 @@ export default function App(): React.JSX.Element {
     };
   }, []);
 
+  const runAction = async (action: () => Promise<unknown>): Promise<void> => {
+    try {
+      await action();
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const applyPosition = async (): Promise<void> => {
     if (!selectedPath || !editing) {
       return;
@@ -118,13 +139,13 @@ export default function App(): React.JSX.Element {
             <Button variant="outline" size="sm" onClick={() => void refresh()}>
               刷新
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void client.editor.select_node({ node_path: "./Cube" })}>
+            <Button variant="outline" size="sm" onClick={() => void runAction(() => client.editor.select_node({ node_path: "./Cube" }))}>
               选中 ./Cube
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void client.editor.undo()}>
+            <Button variant="outline" size="sm" onClick={() => void runAction(() => client.editor.undo())}>
               撤销
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void client.editor.redo()}>
+            <Button variant="outline" size="sm" onClick={() => void runAction(() => client.editor.redo())}>
               重做
             </Button>
           </div>
@@ -171,7 +192,7 @@ export default function App(): React.JSX.Element {
                   />
                 </label>
               ))}
-              <Button onClick={() => void applyPosition()}>应用位置</Button>
+              <Button onClick={() => void runAction(() => applyPosition())}>应用位置</Button>
             </div>
           </section>
         )}

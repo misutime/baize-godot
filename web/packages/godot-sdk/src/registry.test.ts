@@ -33,15 +33,17 @@ describe("createClient", () => {
   it("有参方法 → transport.request（方法名/参数透传）", async () => {
     const { transport, requests } = makeFakeTransport();
     const client = createClient(transport);
-    await client.scene.create_node({ name: "Cube" });
-    expect(requests).toEqual([{ method: "scene.create_node", params: { name: "Cube" }, timeoutMs: undefined }]);
+    await client.scene.set_node_position({ node_path: "./Cube", position: { x: 1, y: 2, z: 3 } });
+    expect(requests).toEqual([
+      { method: "scene.set_node_position", params: { node_path: "./Cube", position: { x: 1, y: 2, z: 3 } }, timeoutMs: undefined },
+    ]);
   });
 
   it("无参方法 → 空参数对象", async () => {
     const { transport, requests } = makeFakeTransport();
     const client = createClient(transport);
-    await client.scene.get_node_count();
-    expect(requests[0].method).toBe("scene.get_node_count");
+    await client.editor.get_state();
+    expect(requests[0].method).toBe("editor.get_state");
     expect(requests[0].params).toEqual({});
   });
 

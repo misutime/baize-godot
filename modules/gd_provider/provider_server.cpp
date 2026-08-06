@@ -73,6 +73,18 @@ void ProviderServer::start() {
 
 void ProviderServer::stop() {
 	stop_frame_pump();
+	// shutdown 通知（P2 review）：告知已认证客户端主动断开（否则 client 只靠断开重连退避）
+	for (Peer &p : peers_) {
+		if (p.authenticated && p.peer.is_valid() && !p.dead) {
+			Dictionary notify;
+			notify["jsonrpc"] = "2.0";
+			notify["method"] = "shutdown";
+			_send(p, notify);
+		}
+	}
+	for (Peer &p : peers_) {
+		_flush_out(p);
+	}
 	if (tcp_server_.is_valid()) {
 		tcp_server_->stop();
 		tcp_server_ = Ref<TCPServer>();
@@ -451,6 +463,7 @@ void ProviderServer::_poll_state_diff() {
 		const ObjectID id = kv.key;
 		if (_tracked_positions_.has(id)) {
 			if (_tracked_positions_[id] != kv.value) {
+				_tracked_positions_[id] = kv.value; // 更新基线：只发一次变化事件（review P1）
 				Dictionary payload;
 				payload["node_path"] = String(root->get_path_to(Object::cast_to<Node>(ObjectDB::get_instance(id))));
 				Dictionary pos;

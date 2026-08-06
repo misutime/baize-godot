@@ -42,7 +42,8 @@ export interface GodotClientOptions {
 }
 
 export class GodotClient {
-  private readonly transport: Transport;
+  private readonly options: GodotClientOptions;
+  private transport: Transport;
   private readonly token: string;
   private readonly helloTimeoutMs: number;
   private readonly onReady?: (client: GodotClient, hello: HelloResult) => void;
@@ -58,6 +59,7 @@ export class GodotClient {
   constructor(options: GodotClientOptions = {}) {
     const url = options.url ?? process.env.BAIZE_GODOT_WS_URL ?? "";
     this.token = options.token ?? process.env.BAIZE_GODOT_TOKEN ?? "";
+    this.options = options;
     if (url === "") {
       throw new Error("缺少 BAIZE_GODOT_WS_URL：GodotClient 需要 Godot WS 地址");
     }
@@ -86,13 +88,28 @@ export class GodotClient {
     });
   }
 
-  /** 启动连接循环（幂等）：传输层在创建时已开始连接，本方法仅重置状态供 failed 后重试。 */
+  /** 启动连接循环（幂等）：failed/closed 后重建 transport 重新连接（review P2）。 */
   connect(): void {
-    if (this.disposed || (this.state_ !== "idle" && this.state_ !== "failed")) {
+    if (this.disposed || this.state_ === "connecting" || this.state_ === "connected" || this.state_ === "reconnecting") {
       return;
     }
+    if (this.state_ === "failed" || this.state_ === "disposed") {
+      this.transport.close();
+      this.transport = createWsTransport({
+        url: this.options.url ?? process.env.BAIZE_GODOT_WS_URL ?? "",
+        backoffSeconds: this.options.backoffSeconds,
+        maxReconnects: this.options.maxReconnects ?? DEFAULT_MAX_RECONNECTS,
+        onStateChange: (state) => this.handleTransportState(state),
+        log: (msg) => console.log(`[godot] ${msg}`),
+      });
+      this.transport.onEvent((method) => {
+        if (method === "shutdown" && !this.disposed) {
+          console.log("[godot] 收到 shutdown 通知，停止连接循环");
+          this.dispose();
+        }
+      });
+    }
     console.log(`[godot] 连接 Godot WS`);
-    // 传输层构造即连；failed 后由上层重新 createWsTransport 或等待下次握手路径
     this.state_ = "connecting";
   }
 
@@ -207,7 +224,12 @@ export class GodotClient {
       } else {
         console.error("[godot] 握手失败:", err instanceof Error ? err.message : String(err));
       }
-      // 握手失败由传输层退避重连；此处仅记录（token 明文不落日志）
+      // 握手失败：断开当前连接触发重连（错误 token 由 Provider 断开；超时/ok=false 需自断——
+      // 恢复原 closeForReconnect 语义，review P2；不置终态，重连预算由传输层管理）
+      if (!this.disposed) {
+        this.ready = false;
+        this.transport.disconnectReconnect?.();
+      }
     }
   }
 }
