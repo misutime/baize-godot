@@ -17,9 +17,6 @@ importers:
       '@baize/godot-rpc':
         specifier: workspace:*
         version: link:../godot-rpc
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.2
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -39,14 +36,24 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.2
 
   packages/godot-rpc:
     devDependencies:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@2.0.0)(tsx@4.23.5)
 
   packages/godot-sdk:
+    dependencies:
+      '@baize/godot-rpc':
+        specifier: workspace:*
+        version: link:../godot-rpc
     devDependencies:
       '@types/react':
         specifier: ^19.0.0

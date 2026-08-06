@@ -1,17 +1,17 @@
 {
   "name": "@baize/godot-sdk",
   "version": "0.1.0",
-  "description": "WebDock 桥协议 SDK：CefViewClient 传输层 + 类型化方法/事件注册表 + React hooks（协议见 doc/plans/WebUI架构-桥协议与前端SDK.md §3）",
+  "description": "能力面客户端：方法绑定 + 事件订阅 + react hooks（transport 由调用方注入，零传输依赖）",
   "type": "module",
   "license": "MIT",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     },
     "./react": {
-      "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
+      "types": "./src/react.ts",
+      "import": "./src/react.ts"
     }
   },
   "files": [
@@ -37,5 +37,8 @@
     "typescript": "^5.9.0",
     "vite": "^8.0.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@baize/godot-rpc": "workspace:*"
   }
 }

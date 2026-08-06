@@ -1,87 +1,66 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { editor, scene } from "./index";
-import { _resetTransportForTest, _setBridgeClientForTest, type CefViewClientLike } from "./transport";
+/**
+ * createClient/defineMethod/defineEvent 绑定语义（transport 注入式）。
+ */
+import { describe, expect, it } from "vitest";
+import type { Transport } from "@baize/godot-rpc";
 
-function makeFakeBridge() {
-  const listeners = new Map<string, Array<(payloadJson: string) => void>>();
-  const invoked: Array<{ method: string; argsJson: string }> = [];
-  const bridge: CefViewClientLike = {
-    invoke: (method, argsJson) => {
-      invoked.push({ method, argsJson });
+import { createClient } from "./index";
+
+/** 假 transport：记录请求 + 可触发事件。 */
+function makeFakeTransport() {
+  const requests: Array<{ method: string; params: unknown; timeoutMs?: number }> = [];
+  const listeners = new Set<(method: string, params: unknown) => void>();
+  const transport: Transport = {
+    request: async <T>(_method: string, params?: unknown, timeoutMs?: number): Promise<T> => {
+      requests.push({ method: _method, params, timeoutMs });
+      return { ok: true } as T;
     },
-    addEventListener: (type, listener) => {
-      const list = listeners.get(type) ?? [];
-      list.push(listener);
-      listeners.set(type, list);
+    onEvent: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
-    removeEventListener: (type, listener) => {
-      const list = listeners.get(type) ?? [];
-      listeners.set(
-        type,
-        list.filter((l) => l !== listener),
-      );
-    },
+    close: () => {},
   };
-  const emit = (type: string, payloadJson: string): void => {
-    for (const listener of listeners.get(type) ?? []) {
-      listener(payloadJson);
+  const emit = (method: string, params: unknown): void => {
+    for (const l of listeners) {
+      l(method, params);
     }
   };
-  return { bridge, invoked, emit };
+  return { transport, requests, emit };
 }
 
-beforeEach(() => {
-  _resetTransportForTest();
-  _setBridgeClientForTest(null);
-});
-
-// 表驱动：shipped 的 scene/editor 注册表与协议 §3.3 一一对应（防错绑协议名）。
-// 注：事件注册表类型用别名而非内联嵌套箭头类型——esbuild(vitest transform) 对
-// `as Array<[string, (l: (p: unknown) => void) => () => void]>(` 的解析会误报。
-type MethodTableEntry = [string, () => Promise<unknown>];
-type EventTableEntry = [string, (listener: (payload: unknown) => void) => () => void];
-
-describe("shipped 方法注册表", () => {
-  it.each([
-    ["scene.get_node_count", () => scene.getNodeCount()],
-    ["scene.create_node", () => scene.createNode({ name: "WebNode" })],
-    ["scene.get_node_position", () => scene.getNodePosition({ node_path: "WebNode" })],
-    [
-      "scene.set_node_position",
-      () => scene.setNodePosition({ node_path: "WebNode", position: { x: 1, y: 2, z: 3 } }),
-    ],
-    ["editor.undo", () => editor.undo()],
-    ["editor.redo", () => editor.redo()],
-    ["editor.get_ui_font_size", () => editor.getUiFontSize()],
-    ["editor.get_ui_scale", () => editor.getUiScale()],
-    ["editor.get_ui_font", () => editor.getUiFont()],
-    ["editor.get_ui_font_bold", () => editor.getUiFontBold()],
-  ] as MethodTableEntry[])("方法 %s 发出正确协议名", (protocolName, call) => {
-    const { bridge, invoked } = makeFakeBridge();
-    _setBridgeClientForTest(bridge);
-    call();
-    expect(invoked[0].method).toBe(protocolName);
-    expect(JSON.parse(invoked[0].argsJson)).toHaveProperty("req_id");
+describe("createClient", () => {
+  it("有参方法 → transport.request（方法名/参数透传）", async () => {
+    const { transport, requests } = makeFakeTransport();
+    const client = createClient(transport);
+    await client.scene.create_node({ name: "Cube" });
+    expect(requests).toEqual([{ method: "scene.create_node", params: { name: "Cube" }, timeoutMs: undefined }]);
   });
-});
 
-describe("shipped 事件注册表", () => {
-  it.each([
-    ["editor.selection_changed", editor.onSelectionChanged],
-    ["editor.node_position_changed", editor.onPositionChanged],
-    ["editor.undo_stack_changed", editor.onUndoStackChanged],
-    ["editor.scene_changed", editor.onSceneChanged],
-    ["editor.ui_font_size_changed", editor.onUiFontSizeChanged],
-    ["editor.ui_font_changed", editor.onUiFontChanged],
-  ] as EventTableEntry[])("事件 %s 订阅/退订", (protocolName, subscribe) => {
-    const { bridge, emit } = makeFakeBridge();
-    _setBridgeClientForTest(bridge);
-    const received: unknown[] = [];
-    const unsub = subscribe((payload) => received.push(payload));
-    emit(protocolName, JSON.stringify({ ok: true }));
-    expect(received).toHaveLength(1);
+  it("无参方法 → 空参数对象", async () => {
+    const { transport, requests } = makeFakeTransport();
+    const client = createClient(transport);
+    await client.scene.get_node_count();
+    expect(requests[0].method).toBe("scene.get_node_count");
+    expect(requests[0].params).toEqual({});
+  });
+
+  it("事件绑定 → 仅转发同名事件，退订后停止", () => {
+    const { transport, emit } = makeFakeTransport();
+    const client = createClient(transport);
+    const seen: unknown[] = [];
+    const unsub = client.editor.on_selection_changed((p) => seen.push(p));
+    emit("editor.selection_changed", { node_paths: ["/root/A"] });
+    emit("editor.scene_changed", { has_scene: false, scene_path: "" }); // 异名事件不转发
+    expect(seen).toEqual([{ node_paths: ["/root/A"] }]);
     unsub();
-    emit(protocolName, JSON.stringify({ ok: true }));
-    expect(received).toHaveLength(1); // 退订后不再收到
+    emit("editor.selection_changed", { node_paths: ["/root/B"] });
+    expect(seen).toHaveLength(1);
+  });
+
+  it("transport 暴露在实例上（进阶用途）", () => {
+    const { transport } = makeFakeTransport();
+    const client = createClient(transport);
+    expect(client.transport).toBe(transport);
   });
 });

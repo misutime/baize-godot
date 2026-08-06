@@ -1,7 +1,7 @@
 {
   "name": "@baize/godot-process",
   "version": "0.1.0",
-  "description": "Node sidecar：编辑器进程外服务宿主（Agent/LSP/资产工具链）。S0 骨架：JSON-RPC 2.0 编解码/分派/req_id 配对 + echo 服务 + 测试专用本地 WS server",
+  "description": "Electron 主进程宿主：Godot 进程连接/认证/生命周期（spawn 编排 M0 随 Provider 实现）",
   "type": "module",
   "license": "MIT",
   "private": true,
@@ -16,8 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@baize/godot-rpc": "workspace:*",
-    "ws": "^8.21.0"
+    "@baize/godot-rpc": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -25,6 +24,13 @@
     "tsdown": "^0.22.14",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "ws": "^8.21.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
   }
 }

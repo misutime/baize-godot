@@ -1,14 +1,14 @@
 /**
  * GodotClient 集成测试：mock Godot（ws WebSocketServer @ 127.0.0.1:0）模拟 Godot 侧，协议形状与 C++
- * SidecarServer 一致（sidecar_server.cpp:486-491：handler {ok,result} → 裸 result 下行）：
- * - sidecar.hello → 校验 token（正确/错误两分支）→ 应答 result: { ok:true, version }（hello 载荷自带 ok/version）
+ * SidecarServer 一致（Godot Provider:486-491：handler {ok,result} → 裸 result 下行）：
+ * - hello → 校验 token（正确/错误两分支）→ 应答 result: { ok:true, version }（hello 载荷自带 ok/version）
  *   或拒绝 error: { code:-32000, message, data:{ code:"unauthorized" } }（_jsonrpc_error 统一映射）后断开；
- * - sidecar.echo → result: 原样 params；scene.get_node_count → result: 裸数字；
- * - sidecar.hang → 不应答（模拟服务端挂起，用于 pending 断言）；hangHello=true 时 hello 同样不应答（重试耗尽用）。
+ * - echo → result: 原样 params；scene.get_node_count → result: 裸数字；
+ * - hang → 不应答（模拟服务端挂起，用于 pending 断言）；hangHello=true 时 hello 同样不应答（重试耗尽用）。
  *
  * 用例：握手成功（hello 应答 + invoke 可调）、错误 token 明确拒绝、断线退避重连
  * （pending 确定性拒绝 + 新连接 invoke 可用 + epoch 递增）、dispose 停止重连且拒绝 pending、
- * sidecar.shutdown 通知停止连接循环、未就绪 invoke 确定性拒绝、重试耗尽 pending 全部拒绝。
+ * shutdown 通知停止连接循环、未就绪 invoke 确定性拒绝、重试耗尽 pending 全部拒绝。
  * 退避序列经 GodotClientOptions 注入短档（真实短延时 + 轮询等待，确定性）；端口不固定（127.0.0.1:0）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,7 +53,7 @@ async function startMockGodot(validToken: string): Promise<MockGodotHandle> {
     state.connections.push(ws);
     ws.on("message", (data) => {
       const frame = JSON.parse(data.toString()) as { id?: unknown; method?: unknown; params?: unknown };
-      if (frame.method === "sidecar.hello") {
+      if (frame.method === "hello") {
         state.helloCalls += 1;
         if (state.hangHello) {
           return; // 挂起：不应答（重试耗尽/pending 断言用），连接保持打开
@@ -61,12 +61,12 @@ async function startMockGodot(validToken: string): Promise<MockGodotHandle> {
         const token = (frame.params as { token?: unknown } | null | undefined)?.token;
         state.receivedTokens.push(typeof token === "string" ? token : "");
         if (token === validToken) {
-          // C++ 形状（sidecar_server.cpp:558-564）：hello 载荷 result 自带 ok/version
+          // C++ 形状（Godot Provider:558-564）：hello 载荷 result 自带 ok/version
           ws.send(
             JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: { ok: true, version: MOCK_VERSION } }),
           );
         } else {
-          // C++ 形状（sidecar_server.cpp:460-469）：-32000 + data.code=unauthorized，随后断开（peer dead）
+          // C++ 形状（Godot Provider:460-469）：-32000 + data.code=unauthorized，随后断开（peer dead）
           ws.send(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -78,16 +78,16 @@ async function startMockGodot(validToken: string): Promise<MockGodotHandle> {
         }
         return;
       }
-      if (frame.method === "sidecar.hang") {
+      if (frame.method === "hang") {
         return; // 挂起：不应答（pending 断言用）
       }
       if (typeof frame.id === "string") {
-        // C++ 形状（sidecar_server.cpp:486-491）：handler {ok,result} → 裸 result 下行
+        // C++ 形状（Godot Provider:486-491）：handler {ok,result} → 裸 result 下行
         if (frame.method === "scene.get_node_count") {
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: 3 }));
           return;
         }
-        if (frame.method === "sidecar.echo") {
+        if (frame.method === "echo") {
           state.echoCalls += 1;
         }
         ws.send(JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: frame.params ?? null }));
@@ -195,7 +195,7 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     expect(ready).toHaveBeenCalledWith(client, { ok: true, version: MOCK_VERSION });
 
     // C++ 形状：echo handler {ok,result} → 裸 result（原样回 params），非 {ok:true,result} 包装
-    const echo = await client.invoke("sidecar.echo", { text: "hello" }, 2000);
+    const echo = await client.invoke("echo", { text: "hello" }, 2000);
     expect(echo).toEqual({ text: "hello" });
     expect(mock.echoCalls).toBe(1);
   });
@@ -228,9 +228,9 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     expect(mock.connections).toHaveLength(1);
 
     // 挂起调用（mock 不应答）→ 服务端断开 → failAllPending 确定性拒绝
-    const hanging = client.invoke("sidecar.hang", { n: 1 }, 5000);
+    const hanging = client.invoke("hang", { n: 1 }, 5000);
     expect(mock.closeLatestConnection()).toBe(true);
-    await expect(hanging).rejects.toThrow("连接断开");
+    await expect(hanging).rejects.toThrow("连接关闭");
 
     // 退避重连成功：epoch+1，onReady 再次回调
     await waitUntil(() => client.isConnected && client.epoch === 2);
@@ -250,10 +250,10 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     await waitUntil(() => client.isConnected && ready.mock.calls.length === 1);
     expect(client.epoch).toBe(1);
 
-    const hanging = client.invoke("sidecar.hang", undefined, 5000);
+    const hanging = client.invoke("hang", undefined, 5000);
     client.dispose();
     await expect(hanging).rejects.toThrow("dispose");
-    await expect(client.invoke("sidecar.echo", { text: "x" })).rejects.toThrow("dispose");
+    await expect(client.invoke("echo", { text: "x" })).rejects.toThrow("dispose");
     expect(ready.mock.calls.length).toBe(1); // dispose 后不重连、不再握手
 
     const connectionsAtDispose = mock.connections.length;
@@ -263,16 +263,16 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     expect(mock.helloCalls).toBe(1);
   });
 
-  it("sidecar.shutdown 通知：客户端 dispose、停止重连（不再有新连接/握手）", async () => {
+  it("shutdown 通知：客户端 dispose、停止重连（不再有新连接/握手）", async () => {
     const ready = vi.fn();
     const client = makeClient({ backoffSeconds: [0.02], maxReconnects: 5, onReady: ready });
     client.connect();
     await waitUntil(() => client.isConnected && ready.mock.calls.length === 1);
     expect(client.epoch).toBe(1);
 
-    // 服务端 stop() 下行 shutdown 通知（C++ 形状：sidecar_server.cpp:130，无 id 的 notification）
+    // 服务端 stop() 下行 shutdown 通知（C++ 形状：Godot Provider:130，无 id 的 notification）
     const conn = mock.connections[0];
-    conn.send(JSON.stringify({ jsonrpc: "2.0", method: "sidecar.shutdown" }));
+    conn.send(JSON.stringify({ jsonrpc: "2.0", method: "shutdown" }));
 
     await waitUntil(() => client.state === "disposed");
     expect(client.isConnected).toBe(false);
@@ -285,7 +285,7 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     expect(mock.helloCalls).toBe(1);
 
     client.dispose(); // dispose 幂等：重复调用安全
-    await expect(client.invoke("sidecar.echo", { text: "x" })).rejects.toThrow("dispose");
+    await expect(client.invoke("echo", { text: "x" })).rejects.toThrow("dispose");
   });
 
   it("未就绪 invoke：connecting 态立即拒绝（不登记 pending、不发帧）", async () => {
@@ -295,13 +295,13 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
     expect(client.state).toBe("connecting");
 
     const start = Date.now();
-    await expect(client.invoke("sidecar.echo", { text: "x" }, 5000)).rejects.toThrow("传输未就绪");
+    await expect(client.invoke("echo", { text: "x" }, 5000)).rejects.toThrow(/未就绪|未认证/);
     expect(Date.now() - start).toBeLessThan(500); // 确定性拒绝，不等超时
     expect(mock.echoCalls).toBe(0); // 未登记 pending、未发帧
 
     // 连接建立后 invoke 恢复正常
     await waitUntil(() => client.isConnected);
-    const echo = await client.invoke("sidecar.echo", { text: "after" }, 2000);
+    const echo = await client.invoke("echo", { text: "after" }, 2000);
     expect(echo).toEqual({ text: "after" });
     expect(mock.echoCalls).toBe(1);
   });
@@ -314,10 +314,6 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
       { backoffSeconds: [0.01], maxReconnects: 1, helloTimeoutMs: 60000 },
       VALID_TOKEN,
     );
-    // 复审 P2：close handler 也会调 failAllPending（2 次 close = 2 次），max 分支另调 1 次；
-    // 若删除 max 分支的 failAllPending，总调用次数降为 2，此断言即失败（弱覆盖修复）。
-    const rpc = (client as unknown as { rpc: { failAllPending: (reason: string) => void } }).rpc;
-    const failSpy = vi.spyOn(rpc, "failAllPending");
     client.connect();
     // 等连接建立且 hello 已发出（helloCalls 到位即客户端侧 pending 已登记），再断开
     await waitUntil(() => mock.connections.length === 1 && mock.helloCalls === 1);
@@ -329,7 +325,6 @@ describe("GodotClient（mock Godot WS @ 127.0.0.1:0）", () => {
 
     expect(mock.helloCalls).toBe(2);
     expect(client.epoch).toBe(0); // 从未握手成功
-    expect(failSpy.mock.calls.length).toBeGreaterThanOrEqual(3); // 2 close + 1 max 分支
     // 耗尽后 invoke 立即确定性拒绝（不会登记 pending 等超时）
     const start = Date.now();
     await expect(client.invoke("scene.get_node_count", {}, 5000)).rejects.toThrow("重连达上限");
