@@ -79,12 +79,12 @@ class ProviderServer : public Object {
 	// 事件源（Events 层）：EditorSelection 信号 + EditorUndoRedoManager::version_changed +
 	// mutation 分派后主动推送 + 帧轮询 diff（兜底外部变化）。
 	void _on_selection_changed();
+	void _sync_selection();
 	void _on_undo_version_changed();
 	void _notify_scene_mutated();
 	void _poll_state_diff();
 	void _push_scene_changed();
 	void _push_undo_stack_changed();
-	static bool _is_mutation_method(const String &p_method);
 	Array _tracked_selection_;
 	HashMap<ObjectID, Vector3> _tracked_positions_;
 	String _tree_signature_; // 树结构 diff 基线（无场景固定空串）

@@ -22,7 +22,20 @@ export interface GodotBridge {
 }
 
 const bridge: GodotBridge = {
-  request: (method, params) => ipcRenderer.invoke("godot:request", method, params),
+  request: async (method, params) => {
+    // 主进程返回结构化 {ok, result|error}（Electron IPC 错误序列化会丢自定义字段）——
+    // 解包：成功返回 result，失败还原 RpcCallError（带 code/data）。
+    const res = (await ipcRenderer.invoke("godot:request", method, params)) as
+      | { ok: true; result: unknown }
+      | { ok: false; error: { message: string; code?: number; data?: { code?: string } } };
+    if (res.ok) {
+      return res.result;
+    }
+    const err = new Error(res.error.message) as Error & { code?: number; data?: { code?: string } };
+    err.code = res.error.code;
+    err.data = res.error.data;
+    throw err;
+  },
   onEvent: (listener) => {
     const handler = (_e: IpcRendererEvent, ev: { method: string; params: unknown }): void => {
       listener(ev.method, ev.params);

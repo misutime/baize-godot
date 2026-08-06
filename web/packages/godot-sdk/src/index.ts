@@ -100,7 +100,7 @@ export interface ProjectInfo {
 /** 客户端实例：能力方法 + 事件订阅（绑定给定 transport）。 */
 export interface GodotClient {
   scene: {
-    /** 返回场景树根节点（无打开场景时抛 no_scene 错误）。 */
+    /** 返回场景树根节点；无打开场景返回 null（非错误，与 scene.changed 事件语义一致）。 */
     get_tree: () => Promise<TreeNode | null>;
     get_props: (params: { node_path: string }) => Promise<PropInfo[]>;
     set_prop: (params: { node_path: string; prop: string; value: unknown }) => Promise<Record<string, never>>;

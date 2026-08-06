@@ -300,6 +300,9 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
       const saved2 = readFileSync(tmpScene, "utf8");
       expect(saved2).not.toContain(`[node name="${finalName}"`);
     } finally {
+      // 恢复场景 file_path 指向副本 main.tscn（save_scene_as 会把 edited root 的 scene_file_path 改为临时路径；
+      // 不恢复的话同 suite 后续操作都在已删的 tmpScene 上，review）。副本被整体删除，无仓库污染。
+      await sdk.editor.save_scene_as({ path: join(projectCopy!, "main.tscn") }).catch(() => {});
       rmSync(tmpScene, { force: true });
       sdk.close();
     }

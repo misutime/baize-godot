@@ -64,14 +64,16 @@ void ProviderServer::start() {
 	}
 	started_ = true;
 
-	// 事件源：连接 EditorSelection 信号（选中变化即时触发）+ EditorUndoRedoManager::version_changed
-	// （任何 undo/redo 成功即触发——覆盖原生 UI 与能力面操作，含通用属性变更）+ 帧轮询 diff（兜底）。
+	// 事件源：EditorSelection 信号（选中变化）+ EditorUndoRedoManager 双信号——
+	// history_changed（commit_action 成功，覆盖所有 do 操作：能力面 mutation 与原生 UI 编辑）+
+	// version_changed（undo/redo 成功）。两者互补不重叠（commit 与 undo 互斥），避免重复推送。
 	EditorNode *ed = EditorNode::get_singleton();
 	if (ed && ed->get_editor_selection()) {
 		ed->get_editor_selection()->connect("selection_changed", callable_mp(this, &ProviderServer::_on_selection_changed));
 	}
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
 	if (eurm) {
+		eurm->connect("history_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
 		eurm->connect("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
 	}
 
@@ -86,8 +88,13 @@ void ProviderServer::stop() {
 		ed->get_editor_selection()->disconnect("selection_changed", callable_mp(this, &ProviderServer::_on_selection_changed));
 	}
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
-	if (eurm && eurm->is_connected("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed))) {
-		eurm->disconnect("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
+	if (eurm) {
+		if (eurm->is_connected("history_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed))) {
+			eurm->disconnect("history_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
+		}
+		if (eurm->is_connected("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed))) {
+			eurm->disconnect("version_changed", callable_mp(this, &ProviderServer::_on_undo_version_changed));
+		}
 	}
 	// shutdown 通知（P2 review）：告知已认证客户端主动断开（否则 client 只靠断开重连退避）
 	for (Peer &p : peers_) {
@@ -399,12 +406,9 @@ Dictionary ProviderServer::_dispatch(Peer &p_peer, const String &p_method, const
 		d["error"] = e;
 		return d;
 	}
-	Dictionary result = m->handler(args);
-	// mutation 方法成功后立即推送（场景树/undo 栈事件），UI 无需等帧轮询
-	if (result.get("ok", false).operator bool() && _is_mutation_method(p_method)) {
-		_notify_scene_mutated();
-	}
-	return result;
+	// 事件推送由 EURM 信号驱动（history_changed/version_changed，见 start()），
+	// 不再按方法名列表在 dispatch 后推——避免 undo/redo 双推（version_changed + mutation 列表重复）。
+	return m->handler(args);
 }
 
 Dictionary ProviderServer::_jsonrpc_error(const Dictionary &p_internal_error) {
@@ -497,29 +501,58 @@ void ProviderServer::_on_undo_version_changed() {
 }
 
 void ProviderServer::_notify_scene_mutated() {
-	// 能力面 mutation 分派成功 / undo/redo 后：立即推送场景与 undo 栈事件，并同步 diff 基线
+	// 事件信号触发：立即推送场景/undo 栈/选择事件，并同步 diff 基线
 	// （避免帧轮询重复推送）；轮询保留作外部非 undo 变化的兜底。
+	// 无客户端时不序列化（信号可能来自原生 UI 操作，省帧预算）——连上后客户端自行拉全量。
+	if (peers_.is_empty()) {
+		return;
+	}
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
 	_tree_signature_ = root ? _tree_signature(root) : String();
 	_tree_dirty_ = false;
 	_last_tree_check_ms_ = OS::get_singleton()->get_ticks_msec();
+	_sync_selection();
+	// 同步位置基线：mutation 已推 scene.changed，若基线不更新，下一帧 poll 会再推
+	// node_position_changed（重复事件，review）。
+	if (EditorNode *ed = EditorNode::get_singleton(); ed && ed->get_editor_selection()) {
+		HashMap<ObjectID, Vector3> current;
+		List<Node *> nodes = ed->get_editor_selection()->get_full_selected_node_list();
+		for (Node *n : nodes) {
+			if (Node3D *n3d = Object::cast_to<Node3D>(n)) {
+				current[n->get_instance_id()] = n3d->get_position();
+			}
+		}
+		for (const KeyValue<ObjectID, Vector3> &kv : current) {
+			_tracked_positions_[kv.key] = kv.value;
+		}
+		Vector<ObjectID> stale;
+		for (const KeyValue<ObjectID, Vector3> &kv : _tracked_positions_) {
+			if (!current.has(kv.key)) {
+				stale.push_back(kv.key);
+			}
+		}
+		for (const ObjectID &id : stale) {
+			_tracked_positions_.erase(id);
+		}
+	}
 	_push_scene_changed();
 	_push_undo_stack_changed();
 }
 
-bool ProviderServer::_is_mutation_method(const String &p_method) {
-	// 会改变场景树或 undo 栈的能力方法（分派成功后触发事件推送）。
-	return p_method == "scene.create_node" || p_method == "scene.remove_node" || p_method == "scene.set_prop" ||
-			p_method == "scene.set_node_position" || p_method == "editor.undo" || p_method == "editor.redo";
+void ProviderServer::_on_selection_changed() {
+	// 选中变化即时推送（EditorSelection 信号；update 未绑定 ClassDB 不能入 UndoRedo action——
+	// mutation/undo 后的选择变化统一由 _notify_scene_mutated → _sync_selection diff 覆盖）。
+	_sync_selection();
 }
 
-void ProviderServer::_on_selection_changed() {
-	// 选中变化即时推送（信号触发）。
+void ProviderServer::_sync_selection() {
+	if (peers_.is_empty()) {
+		return;
+	}
 	EditorNode *ed = EditorNode::get_singleton();
 	EditorInterface *ei = EditorInterface::get_singleton();
 	Node *root = ei ? ei->get_edited_scene_root() : nullptr;
-	Dictionary payload;
 	Array node_paths;
 	if (root && ed && ed->get_editor_selection()) {
 		List<Node *> nodes = ed->get_editor_selection()->get_full_selected_node_list();
@@ -527,8 +560,12 @@ void ProviderServer::_on_selection_changed() {
 			node_paths.append(String(root->get_path_to(n)));
 		}
 	}
-	payload["node_paths"] = node_paths;
+	if (node_paths == _tracked_selection_) {
+		return; // 选择未变化：不推
+	}
 	_tracked_selection_ = node_paths;
+	Dictionary payload;
+	payload["node_paths"] = node_paths;
 	for (Peer &p : peers_) {
 		if (p.authenticated && p.peer.is_valid() && !p.dead) {
 			Dictionary notify;

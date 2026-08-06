@@ -56,6 +56,27 @@ function broadcastGodotStatus(payload: {
   mainWindow?.webContents.send("godot:process", payload);
 }
 
+/** 创建 GodotClient（WS 连接 + 事件转发）。构造即开始连接（createWsTransport 内部启动）。 */
+function createClient(): void {
+  client = new GodotClient({
+    url: PROVIDER_URL,
+    token: PROVIDER_TOKEN,
+    onReady: () => broadcastGodotStatus({ state: "running", provider: "connected" }),
+    // WS 断连/重连中（Godot 进程仍在）也要下行 provider 状态（review：面板不能谎报"已连接"）；
+    // 注意：transport "connected" = WS 已打开但认证（hello）尚未完成——映射为 connecting，
+    // 认证成功（onReady）才报 connected（review：token 错误时不得短暂谎报）。
+    onStateChange: (s) =>
+      broadcastGodotStatus({
+        state: "running",
+        provider: s === "connected" ? "connecting" : s === "reconnecting" ? "connecting" : "disconnected",
+      }),
+  });
+  // Provider 事件 → 渲染进程：下行转发
+  client.onEvent((method, params) => {
+    mainWindow?.webContents.send("godot:event", { method, params });
+  });
+}
+
 /** Godot 异常（退出/spawn 失败）后的受控重启（非退出编排时；review P3）。 */
 function scheduleGodotRestart(delayMs: number): void {
   if (quitting) {
@@ -65,8 +86,10 @@ function scheduleGodotRestart(delayMs: number): void {
     if (!quitting && !godotChild) {
       log("Godot 异常，自动重启…");
       broadcastGodotStatus({ state: "restarting", provider: "disconnected" });
+      client?.dispose(); // shutdown 通知后旧实例已 disposed 不可重连——必须重建（review）
+      client = null;
       startGodot();
-      client?.connect(); // transport failed 后 connect() 会重建
+      createClient();
     }
   }, delayMs);
 }
@@ -118,13 +141,20 @@ function setupIpc(): void {
     if (!client) {
       throw new Error("Godot 未连接");
     }
-    return client.invoke(method, params);
+    try {
+      return { ok: true, result: await client.invoke(method, params) };
+    } catch (err) {
+      // Electron IPC 只序列化 Error 的 message/name，自定义字段（code/data）会丢——
+      // 显式结构化包装，渲染进程据此还原 RpcCallError（review：data.code 是错误契约一部分）。
+      const e2 = err as { code?: number; data?: unknown; message?: string };
+      return {
+        ok: false,
+        error: { message: e2.message ?? String(err), code: e2.code, data: e2.data },
+      };
+    }
   });
 
-  // Provider 事件 → 渲染进程：下行转发
-  client?.onEvent((method, params) => {
-    mainWindow?.webContents.send("godot:event", { method, params });
-  });
+  // Provider 事件 → 渲染进程：下行转发（createClient 中绑定；此处不再重复）
 }
 
 function createWindow(): void {
@@ -175,11 +205,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   startGodot();
   // Provider 启动需要几秒（编辑器核心初始化）——GodotClient 带退避重连，无需显式等待
-  client = new GodotClient({
-    url: PROVIDER_URL,
-    token: PROVIDER_TOKEN,
-    onReady: () => broadcastGodotStatus({ state: "running", provider: "connected" }),
-  });
+  createClient();
   setupIpc();
   createWindow();
 

@@ -51,8 +51,9 @@ static bool _validate_save_path(const String &p_path, Dictionary &r_err) {
 		return false;
 	}
 	if (is_res) {
-		// res:// 内禁止 .. 逃逸（globalize_path 只做前缀替换，不解析 ..，res://../x 会写出项目）
-		const Vector<String> segs = rest.split("/");
+		// res:// 内禁止 .. 逃逸（globalize_path 只做前缀替换，不解析 ..，res://../x 会写出项目）；
+		// 反斜杠先归一化为 / 再分段（Windows 分隔符同样能逃逸：res://..\\outside.tscn）
+		const Vector<String> segs = rest.replace_char('\\', '/').split("/");
 		for (const String &seg : segs) {
 			if (seg == "..") {
 				r_err = _op_err("invalid_params", "保存路径禁止 .. 逃逸: " + p_path);
@@ -63,21 +64,37 @@ static bool _validate_save_path(const String &p_path, Dictionary &r_err) {
 	return true;
 }
 
-static uint64_t _file_size(const String &p_path) {
-	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
-	return f.is_valid() ? f->get_length() : 0;
+// 场景是否处于"未保存"状态（EditorNode 内部标记，保存管线成功才清除）。
+static bool _scene_is_unsaved(const String &p_path) {
+	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_unsaved_scenes();
+	const String local = ProjectSettings::get_singleton()->localize_path(p_path);
+	for (const String &u : unsaved) {
+		if (u == local || u == p_path) {
+			return true;
+		}
+	}
+	return false;
 }
 
-// 写盘验证：保存前后 mtime 与 size 均未变化 → 判定写入失败（EditorInterface 保存管线不返回写盘结果）。
-static bool _verify_saved(const String &p_path, uint64_t p_before_mtime, uint64_t p_before_size, Dictionary &r_err) {
+// 写盘验证：EditorInterface 保存管线不返回写盘结果（失败只弹编辑器警告，headless 不可见）。
+// 判据 = 保存后当前场景不再处于"未保存"状态（set_scene_as_saved 仅在 ResourceSaver 成功时执行），
+// 新旧路径双查：save_scene_as 到新路径时脏状态在原路径下跟踪（review）；
+// 不用 mtime/size 对比（Unix 秒级精度同秒重写误报）。
+static bool _verify_saved(const String &p_path, const String &p_orig_scene_path, Dictionary &r_err) {
 	if (!FileAccess::exists(p_path)) {
 		r_err = _op_err("save_failed", "保存失败：文件未写入: " + p_path);
 		return false;
 	}
-	if (FileAccess::get_modified_time(p_path) == p_before_mtime && _file_size(p_path) == p_before_size) {
-		r_err = _op_err("save_failed", "保存失败：文件未更新（写盘被拒绝或无写入权限）: " + p_path);
-		return false;
+	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_unsaved_scenes();
+	const String target = ProjectSettings::get_singleton()->localize_path(p_path);
+	const String orig = ProjectSettings::get_singleton()->localize_path(p_orig_scene_path);
+	for (const String &u : unsaved) {
+		if (u == target || u == orig) {
+			r_err = _op_err("save_failed", "保存失败：场景仍标记为未保存（写盘被拒绝或无写入权限）: " + p_path);
+			return false;
+		}
 	}
+	// 本来就干净的场景：保存管线已执行（成功才走 set_scene_as_saved），内容无变化属合法，接受成功。
 	return true;
 }
 
@@ -386,8 +403,8 @@ Dictionary Ops::h_create_node(const Dictionary &p_args) {
 	if (sel) {
 		eurm->add_do_method(sel, "clear");
 		eurm->add_do_method(sel, "add_node", node);
-		// update 才发 selection_changed 信号（add_node 只标记 changed）——否则其他客户端/redo 收不到选中事件
-		eurm->add_do_method(sel, "update");
+		// 注意：EditorSelection::update 未绑定 ClassDB，不能经 UndoRedo 字符串调用；
+		// 选择信号由 ProviderServer::_sync_selection 在 mutation 信号后 diff 推送（见 provider_server.cpp）。
 	}
 	eurm->add_do_reference(node);
 	eurm->add_undo_method(parent, "remove_child", node);
@@ -423,6 +440,9 @@ Dictionary Ops::h_remove_node(const Dictionary &p_args) {
 	EditorUndoRedoManager *eurm = EditorUndoRedoManager::get_singleton();
 	eurm->create_action("Remove " + String(node->get_name()));
 	eurm->add_do_method(parent, "remove_child", node);
+	// 不显式 clear 选择：节点被 remove_child 时 EditorSelection::_node_removed 自动移除该节点
+	// （仅目标，保留其他选择；无条件 clear 会误清未选中场景的选择，review）；
+	// 选择变化信号由 ProviderServer::_sync_selection 在 mutation 后 diff 推送。
 	// 引用放 undo 侧（官方删除范式）：do 摘树后由 action 的 do 引用保活没问题，
 	// 但 remove→undo 恢复挂树后若用 add_do_reference，新 action 丢弃 redo 分支时会 memdelete 仍挂树的活节点。
 	eurm->add_undo_reference(node);
@@ -446,16 +466,14 @@ Dictionary Ops::h_save_scene(const Dictionary &p_args) {
 		return _err("not_saved", "场景从未保存过，没有可用的保存路径");
 	}
 	// EditorInterface::save_scene 内部只检查根/路径后无条件调 void save_scene_as（写盘失败只弹编辑器警告，
-	// headless 下不可见）——保存前后对比文件 mtime/size 验证真实写入，失败不得伪造成功。
-	const uint64_t before_mtime = FileAccess::get_modified_time(scene_path);
-	const uint64_t before_size = _file_size(scene_path);
+	// headless 下不可见）——用 EditorNode 内部"未保存"状态验证真实写入，失败不得伪造成功。
 	const Error err = ei->save_scene();
 	if (err != OK) {
 		// save_scene 内部对无根/无路径返回 ERR_CANT_CREATE（上面已预判映射，双保险）。
 		return _err("no_scene", "保存失败：场景不可用");
 	}
 	Dictionary verr;
-	if (!_verify_saved(scene_path, before_mtime, before_size, verr)) {
+	if (!_verify_saved(scene_path, scene_path, verr)) {
 		return verr;
 	}
 	Dictionary result;
@@ -474,12 +492,12 @@ Dictionary Ops::h_save_scene_as(const Dictionary &p_args) {
 	if (!_validate_save_path(path, perr)) {
 		return perr;
 	}
-	// 与 save_scene 相同的写盘验证（save_scene_as 是 void）。
-	const uint64_t before_mtime = FileAccess::get_modified_time(path);
-	const uint64_t before_size = _file_size(path);
+	// 与 save_scene 相同的写盘验证（save_scene_as 是 void；判据 = 保存后当前场景不再未保存，
+	// 新旧路径双查——保存前记录原路径，保存后 get_scene_file_path 已变为新路径）。
+	const String orig_path = root->get_scene_file_path();
 	ei->save_scene_as(path);
 	Dictionary verr;
-	if (!_verify_saved(path, before_mtime, before_size, verr)) {
+	if (!_verify_saved(path, orig_path, verr)) {
 		return verr;
 	}
 	Dictionary result;
