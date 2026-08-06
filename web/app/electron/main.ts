@@ -57,6 +57,7 @@ function scheduleGodotRestart(delayMs: number): void {
 function startGodot(): void {
   if (!existsSync(GODOT_EXE)) {
     console.error(`[app:main] Godot 编辑器不存在: ${GODOT_EXE}\n请先执行 task dev 构建。`);
+    scheduleGodotRestart(5000); // exe 尚未产出（构建中）：持续重试直到可用（review）
     return;
   }
   const project = process.env.BAIZE_PROJECT_PATH ?? DEFAULT_PROJECT;
