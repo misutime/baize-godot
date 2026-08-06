@@ -40,7 +40,8 @@
 - **自定义脚本语言官方机制已铺好**：`ScriptLanguageExtension`（core/object/script_language_extension.h，1033 行接口）被 GDExtension 接口引用（gdextension_interface.cpp:40）；`ScriptServer::register_language` 是公开机制（gdscript/mono 均如此注册）。**本 fork 无任何 JS/TS 运行时模块**——QuickJS 集成需自建。
 - **官方能力基线**：`EditorInterface`（edited_scene_root/selection/undo_redo/resource_filesystem/previewer/save/open/play/theme/scale…，editor/editor_interface.h:99-174）覆盖大半场景操作能力。
 - **游戏运行官方机制**：Play = 独立游戏进程 + 调试协议（远程场景树/属性编辑已有官方实现）。
-- **console exe（Windows）**：`scons p=windows target=editor` 自动产出两个 exe——GUI 版（windows subsystem）与 console 版（console subsystem，`platform/windows/detect.py:224` windows_subsystem、`SCsub:126`）。**console ≠ 无 UI**：引擎逻辑与 UI 完全一样，仅日志可见性不同（从终端运行 print_line/print_error 直出，`os_windows.cpp:183` RedirectStream CONOUT$）；无 UI 由 **headless 运行参数**决定（`--headless`），两者正交。
+- **console exe（Windows）**：`scons p=windows target=editor` 自动产出两个 exe——**GUI 完整引擎**（windows subsystem，`platform/windows/detect.py:224` windows_subsystem、`SCsub:126`）与 **console 版 = 轻量控制台包装器**（`platform/windows/console_wrapper_windows.cpp`，仅 ~700KB，**非完整引擎**）。包装器机制：将自身 exe 名中 `.console.exe`/`_console.exe`/` console.exe`/`console.exe` 替换为 `.exe` → `CreateProcess`（`CREATE_SUSPENDED`）spawn 真正的完整引擎 → 将自身 stdio 句柄（stdin/stdout/stderr）传给引擎（print_line/print_error 经包装器管道转发，electron 捕获不受影响）→ Job 对象监控进程树、透传引擎退出码（electron 崩溃检测仍准确）。
+- **进程形态**：spawn console exe 实际产生 **2 个 Godot 进程**（包装器 + 完整引擎），窗口仍为 1 个（完整引擎创建）。**console ≠ 无 UI**：GUI 与 headless 正交不变（无 UI 由 `--headless` 运行参数决定）；**最终态"无窗口服务进程"必须 `--headless`**——console 包装器本身不会减少窗口。
 
 ### 2.3 决策汇总
 
@@ -215,7 +216,7 @@ SDK 解析 → scene.create_node() 返回结果 → Electron UI 刷新（Events 
 ### 5.1 Godot 核心层（Godot Core；Provider 见 §3.0/§4）
 
 - **形态**：`--editor --headless`（逻辑完整）；渲染服务独立于 headless（§6）。若视口策略需要窗口，则窗口模式 + UI 树抑制。
-- **二进制**：Electron spawn 目标 = **console exe**（日志可管道捕获）；`CREATE_NO_WINDOW` 隐藏控制台窗口（ProcessSupervisor 已有）。手动调试：终端直接跑 console exe + `--headless`。
+- **二进制**：Electron spawn 目标 = **console exe（控制台包装器）**（日志可管道捕获——包装器转发引擎 stdout，实际为包装器 + 完整引擎**两进程**，见 §2.2）；`CREATE_NO_WINDOW` 隐藏控制台窗口（ProcessSupervisor 已有）。手动调试：终端直接跑 console exe + `--headless`。
 - **编辑器核心**：复用 EditorNode 状态机（信号链可用），UI 树渐进裁剪（M3，可选优化——不要一开始就做）。
 - **游戏运行**：`run.play` → spawn 独立游戏进程（官方机制）→ 调试协议接线（远程场景树/属性编辑官方已有）→ 视口按 §6 显示。
 - **TS 运行时**：fork 新增 QuickJS 语言模块（D3）。
@@ -304,7 +305,7 @@ Electron canvas 画面中拖动节点
 
 ## 7. 生命周期与状态管理
 
-- **启动**：Electron 主进程 → spawn **console exe**（`--editor --headless`，`CREATE_NO_WINDOW`，stdio 管道）→ WS 握手（token）→ `project.open`（最近项目/会话恢复）→ 资源索引事件 → UI 渲染。
+- **启动**：Electron 主进程 → spawn **console exe（控制台包装器，实际两进程：包装器 + 完整引擎）**（`--editor --headless`，`CREATE_NO_WINDOW`，stdio 管道）→ WS 握手（token）→ `project.open`（最近项目/会话恢复）→ 资源索引事件 → UI 渲染。
 - **日志管线**：Godot 的 print_line/print_error 经 stdio 管道被 Electron 主进程捕获 → 转发到 Electron 日志系统与渲染进程"输出面板"（替代原生 GUI 输出面板）；崩溃时 stderr 与退出码用于诊断。手动调试：终端跑 console exe + `--headless` 对照。
 - **编辑**：UI 发语义命令 → Godot 执行（undo）→ 事件 diff 回推 → UI 投影更新。每帧高频路径（视口/相机）走 `viewport.*` 专用通道。
 - **Play**：`run.play` → Godot spawn 游戏进程 → 视口显示 → 调试协议接线（官方）→ `run.stop`（退出编排：shutdown 通知 + 等 2s + kill 进程树，现有 ProcessSupervisor 平移）。
@@ -319,7 +320,7 @@ Electron canvas 画面中拖动节点
 | Registry（方法/描述/schema/错误码/事件声明） | **复用**：能力面骨架，方法重定义（§4.2） |
 | 事件 diff 推送（selection/undo/scene） | **复用**：事件源机制 |
 | `ProcessSupervisor` | **复用**：Godot spawn 游戏进程（Godot 侧）；Electron 侧由 child_process + CREATE_NO_WINDOW 承担（spawn console exe 防黑窗） |
-| console exe（构建自动产出） | **复用**：Electron 被驱动核心（日志捕获）+ 手动调试 + 最终态发布形态（console subsystem 无窗口服务进程） |
+| console exe（构建自动产出） | **复用**：Electron 被驱动核心（日志捕获——包装器转发引擎 stdout；进程形态 = 包装器 + 完整引擎两进程）+ 手动调试 + 最终态发布形态（console 包装器 + `--headless` 无窗口服务进程） |
 | `web/runtime`（@baize/sidecar） | **改造迁移**：→ `packages/godot-process`（spawn/生命周期/日志/转发，Electron 主进程用） |
 | `web/packages/sdk`（registry/bridge） | **改造改名**：→ `packages/godot-sdk`（transport 换 ws/ipc/inproc，方法绑定 + hooks） |
 | `web/packages/rpc` | **改造改名**：→ `packages/godot-rpc`（类型 + 运行时：编解码/配对/传输实现） |
@@ -393,6 +394,7 @@ Electron canvas 画面中拖动节点
 - 官方库形态：godot-docs `about/faq.rst`（"Since Godot 4.6, there is experimental support…LibGodot"）。
 - 官方嵌入/进程模式：godot-docs `tutorials/editor/game_embedding.rst`（"The game always runs in a separate process"）；`editor/debugger/editor_debugger_server.cpp:59-97`（TCP 调试协议）。
 - headless：`main/main.cpp:565,1432,4497-4507`；`editor/editor_node.cpp:8399`（cmdline_mode）。
+- console 包装器：`platform/windows/console_wrapper_windows.cpp`（exe 名替换 → CreateProcess spawn 完整引擎 → stdio 转发 → Job 监控 + 退出码透传）；`platform/windows/SCsub:126-142`（"Build console wrapper app"，PROGSUFFIX_WRAP）。
 - 自定义语言：`core/object/script_language_extension.h`（1033 行）；`core/extension/gdextension_interface.cpp:40`；`modules/gdscript/register_types.cpp:144`。
 - 官方能力基线：`editor/editor_interface.h:99-174`。
 - 复用资产：`modules/att_nodejs_sidecar/sidecar_server.{h,cpp}`、`modules/att_editor_ops/registry.{h,cpp}`、`web/packages/{rpc,sdk}/`。

@@ -348,4 +348,32 @@ describe("gd_provider 端到端（headless 编辑器 + 三包链路）", () => {
       sdk.close();
     }
   });
+
+  it("editor.get_theme/get_scale/get_project_info：信息面返回结构断言", async () => {
+    const sdk = await connectSdk();
+    try {
+      const theme = await sdk.editor.get_theme();
+      expect(typeof theme.theme_name).toBe("string");
+      expect(typeof theme.preset).toBe("string");
+      for (const c of [theme.base_color, theme.accent_color]) {
+        expect(typeof c.r).toBe("number");
+        expect(typeof c.g).toBe("number");
+        expect(typeof c.b).toBe("number");
+        expect(typeof c.a).toBe("number");
+      }
+      expect(theme.font_size).toBeGreaterThan(0);
+
+      const { scale } = await sdk.editor.get_scale();
+      expect(scale).toBeGreaterThan(0);
+
+      const info = await sdk.editor.get_project_info();
+      expect(info.project_name).toBe("test-project");
+      expect(info.main_scene).toBe("res://main.tscn");
+      expect(info.rendering_method).toBe("gl_compatibility");
+      expect(info.godot_version).toMatch(/^4\.8/);
+      expect(info.project_path).toContain("test-projects/provider");
+    } finally {
+      sdk.close();
+    }
+  });
 });

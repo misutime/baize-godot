@@ -35,6 +35,9 @@ public:
 	static Dictionary h_remove_node(const Dictionary &p_args);
 	static Dictionary h_save_scene(const Dictionary &p_args);
 	static Dictionary h_save_scene_as(const Dictionary &p_args);
+	static Dictionary h_get_theme(const Dictionary &p_args);
+	static Dictionary h_get_scale(const Dictionary &p_args);
+	static Dictionary h_get_project_info(const Dictionary &p_args);
 
 	/// 序列化编辑场景根为 TreeNode（path 用场景根 get_path_to 的结果；根固定 "."）。
 	/// ProviderServer 的 scene.changed 事件复用同一实现，避免重复序列化逻辑。

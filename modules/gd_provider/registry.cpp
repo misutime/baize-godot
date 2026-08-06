@@ -86,6 +86,11 @@ void Registry::_register_all() {
 	register_method("editor.save_scene", "保存当前编辑场景（无场景 → no_scene；从未保存过 → not_saved）", _schema({}, {}), Ops::h_save_scene);
 	register_method("editor.save_scene_as", "另存当前编辑场景到指定路径", _schema({ { "path", path_param } }, { "path" }), Ops::h_save_scene_as);
 
+	// —— M1 收尾：editor.* 信息面（Electron 皮肤/缩放/标题栏数据源） ——
+	register_method("editor.get_theme", "编辑器主题信息（主题名/预设/基础色/强调色/字号）", _schema({}, {}), Ops::h_get_theme);
+	register_method("editor.get_scale", "编辑器 UI 缩放比例（EDSCALE）", _schema({}, {}), Ops::h_get_scale);
+	register_method("editor.get_project_info", "项目信息（名称/主场景/渲染器/引擎版本/路径）", _schema({}, {}), Ops::h_get_project_info);
+
 	print_line("[gd_provider] Registry 就绪: " + itos(s_methods.size()) + " 个能力方法");
 }
 

@@ -22,6 +22,11 @@ declare global {
     godot: {
       request: (method: string, params?: unknown) => Promise<unknown>;
       onEvent: (listener: (method: string, params: unknown) => void) => () => void;
+      onProcessStatus: (listener: (status: {
+        state: "starting" | "running" | "exited" | "error" | "restarting";
+        code?: number | null;
+        provider: "connecting" | "connected" | "disconnected";
+      }) => void) => () => void;
     };
   }
 }
@@ -262,6 +267,13 @@ export default function App(): React.JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [nodeType, setNodeType] = useState<string>("Node3D");
   const [nodeName, setNodeName] = useState<string>("");
+  // M1 收尾：标题栏项目名 + 视口状态面板（Godot 进程/连接状态下行）
+  const [projectName, setProjectName] = useState<string | null>(null);
+  const [godotStatus, setGodotStatus] = useState<{
+    state: "starting" | "running" | "exited" | "error" | "restarting";
+    code?: number | null;
+    provider: "connecting" | "connected" | "disconnected";
+  } | null>(null);
 
   const selectedPath = state?.selection[0] ?? null;
 
@@ -314,7 +326,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: number | undefined; // DOM setTimeout 返回 number
     const poll = async (): Promise<void> => {
       if (cancelled) {
         return;
@@ -322,6 +334,12 @@ export default function App(): React.JSX.Element {
       const ok = await refresh();
       if (!cancelled && !ok) {
         timer = setTimeout(() => void poll(), 2000); // Godot 未就绪：2s 后重试
+      } else if (!cancelled && ok) {
+        // 能力面就绪后拉项目名（标题栏）；启动竞态时随 refresh 重试自然补齐
+        void client.editor
+          .get_project_info()
+          .then((info) => setProjectName(info.project_name))
+          .catch(() => {});
       }
     };
     void poll();
@@ -333,15 +351,16 @@ export default function App(): React.JSX.Element {
       setState((prev) => (prev ? { ...prev, can_undo: p.can_undo, can_redo: p.can_redo } : prev));
     });
     const unsubScene = client.editor.on_scene_changed(() => void refresh());
+    // M1 收尾：Godot 进程/连接状态订阅（项目名拉取并入 refresh 就绪路径）
+    const unsubProc = window.godot.onProcessStatus((s) => setGodotStatus(s));
     return () => {
       cancelled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
+      clearTimeout(timer);
       unsubSel();
       unsubPos();
       unsubUndo();
       unsubScene();
+      unsubProc();
     };
   }, []);
 
@@ -447,7 +466,7 @@ export default function App(): React.JSX.Element {
       {/* 工具栏 */}
       <header className="border-b px-6 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="mr-4 text-xl font-semibold">Baize Editor（M1）</h2>
+          <h2 className="mr-4 text-xl font-semibold">Baize Editor（M1）{projectName ? `— ${projectName}` : ""}</h2>
           <Button
             variant="outline"
             size="sm"
@@ -532,9 +551,32 @@ export default function App(): React.JSX.Element {
           </div>
         </aside>
 
-        {/* 中：视口占位（M1 视口策略 A：Godot 独立窗口） */}
-        <section className="flex min-h-0 flex-1 items-center justify-center rounded-lg border text-sm text-muted-foreground">
-          M1 视口策略 A：Godot 独立窗口
+        {/* 中：视口（M1 策略 A：Godot 独立窗口，Electron 显示状态与并列提示） */}
+        <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-lg border p-6 text-sm text-muted-foreground">
+          <p className="font-medium">视口 — 策略 A（Godot 独立窗口）</p>
+          <div className="flex items-center gap-2">
+            <span
+              className={
+                godotStatus?.provider === "connected"
+                  ? "inline-block h-2 w-2 rounded-full bg-green-500"
+                  : "inline-block h-2 w-2 rounded-full bg-amber-500"
+              }
+            />
+            <span>
+              Godot 进程：
+              {godotStatus === null
+                ? "连接中…"
+                : godotStatus.state === "running"
+                  ? "运行中"
+                  : godotStatus.state === "restarting"
+                    ? "重启中…"
+                    : godotStatus.state === "exited"
+                      ? `已退出（code=${godotStatus.code ?? "?"}）`
+                      : "启动失败"}
+              ，能力面：{godotStatus?.provider === "connected" ? "已连接" : "未连接"}
+            </span>
+          </div>
+          <p className="text-xs">3D 视口在独立的 Godot 窗口中显示（并列排布）；后续阶段将改为离屏嵌入。</p>
         </section>
 
         {/* 右：Inspector */}

@@ -71,6 +71,32 @@ export interface EditorStatePayload {
   can_redo: boolean;
 }
 
+/** 0-1 范围 RGBA（与 Provider 值编码表 COLOR 一致）。 */
+export interface Color4 {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+/** editor.get_theme 返回：编辑器主题信息。 */
+export interface ThemeInfo {
+  theme_name: string;
+  preset: string;
+  base_color: Color4;
+  accent_color: Color4;
+  font_size: number;
+}
+
+/** editor.get_project_info 返回：项目信息。 */
+export interface ProjectInfo {
+  project_name: string;
+  main_scene: string;
+  rendering_method: string;
+  project_path: string;
+  godot_version: string;
+}
+
 /** 客户端实例：能力方法 + 事件订阅（绑定给定 transport）。 */
 export interface GodotClient {
   scene: {
@@ -94,6 +120,9 @@ export interface GodotClient {
     redo: () => Promise<Record<string, never>>;
     save_scene: () => Promise<{ path: string }>;
     save_scene_as: (params: { path: string }) => Promise<{ path: string }>;
+    get_theme: () => Promise<ThemeInfo>;
+    get_scale: () => Promise<{ scale: number }>;
+    get_project_info: () => Promise<ProjectInfo>;
     on_selection_changed: (listener: (payload: SelectionChangedPayload) => void) => () => void;
     on_position_changed: (listener: (payload: PositionChangedPayload) => void) => () => void;
     on_undo_stack_changed: (listener: (payload: UndoStackChangedPayload) => void) => () => void;
@@ -131,6 +160,9 @@ export function createClient(transport: Transport): GodotClient {
       redo: defineMethod<EmptyParams, Record<string, never>>(transport, "editor.redo"),
       save_scene: defineMethod<EmptyParams, { path: string }>(transport, "editor.save_scene"),
       save_scene_as: defineMethod<{ path: string }, { path: string }>(transport, "editor.save_scene_as"),
+      get_theme: defineMethod<EmptyParams, ThemeInfo>(transport, "editor.get_theme"),
+      get_scale: defineMethod<EmptyParams, { scale: number }>(transport, "editor.get_scale"),
+      get_project_info: defineMethod<EmptyParams, ProjectInfo>(transport, "editor.get_project_info"),
       on_selection_changed: defineEvent<SelectionChangedPayload>(transport, "editor.selection_changed"),
       on_position_changed: defineEvent<PositionChangedPayload>(transport, "editor.node_position_changed"),
       on_undo_stack_changed: defineEvent<UndoStackChangedPayload>(transport, "editor.undo_stack_changed"),

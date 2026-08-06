@@ -28,8 +28,8 @@ const DEFAULT_PROJECT = resolve(REPO_ROOT, "test-projects/provider");
 const PROVIDER_PORT = process.env.BAIZE_PROVIDER_PORT ?? "23009";
 const PROVIDER_URL = `ws://127.0.0.1:${PROVIDER_PORT}`;
 const PROVIDER_TOKEN = process.env.BAIZE_PROVIDER_TOKEN ?? "";
-// 渲染进程 dev server（vite）端口；prod 用 dist/ 产物
-const RENDERER_DEV_URL = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173";
+// 渲染进程 dev server（vite）端口；prod 用 dist/ 产物。与 vite.config server.host 保持一致（127.0.0.1）。
+const RENDERER_DEV_URL = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 
 let client: GodotClient | null = null;
 let godotChild: ReturnType<typeof spawn> | null = null;
@@ -40,6 +40,15 @@ function log(msg: string): void {
   console.log(`[app:main] ${msg}`);
 }
 
+/** 下行 Godot 进程/连接状态给渲染进程（视口面板数据源）。 */
+function broadcastGodotStatus(payload: {
+  state: "starting" | "running" | "exited" | "error" | "restarting";
+  code?: number | null;
+  provider: "connecting" | "connected" | "disconnected";
+}): void {
+  mainWindow?.webContents.send("godot:process", payload);
+}
+
 /** Godot 异常（退出/spawn 失败）后的受控重启（非退出编排时；review P3）。 */
 function scheduleGodotRestart(delayMs: number): void {
   if (quitting) {
@@ -48,6 +57,7 @@ function scheduleGodotRestart(delayMs: number): void {
   setTimeout(() => {
     if (!quitting && !godotChild) {
       log("Godot 异常，自动重启…");
+      broadcastGodotStatus({ state: "restarting", provider: "disconnected" });
       startGodot();
       client?.connect(); // transport failed 后 connect() 会重建
     }
@@ -61,22 +71,26 @@ function startGodot(): void {
     return;
   }
   const project = process.env.BAIZE_PROJECT_PATH ?? DEFAULT_PROJECT;
-  log(`spawn Godot: ${GODOT_EXE} --path ${project} --editor --headless`);
-  godotChild = spawn(GODOT_EXE, ["--path", project, "--editor"], {
+  // 视口策略 A：Godot 窗口模式（--editor）+ 默认视口尺寸（--resolution）；Electron 面板并列。
+  log(`spawn Godot: ${GODOT_EXE} --path ${project} --editor --resolution 1024x768`);
+  godotChild = spawn(GODOT_EXE, ["--path", project, "--editor", "--resolution", "1024x768"], {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
+  broadcastGodotStatus({ state: "running", provider: "connecting" });
   godotChild.stdout?.on("data", (d) => process.stdout.write(`[godot] ${d}`));
   godotChild.stderr?.on("data", (d) => process.stderr.write(`[godot:err] ${d}`));
   godotChild.on("exit", (code) => {
     log(`Godot 进程退出（code=${code}）`);
     godotChild = null;
+    broadcastGodotStatus({ state: "exited", code, provider: "disconnected" });
     scheduleGodotRestart(1000); // 异常退出：1s 后受控重启（崩溃/误关窗口）
   });
   godotChild.on("error", (err) => {
     // spawn 失败（exe 被删/无权限等）：记录并清理，不触发 uncaught error 退出主进程（review）
     console.error(`[app:main] Godot spawn 失败: ${err.message}`);
     godotChild = null;
+    broadcastGodotStatus({ state: "error", provider: "disconnected" });
     scheduleGodotRestart(5000); // 配置类问题：5s 后重试（构建中 exe 临时锁等可恢复）
   });
 }
@@ -146,7 +160,11 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   startGodot();
   // Provider 启动需要几秒（编辑器核心初始化）——GodotClient 带退避重连，无需显式等待
-  client = new GodotClient({ url: PROVIDER_URL, token: PROVIDER_TOKEN });
+  client = new GodotClient({
+    url: PROVIDER_URL,
+    token: PROVIDER_TOKEN,
+    onReady: () => broadcastGodotStatus({ state: "running", provider: "connected" }),
+  });
   setupIpc();
   createWindow();
 

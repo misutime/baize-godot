@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "ops.h"
 
+#include "core/config/engine.h"
+#include "core/config/project_settings.h"
 #include "core/object/class_db.h"
 #include "core/object/property_info.h"
 #include "core/templates/pair.h"
@@ -8,7 +10,9 @@
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/settings/editor_settings.h"
 #include "scene/3d/node_3d.h"
+#include "scene/resources/theme.h"
 
 #ifdef TOOLS_ENABLED
 
@@ -383,6 +387,50 @@ Dictionary Ops::h_save_scene_as(const Dictionary &p_args) {
 	ei->save_scene_as(path);
 	Dictionary result;
 	result["path"] = path;
+	return _ok(result);
+}
+
+Dictionary Ops::h_get_theme(const Dictionary &p_args) {
+	// 编辑器主题信息：Electron UI 皮肤化的数据源（当前 M1 只读投影，不做主题切换）。
+	EditorSettings *es = EditorSettings::get_singleton();
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Ref<Theme> theme = ei ? ei->get_editor_theme() : Ref<Theme>();
+	Dictionary result;
+	result["theme_name"] = theme.is_valid() ? String(theme->get_name()) : String();
+	result["preset"] = es ? String(es->get("interface/theme/color_preset")) : String();
+	Variant encoded;
+	if (es && _encode_value(es->get("interface/theme/base_color"), encoded)) {
+		result["base_color"] = encoded;
+	}
+	if (es && _encode_value(es->get("interface/theme/accent_color"), encoded)) {
+		result["accent_color"] = encoded;
+	}
+	result["font_size"] = theme.is_valid() ? (int)theme->get_default_font_size() : 0;
+	return _ok(result);
+}
+
+Dictionary Ops::h_get_scale(const Dictionary &p_args) {
+	// 编辑器 UI 缩放（EDSCALE）：Electron 侧换算字体/控件尺寸的基线。
+	Dictionary result;
+	EditorInterface *ei = EditorInterface::get_singleton();
+	result["scale"] = ei ? (double)ei->get_editor_scale() : 1.0;
+	return _ok(result);
+}
+
+Dictionary Ops::h_get_project_info(const Dictionary &p_args) {
+	// 项目信息：Electron 标题栏/关于面板数据源；全部来自 ProjectSettings/Engine 只读查询。
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	Dictionary result;
+	result["project_name"] = ps ? String(ps->get_setting("application/config/name")) : String();
+	result["main_scene"] = ps ? String(ps->get_setting("application/run/main_scene")) : String();
+	result["rendering_method"] = ps ? String(ps->get_setting("rendering/renderer/rendering_method")) : String();
+	result["project_path"] = ps ? ps->globalize_path("res://") : String();
+	const Dictionary ver = Engine::get_singleton()->get_version_info();
+	String version = String(ver.get("major", Variant())) + "." + String(ver.get("minor", Variant()));
+	if (ver.has("patch")) {
+		version += "." + String(ver["patch"]);
+	}
+	result["godot_version"] = version;
 	return _ok(result);
 }
 
