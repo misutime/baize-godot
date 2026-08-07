@@ -963,8 +963,14 @@ Dictionary Ops::h_set_window_rect(const Dictionary &p_args) {
 		return _err("invalid_params", "rect 必须为 {x,y,w,h} 有限数字");
 	}
 	DisplayServer *ds = DisplayServer::get_singleton();
-	ds->window_set_position(Point2i((int)fx, (int)fy), DisplayServerEnums::MAIN_WINDOW_ID);
-	ds->window_set_size(Size2i(MAX((int)fw, 1), MAX((int)fh, 1)), DisplayServerEnums::MAIN_WINDOW_ID);
+	if (Engine::get_singleton()->is_embedded_in_editor()) {
+		// C-lite：嵌入模式下位置由 owner 跟随（每帧按 owner+offset 重组）独占——
+		// WS 绝对坐标在拖动/排队时会陈旧并污染 offset；此处仅应用尺寸。
+		ds->window_set_size(Size2i(MAX((int)fw, 1), MAX((int)fh, 1)), DisplayServerEnums::MAIN_WINDOW_ID);
+	} else {
+		ds->window_set_position(Point2i((int)fx, (int)fy), DisplayServerEnums::MAIN_WINDOW_ID);
+		ds->window_set_size(Size2i(MAX((int)fw, 1), MAX((int)fh, 1)), DisplayServerEnums::MAIN_WINDOW_ID);
+	}
 	return _ok(Dictionary());
 }
 
@@ -976,6 +982,28 @@ Dictionary Ops::h_set_no_focus(const Dictionary &p_args) {
 		return _err("invalid_params", "enabled 必须为布尔");
 	}
 	DisplayServer::get_singleton()->window_set_flag(DisplayServerEnums::WINDOW_FLAG_NO_FOCUS, v.operator bool(), DisplayServerEnums::MAIN_WINDOW_ID);
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_set_viewport_offset(const Dictionary &p_args) {
+	// C-lite：视口窗口相对宿主窗口原点的偏移（物理像素），数据源 = renderer 布局（天然新鲜）。
+	if (!Engine::get_singleton()->is_embedded_in_editor()) {
+		return _err("not_embedded", "viewport.set_viewport_offset 仅支持 --wid 嵌入模式");
+	}
+	const Variant vx = p_args.get("x", Variant());
+	const Variant vy = p_args.get("y", Variant());
+	const Variant *vals[2] = { &vx, &vy };
+	for (int i = 0; i < 2; i++) {
+		const Variant::Type t = vals[i]->get_type();
+		if (t != Variant::FLOAT && t != Variant::INT) {
+			return _err("invalid_params", "offset 必须为 {x,y} 有限数字");
+		}
+	}
+	const double fx = vx, fy = vy;
+	if (!Math::is_finite(fx) || !Math::is_finite(fy)) {
+		return _err("invalid_params", "offset 必须为 {x,y} 有限数字");
+	}
+	DisplayServer::get_singleton()->window_set_embedded_offset(Point2i((int)fx, (int)fy), DisplayServerEnums::MAIN_WINDOW_ID);
 	return _ok(Dictionary());
 }
 

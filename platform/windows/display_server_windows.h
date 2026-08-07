@@ -401,6 +401,12 @@ class DisplayServerWindows : public DisplayServer {
 	JoypadSDL *joypad_sdl = nullptr;
 #endif
 	HHOOK mouse_monitor = nullptr;
+	// C-lite：嵌入窗口跟随 owner（每帧按 owner+offset 重组位置；offset 由 window_set_position 绝对定位刷新）。
+	bool embedded_follow_owner_init = false;
+	POINT embedded_follow_last_owner_pos = { 0, 0 };
+	POINT embedded_follow_offset = { 0, 0 };
+	void _update_embedded_follow();
+	virtual void window_set_embedded_offset(const Point2i &p_offset, DisplayServerEnums::WindowID p_window = DisplayServerEnums::MAIN_WINDOW_ID) override;
 	List<DisplayServerEnums::WindowID> popup_list;
 	uint64_t time_since_popup = 0;
 

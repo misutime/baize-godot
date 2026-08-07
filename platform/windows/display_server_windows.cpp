@@ -2354,6 +2354,23 @@ void DisplayServerWindows::_update_real_mouse_position(DisplayServerEnums::Windo
 	}
 }
 
+// C-lite：设置嵌入窗口相对宿主窗口原点的偏移（物理像素）——位置由 owner 跟随独占，
+// 偏移只来源于 renderer 布局数据（viewport.set_viewport_offset），避免拖动/排队期间陈旧绝对坐标污染。
+void DisplayServerWindows::window_set_embedded_offset(const Point2i &p_offset, DisplayServerEnums::WindowID p_window) {
+	_THREAD_SAFE_METHOD_
+	ERR_FAIL_COND(!windows.has(p_window));
+	WindowData &wd = windows[p_window];
+	if (!wd.parent_hwnd || !wd.hWnd) {
+		return;
+	}
+	embedded_follow_offset = { p_offset.x, p_offset.y };
+	embedded_follow_owner_init = true;
+	RECT owner_rect;
+	if (GetWindowRect(wd.parent_hwnd, &owner_rect)) {
+		::SetWindowPos(wd.hWnd, nullptr, owner_rect.left + p_offset.x, owner_rect.top + p_offset.y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
+	}
+}
+
 void DisplayServerWindows::window_set_position(const Point2i &p_position, DisplayServerEnums::WindowID p_window) {
 	_THREAD_SAFE_METHOD_
 
@@ -2380,6 +2397,14 @@ void DisplayServerWindows::window_set_position(const Point2i &p_position, Displa
 
 	AdjustWindowRectEx(&rc, style, false, exStyle);
 	MoveWindow(wd.hWnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+
+	if (wd.parent_hwnd) {
+		// C-lite：绝对定位刷新跟随偏移（后续帧 follow 按 owner+offset 重组，防初始摆放/布局纠正与跟随打架）。
+		RECT owner_rect;
+		if (GetWindowRect(wd.parent_hwnd, &owner_rect)) {
+			embedded_follow_offset = { rc.left - owner_rect.left, rc.top - owner_rect.top };
+		}
+	}
 
 	wd.last_pos = p_position;
 	_update_real_mouse_position(p_window);
@@ -4422,6 +4447,43 @@ void DisplayServerWindows::process_raw_input() {
 	}
 }
 
+// C-lite：嵌入窗口跟随 owner（每帧按 owner+offset 重组，消除 WS 同步的事件循环跳转与请求排队延迟）。
+// offset（视口窗口相对 owner 窗口原点）由 window_set_position 的绝对定位刷新；位移仅靠本函数，无需 WS。
+void DisplayServerWindows::_update_embedded_follow() {
+	if (!windows.has(DisplayServerEnums::MAIN_WINDOW_ID)) {
+		return;
+	}
+	const WindowData &wd = windows[DisplayServerEnums::MAIN_WINDOW_ID];
+	if (!wd.parent_hwnd || !wd.hWnd) {
+		return;
+	}
+	RECT owner_rect;
+	if (!GetWindowRect(wd.parent_hwnd, &owner_rect)) {
+		return;
+	}
+	const POINT owner_pos = { owner_rect.left, owner_rect.top };
+	if (!embedded_follow_owner_init) {
+		// 首帧：以当前摆放位置初始化 offset（后续由 window_set_position 绝对定位刷新）。
+		RECT self_rect;
+		if (GetWindowRect(wd.hWnd, &self_rect)) {
+			embedded_follow_offset = { self_rect.left - owner_pos.x, self_rect.top - owner_pos.y };
+		}
+		embedded_follow_last_owner_pos = owner_pos;
+		embedded_follow_owner_init = true;
+		return;
+	}
+	embedded_follow_last_owner_pos = owner_pos;
+	RECT self_rect;
+	if (!GetWindowRect(wd.hWnd, &self_rect)) {
+		return;
+	}
+	const int target_x = owner_pos.x + embedded_follow_offset.x;
+	const int target_y = owner_pos.y + embedded_follow_offset.y;
+	if (self_rect.left != target_x || self_rect.top != target_y) {
+		::SetWindowPos(wd.hWnd, nullptr, target_x, target_y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
+	}
+}
+
 void DisplayServerWindows::process_events() {
 	ERR_FAIL_COND(!Thread::is_main_thread());
 
@@ -4434,6 +4496,8 @@ void DisplayServerWindows::process_events() {
 	}
 
 	_THREAD_SAFE_LOCK_
+
+	_update_embedded_follow();
 
 	process_raw_input();
 

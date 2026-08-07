@@ -408,6 +408,9 @@ public:
 	virtual Point2i window_get_position_with_decorations(DisplayServerEnums::WindowID p_window = DisplayServerEnums::MAIN_WINDOW_ID) const = 0;
 	virtual void window_set_position(const Point2i &p_position, DisplayServerEnums::WindowID p_window = DisplayServerEnums::MAIN_WINDOW_ID) = 0;
 
+	// C-lite：设置嵌入窗口相对宿主窗口原点的偏移（物理像素；仅 embedded 平台实现，默认 no-op）。
+	virtual void window_set_embedded_offset(const Point2i &p_offset, DisplayServerEnums::WindowID p_window = DisplayServerEnums::MAIN_WINDOW_ID) {}
+
 	virtual void window_set_transient(DisplayServerEnums::WindowID p_window, DisplayServerEnums::WindowID p_parent) = 0;
 	virtual void window_set_exclusive(DisplayServerEnums::WindowID p_window, bool p_exclusive);
 

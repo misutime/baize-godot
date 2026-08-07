@@ -6,7 +6,7 @@ import { ipcMain } from "electron";
 
 import { type ViewportRect, IPC } from "../../src/shared/ipc";
 import { state } from "../state";
-import { syncViewportRect } from "./godot";
+import { syncViewportOffset, syncViewportRect } from "./godot";
 
 export function setupIpc(): void {
   // 方法白名单：只允许能力面命名空间（review P2：防任意方法调用）
@@ -40,6 +40,7 @@ export function setupIpc(): void {
       return; // 拒绝非主窗口的上报
     }
     state.viewportRect = rect;
+    syncViewportOffset();
     syncViewportRect();
   });
 }

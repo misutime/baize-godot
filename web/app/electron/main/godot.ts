@@ -74,8 +74,10 @@ function createClient(): void {
     onReady: () => {
         broadcastGodotStatus({ state: "running", provider: "connected" });
         // C-lite：连接建立后补发视口矩形（renderer 首次上报常早于 WS 认证而失败，此处重同步）。
-        syncViewportRect();
-        // C-lite：启动保护由 editor.ready 事件精确解除（见 releaseStartupProtection）；此处仅兜底（事件丢失）。
+		syncViewportRect();
+		// C-lite：偏移（相对宿主窗口原点）同步——布局数据源，仅随布局变化；位移跟随由 Godot 每帧处理。
+		syncViewportOffset();
+		// C-lite：启动保护由 editor.ready 事件精确解除（见 releaseStartupProtection）；此处仅兜底（事件丢失）。
         setTimeout(releaseStartupProtection, 5000);
     },
     // WS 断连/重连中（Godot 进程仍在）也要下行 provider 状态（review：面板不能谎报"已连接"）；
@@ -201,6 +203,27 @@ export function syncViewportRect(p_window_bounds?: Electron.Rectangle): void {
 		.invoke("viewport.set_window_rect", { x, y, w, h })
 		.catch((err: unknown) => {
 			log(`viewport.set_window_rect 失败: ${(err as Error)?.message ?? String(err)}`);
+		});
+}
+
+/** C-lite 视口偏移同步：视口矩形相对宿主窗口原点（DIP 内容区 → 窗口原点 → 物理像素）→ viewport.set_viewport_offset。
+ * 位置由 Godot 每帧按 owner+offset 重组（跟随）独占；此偏移仅随布局变化更新（renderer 数据，天然新鲜）。 */
+export function syncViewportOffset(): void {
+	const win = state.mainWindow;
+	const client = state.client;
+	if (!win || !client || !state.viewportRect) {
+		return;
+	}
+	const wb = win.getBounds();
+	const cb = win.getContentBounds();
+	const scale = screen.getDisplayMatching(win.getBounds()).scaleFactor;
+	const r = state.viewportRect;
+	const ox = Math.round(((cb.x - wb.x) + r.x) * scale);
+	const oy = Math.round(((cb.y - wb.y) + r.y) * scale);
+	client
+		.invoke("viewport.set_viewport_offset", { x: ox, y: oy })
+		.catch((err: unknown) => {
+			log(`viewport.set_viewport_offset 失败: ${(err as Error)?.message ?? String(err)}`);
 		});
 }
 

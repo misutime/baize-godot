@@ -94,10 +94,9 @@ function createWindow(): void {
     state.mainWindow = null;
   });
 
-  // C-lite 几何同步：will-* 提前摆位（同帧到达），move/resize/状态事件兜底；布局变化走渲染进程 IPC。
-  win.on("will-move", (_e, new_bounds) => syncViewportRect(new_bounds));
+  // C-lite 几何同步：位移由 Godot 侧 owner 跟随（_update_embedded_follow，每帧原生读 owner 位置，零延迟）处理；
+  // 此处仅同步尺寸/布局变化（绝对纠正）：will-resize 提前摆位，resize/状态事件兜底；布局变化走渲染进程 IPC。
   win.on("will-resize", (_e, new_bounds) => syncViewportRect(new_bounds));
-  win.on("move", () => syncViewportRect());
   win.on("resize", () => syncViewportRect());
   win.on("maximize", () => syncViewportRect());
   win.on("unmaximize", () => syncViewportRect());

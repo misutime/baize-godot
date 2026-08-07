@@ -1109,7 +1109,9 @@ void EditorNode::_notification(int p_what) {
 			}
 
 			// Set a low FPS cap to decrease CPU/GPU usage while the editor is unfocused.
-			if (unfocused_low_processor_usage_mode_enabled) {
+			// fork(C-lite): 嵌入模式下不禁用——嵌入窗口失焦时仍需满速（owner 跟随/渲染），
+			// 否则 10fps 节流导致拖动跟随明显滞后（unfocused_low_processor_mode_sleep_usec 默认 100ms）。
+			if (unfocused_low_processor_usage_mode_enabled && !Engine::get_singleton()->is_embedded_in_editor()) {
 				OS::get_singleton()->set_low_processor_usage_mode_sleep_usec(int(EDITOR_GET("interface/editor/timers/unfocused_low_processor_mode_sleep_usec")));
 			}
 		} break;

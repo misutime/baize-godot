@@ -110,6 +110,11 @@ void Registry::_register_all() {
 	no_focus_props["enabled"] = _bool_param("true = 窗口不可激活（启动期防焦点死锁）；false = 恢复可激活");
 	register_method("viewport.set_no_focus", "切换嵌入窗口 no-focus 标志（C-lite：编辑器 ready 后解除启动期保护）", _schema(no_focus_props, { "enabled" }), Ops::h_set_no_focus);
 
+	Dictionary offset_props;
+	offset_props["x"] = _num_param("视口窗口相对宿主窗口原点的 X 偏移（物理像素）");
+	offset_props["y"] = _num_param("视口窗口相对宿主窗口原点的 Y 偏移（物理像素）");
+	register_method("viewport.set_viewport_offset", "设置视口窗口相对宿主窗口的偏移（C-lite：布局变化时由 Electron 下发；位移跟随由 Godot 每帧处理）", _schema(offset_props, { "x", "y" }), Ops::h_set_viewport_offset);
+
 	print_line("[gd_provider] Registry 就绪: " + itos(s_methods.size()) + " 个能力方法");
 }
 
