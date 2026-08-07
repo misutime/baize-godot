@@ -403,6 +403,7 @@ class DisplayServerWindows : public DisplayServer {
 	HHOOK mouse_monitor = nullptr;
 	// C-lite：嵌入窗口跟随 owner（每帧按 owner+offset 重组位置；offset 由 window_set_position 绝对定位刷新）。
 	bool embedded_follow_owner_init = false;
+	bool embedded_follow_offset_set = false; // 首次 viewport.set_viewport_offset 到位 = 窗口可显示
 	POINT embedded_follow_last_owner_pos = { 0, 0 };
 	POINT embedded_follow_offset = { 0, 0 };
 	void _update_embedded_follow();

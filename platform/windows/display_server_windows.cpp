@@ -2365,6 +2365,8 @@ void DisplayServerWindows::window_set_embedded_offset(const Point2i &p_offset, D
 	}
 	embedded_follow_offset = { p_offset.x, p_offset.y };
 	embedded_follow_owner_init = true;
+	embedded_follow_offset_set = true;
+	ShowWindow(wd.hWnd, SW_SHOW); // C-lite：偏移到位 → 显示嵌入窗口（启动期隐藏的解除点）
 	RECT owner_rect;
 	if (GetWindowRect(wd.parent_hwnd, &owner_rect)) {
 		::SetWindowPos(wd.hWnd, nullptr, owner_rect.left + p_offset.x, owner_rect.top + p_offset.y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
@@ -4455,6 +4457,14 @@ void DisplayServerWindows::_update_embedded_follow() {
 	}
 	const WindowData &wd = windows[DisplayServerEnums::MAIN_WINDOW_ID];
 	if (!wd.parent_hwnd || !wd.hWnd) {
+		return;
+	}
+	if (!embedded_follow_offset_set) {
+		// C-lite：启动期隐藏嵌入窗口（避免 spawn 默认位置的小窗可见 = "两个窗口"假象）；
+		// 首次 viewport.set_viewport_offset（renderer 布局）到位后才显示。
+		if (IsWindowVisible(wd.hWnd)) {
+			ShowWindow(wd.hWnd, SW_HIDE);
+		}
 		return;
 	}
 	RECT owner_rect;
