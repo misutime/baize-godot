@@ -248,6 +248,8 @@ static bool init_use_custom_pos = false;
 static bool init_use_custom_screen = false;
 static Vector2 init_custom_pos;
 static int64_t init_embed_parent_window_id = 0;
+// fork(C-lite): 嵌入窗口启动期 no-focus（防 splash 期点击 owner 的焦点死锁；Electron ready 后经 viewport.set_no_focus 解除）。
+static bool init_embedded_no_focus = false;
 #ifdef TOOLS_ENABLED
 static bool init_display_scale_found = false;
 static int init_display_scale = 0;
@@ -1997,6 +1999,9 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				goto error;
 			}
 
+		} else if (arg == "--embedded-no-focus") {
+			// fork(C-lite): 嵌入窗口启动期不参与焦点争夺。
+			init_embedded_no_focus = true;
 		} else if (arg == "--" || arg == "++") {
 			adding_user_args = true;
 		} else {
@@ -3235,6 +3240,10 @@ Error Main::setup2(bool p_show_boot_logo) {
 			// from --position and --resolution parameters.
 			window_mode = DisplayServerEnums::WINDOW_MODE_WINDOWED;
 			window_flags = DisplayServerEnums::WINDOW_FLAG_BORDERLESS_BIT;
+			if (init_embedded_no_focus) {
+				// fork(C-lite): 启动期防焦点死锁（见 --embedded-no-focus 参数注释）。
+				window_flags |= DisplayServerEnums::WINDOW_FLAG_NO_FOCUS_BIT;
+			}
 			if (bool(GLOBAL_GET("display/window/size/transparent"))) {
 				window_flags |= DisplayServerEnums::WINDOW_FLAG_TRANSPARENT_BIT;
 			}

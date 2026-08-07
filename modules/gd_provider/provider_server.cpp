@@ -158,6 +158,10 @@ void ProviderServer::poll() {
 	if (!started_ || tcp_server_.is_null()) {
 		return;
 	}
+	// C-lite：就绪标志（EditorNode 构造完成 = 主循环已起，消息循环稳定泵送）。
+	if (!editor_ready_ && EditorNode::get_singleton()) {
+		editor_ready_ = true;
+	}
 	_accept_connections();
 	_poll_peers();
 	_poll_state_diff();
@@ -305,6 +309,14 @@ void ProviderServer::_handle_frame(Peer &p_peer, const String &p_text) {
 		p_peer.authenticated = true;
 		p_peer.auth_deadline_ms = 0;
 		print_line("[gd_provider] 客户端握手成功");
+		// C-lite：就绪通知——Electron 据此解除启动期焦点保护（晚连接者在此补收，幂等）。
+		if (editor_ready_) {
+			Dictionary notify;
+			notify["jsonrpc"] = "2.0";
+			notify["method"] = "editor.ready";
+			notify["params"] = Dictionary();
+			_send(p_peer, notify);
+		}
 	}
 
 	const Dictionary result = _dispatch(p_peer, method, params);

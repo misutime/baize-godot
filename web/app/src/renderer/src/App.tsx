@@ -284,6 +284,26 @@ export default function App(): React.JSX.Element {
   // M1 收尾：标题栏项目名 + 视口状态面板（Godot 进程/连接状态下行）
   const [projectName, setProjectName] = useState<string | null>(null);
   const [godotStatus, setGodotStatus] = useState<GodotProcessStatus | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  // C-lite 几何同步：视口区域尺寸/位置变化 → 上报主进程（DIP，相对内容区）。
+  // 依赖 connected：loading 遮罩期间视口区未挂载，connected 后 effect 重新执行（绑定 observer + 首报）。
+  const connected = godotStatus?.provider === "connected";
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) {
+      return;
+    }
+    const send = (): void => {
+      const r = el.getBoundingClientRect();
+      window.godot.viewportRectChanged({ x: r.x, y: r.y, w: r.width, h: r.height });
+    };
+    send();
+    const ro = new ResizeObserver(send);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, [connected]);
   // review 修复：请求代际（props 与全量 refresh 各自防过期响应覆盖）+ 选中路径基线（草稿按节点作用域清空）
   const propsGenRef = useRef(0);
   const refreshGenRef = useRef(0);
@@ -514,6 +534,16 @@ export default function App(): React.JSX.Element {
     }
   };
 
+  // C-lite：Godot 未就绪时全窗口 loading 遮罩——启动期应用整体不可交互（配合主进程 setFocusable(false)，
+  // 防 splash 期点击 owner 的焦点死锁）；connected 后恢复正常 UI，视口区挂载 → ResizeObserver 上报 → 几何同步。
+  if (!connected) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center gap-2">
+        <p className="text-sm text-muted-foreground">正在启动 Godot 核心…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* 工具栏 */}
@@ -604,10 +634,9 @@ export default function App(): React.JSX.Element {
           </div>
         </aside>
 
-        {/* 中：视口（M1 策略 A：Godot 独立窗口，Electron 显示状态与并列提示） */}
-        <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-lg border p-6 text-sm text-muted-foreground">
-          <p className="font-medium">视口 — 策略 A（Godot 独立窗口）</p>
-          <div className="flex items-center gap-2">
+        {/* 中：视口（C-lite：Godot owned window 嵌入区域；ResizeObserver 上报矩形驱动几何同步） */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
             <span
               className={
                 godotStatus?.provider === "connected"
@@ -629,8 +658,17 @@ export default function App(): React.JSX.Element {
               ，能力面：{godotStatus?.provider === "connected" ? "已连接" : "未连接"}
             </span>
           </div>
-          <p className="text-xs">3D 视口在独立的 Godot 窗口中显示（并列排布）；后续阶段将改为离屏嵌入。</p>
-        </section>
+          <section
+            ref={viewportRef}
+            className="relative min-h-0 flex-1 overflow-hidden rounded-lg border"
+            aria-label="3D 视口"
+          >
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-sm text-muted-foreground">
+              <p className="font-medium">视口 — C-lite（Godot 窗口嵌入）</p>
+              <p className="text-xs">3D 视口窗口覆盖此区域；主窗口拖动/缩放时同步跟随。</p>
+            </div>
+          </section>
+        </div>
 
         {/* 右：Inspector */}
         <aside className="flex w-80 shrink-0 flex-col rounded-lg border">

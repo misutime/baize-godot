@@ -9,7 +9,7 @@ import { app, BrowserWindow } from "electron";
 
 import { IPC } from "../../src/shared/ipc";
 import { state } from "../state";
-import { disposeGodot, initGodot } from "./godot";
+import { disposeGodot, initGodot, syncViewportRect } from "./godot";
 import { setupIpc } from "./ipc";
 
 // vite-plugin-electron dev 注入的渲染进程 dev server URL；未设置 = 生产构建（loadFile dist/）。
@@ -52,6 +52,10 @@ function createWindow(): void {
   });
   state.mainWindow = win;
 
+  // C-lite 启动期防焦点死锁：Godot 嵌入窗口就绪前，Electron 窗口不可聚焦（点击不激活 owner，
+  // 避免与 splash 期 owned 窗口的焦点争夺；就绪后经 godot.ts onReady 延迟恢复 setFocusable(true)）。
+  win.setFocusable(false);
+
   // 调试开关（P2-5）：仅 dev（dev server 存在）打开 DevTools；VSCODE_DEBUG=0 可显式关闭。
   if (VITE_DEV_SERVER_URL && process.env.VSCODE_DEBUG !== "0") {
     win.webContents.openDevTools({ mode: "right" });
@@ -89,12 +93,24 @@ function createWindow(): void {
   win.on("closed", () => {
     state.mainWindow = null;
   });
+
+  // C-lite 几何同步：will-* 提前摆位（同帧到达），move/resize/状态事件兜底；布局变化走渲染进程 IPC。
+  win.on("will-move", (_e, new_bounds) => syncViewportRect(new_bounds));
+  win.on("will-resize", (_e, new_bounds) => syncViewportRect(new_bounds));
+  win.on("move", () => syncViewportRect());
+  win.on("resize", () => syncViewportRect());
+  win.on("maximize", () => syncViewportRect());
+  win.on("unmaximize", () => syncViewportRect());
+  win.on("minimize", () => syncViewportRect());
+  win.on("restore", () => syncViewportRect());
 }
 
 app.whenReady().then(() => {
-  initGodot();
+  // 顺序：IPC 先注册 → 窗口先建（initGodot spawn 时需要 --wid 的 HWND）→ 再启动 Godot。
+  // 渲染进程的首批请求本就会竞争 Godot 启动（数秒），此顺序不引入新竞态。
   setupIpc();
   createWindow();
+  initGodot();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

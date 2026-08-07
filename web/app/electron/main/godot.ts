@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { screen } from "electron";
 import { GodotClient } from "@baize/godot-process";
 
 import { type GodotProcessStatus, IPC } from "../../src/shared/ipc";
@@ -38,12 +39,45 @@ function broadcastGodotStatus(payload: GodotProcessStatus): void {
   state.mainWindow?.webContents.send(IPC.process, payload);
 }
 
+/** 启动期焦点保护解除（幂等）：Godot 嵌入窗口恢复可激活 + Electron 窗口恢复可聚焦。
+ * 触发：editor.ready 事件（精确信号）；兜底：onReady 后 5s 定时器（事件丢失时）。
+ * 注：editor.ready 通知可能先于客户端认证完成到达，set_no_focus 失败则退避重试（最多 5 次）。 */
+let startupProtectionReleased = false;
+function releaseStartupProtection(): void {
+	if (startupProtectionReleased) {
+		return;
+	}
+	startupProtectionReleased = true;
+	state.mainWindow?.setFocusable(true);
+	log("C-lite 启动保护解除（Electron 窗口可聚焦）");
+	let attempts = 0;
+	const tryReleaseNoFocus = (): void => {
+		attempts++;
+		state.client
+			?.invoke("viewport.set_no_focus", { enabled: false })
+			.catch((err: unknown) => {
+				if (attempts < 5) {
+					setTimeout(tryReleaseNoFocus, 1000);
+				} else {
+					log(`viewport.set_no_focus 重试耗尽: ${(err as Error)?.message ?? String(err)}`);
+				}
+			});
+	};
+	tryReleaseNoFocus();
+}
+
 /** 创建 GodotClient（WS 连接 + 事件转发）。构造即开始连接（createWsTransport 内部启动）。 */
 function createClient(): void {
   state.client = new GodotClient({
     url: PROVIDER_URL,
     token: PROVIDER_TOKEN,
-    onReady: () => broadcastGodotStatus({ state: "running", provider: "connected" }),
+    onReady: () => {
+        broadcastGodotStatus({ state: "running", provider: "connected" });
+        // C-lite：连接建立后补发视口矩形（renderer 首次上报常早于 WS 认证而失败，此处重同步）。
+        syncViewportRect();
+        // C-lite：启动保护由 editor.ready 事件精确解除（见 releaseStartupProtection）；此处仅兜底（事件丢失）。
+        setTimeout(releaseStartupProtection, 5000);
+    },
     // WS 断连/重连中（Godot 进程仍在）也要下行 provider 状态（review：面板不能谎报"已连接"）；
     // 注意：transport "connected" = WS 已打开但认证（hello）尚未完成——映射为 connecting，
     // 认证成功（onReady）才报 connected（review：token 错误时不得短暂谎报）。
@@ -56,8 +90,11 @@ function createClient(): void {
             : "disconnected",
       }),
   });
-  // Provider 事件 → 渲染进程：下行转发
+  // Provider 事件 → 渲染进程：下行转发；editor.ready → 解除启动期焦点保护（精确信号）。
   state.client.onEvent((method, params) => {
+    if (method === "editor.ready") {
+      releaseStartupProtection();
+    }
     state.mainWindow?.webContents.send(IPC.event, { method, params });
   });
 }
@@ -88,9 +125,21 @@ function startGodot(): void {
     return;
   }
   const project = process.env.BAIZE_PROJECT_PATH ?? DEFAULT_PROJECT;
-  // 视口策略 A：Godot 窗口模式（--editor）+ 默认视口尺寸（--resolution）；Electron 面板并列。
-  log(`spawn Godot: ${GODOT_EXE} --path ${project} --editor --resolution 1024x768`);
-  state.godotChild = spawn(GODOT_EXE, ["--path", project, "--editor", "--resolution", "1024x768"], {
+  const args = ["--path", project, "--editor"];
+  const hwnd_buf = state.mainWindow?.getNativeWindowHandle();
+  const wid = hwnd_buf && hwnd_buf.length >= 8 ? Number(hwnd_buf.readBigUInt64LE(0)) : 0;
+  if (wid) {
+    // C-lite：Godot 主窗口作为 Electron 主窗口的 owned window（上游 --wid 机制，spawn 时挂接）。
+    args.push("--wid", String(wid));
+    // C-lite 启动期防焦点死锁（splash 期点击 owner 会触发双方冻结）：嵌入窗口初始 no-focus，
+    // 编辑器就绪后经 viewport.set_no_focus(false) 解除（onReady 延迟，见 createClient）。
+    args.push("--embedded-no-focus");
+  } else {
+    // 兜底（窗口尚未创建/非 Win）：策略 A 独立窗口形态。
+    args.push("--resolution", "1024x768");
+  }
+  log(`spawn Godot: ${GODOT_EXE} ${args.join(" ")}`);
+  state.godotChild = spawn(GODOT_EXE, args, {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -112,9 +161,52 @@ function startGodot(): void {
   });
 }
 
+/** will-move/will-resize 事件的新 bounds 是窗口外框；换算为内容区（减去当前外框↔内容区差值）。 */
+function contentBoundsFromWindow(p_bounds: Electron.Rectangle): Electron.Rectangle {
+	const win = state.mainWindow;
+	if (!win) {
+		return p_bounds;
+	}
+	const wb = win.getBounds();
+	const cb = win.getContentBounds();
+	return {
+		x: p_bounds.x + (cb.x - wb.x),
+		y: p_bounds.y + (cb.y - wb.y),
+		width: p_bounds.width + (cb.width - wb.width),
+		height: p_bounds.height + (cb.height - wb.height),
+	};
+}
+
+/**
+ * C-lite 视口几何同步：把渲染进程上报的视口矩形（DIP、相对内容区）换算为
+ * Godot 屏幕坐标空间并下发 viewport.set_window_rect。
+ * 坐标契约：Godot window_set_position 输入 = Win32 物理像素 − 虚拟屏幕原点；
+ * 当前实现假设单显示器（原点 0,0），多屏/DPI 换算在 W6 验收。
+ * @param p_window_bounds will-move/will-resize 传入的新窗口 bounds（提前摆位，同帧到达）；缺省用当前窗口几何。
+ */
+export function syncViewportRect(p_window_bounds?: Electron.Rectangle): void {
+	const win = state.mainWindow;
+	const client = state.client;
+	if (!win || !client || !state.viewportRect) {
+		return;
+	}
+	const content = p_window_bounds ? contentBoundsFromWindow(p_window_bounds) : win.getContentBounds();
+	const scale = screen.getDisplayMatching(win.getBounds()).scaleFactor;
+	const r = state.viewportRect;
+	const x = Math.round((content.x + r.x) * scale);
+	const y = Math.round((content.y + r.y) * scale);
+	const w = Math.max(Math.round(r.w * scale), 1);
+	const h = Math.max(Math.round(r.h * scale), 1);
+	client
+		.invoke("viewport.set_window_rect", { x, y, w, h })
+		.catch((err: unknown) => {
+			log(`viewport.set_window_rect 失败: ${(err as Error)?.message ?? String(err)}`);
+		});
+}
+
 /** 启动 Godot 进程与 WS 客户端（app ready 后调用一次）。 */
 export function initGodot(): void {
-  startGodot();
+	startGodot();
   // Provider 启动需要几秒（编辑器核心初始化）——GodotClient 带退避重连，无需显式等待
   createClient();
 }

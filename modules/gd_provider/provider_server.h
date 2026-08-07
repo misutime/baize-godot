@@ -58,6 +58,8 @@ class ProviderServer : public Object {
 	String token_; // env BAIZE_PROVIDER_TOKEN（空 = dev 宽松模式）
 	int listen_port_ = 0;
 	bool started_ = false;
+	// C-lite：编辑器核心就绪标志（首帧起 EditorNode 已构造）——驱动 editor.ready 事件，Electron 据此解除启动期焦点保护。
+	bool editor_ready_ = false;
 	Object *pump_driver_ = nullptr; // SceneTree::process_frame 连接目标
 
 	bool start_frame_pump();

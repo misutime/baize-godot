@@ -14,6 +14,7 @@
 #include "editor/settings/editor_settings.h"
 #include "scene/3d/node_3d.h"
 #include "scene/resources/theme.h"
+#include "servers/display/display_server.h"
 
 #ifdef TOOLS_ENABLED
 
@@ -937,6 +938,45 @@ bool Ops::_decode_value(const Variant &p_value, Variant::Type p_type, Variant &r
 		default:
 			return false; // 契约外类型（Array/Dictionary/Resource/枚举等）不可解码
 	}
+}
+
+Dictionary Ops::h_set_window_rect(const Dictionary &p_args) {
+	// C-lite 视口几何同步：Electron 主窗口移动/缩放/布局变化时，宿主经 WS 下发视口矩形，
+	// 驱动嵌入窗口移动/缩放（上游 embedded 模式禁止自移动，fork 已放开——
+	// 见 platform/windows/display_server_windows.cpp window_set_position/window_set_size）。
+	if (!Engine::get_singleton()->is_embedded_in_editor()) {
+		return _err("not_embedded", "viewport.set_window_rect 仅支持 --wid 嵌入模式");
+	}
+	const Variant vx = p_args.get("x", Variant());
+	const Variant vy = p_args.get("y", Variant());
+	const Variant vw = p_args.get("w", Variant());
+	const Variant vh = p_args.get("h", Variant());
+	const Variant *vals[4] = { &vx, &vy, &vw, &vh };
+	for (int i = 0; i < 4; i++) {
+		const Variant::Type t = vals[i]->get_type();
+		if (t != Variant::FLOAT && t != Variant::INT) {
+			return _err("invalid_params", "rect 必须为 {x,y,w,h} 有限数字");
+		}
+	}
+	const double fx = vx, fy = vy, fw = vw, fh = vh;
+	if (!Math::is_finite(fx) || !Math::is_finite(fy) || !Math::is_finite(fw) || !Math::is_finite(fh)) {
+		return _err("invalid_params", "rect 必须为 {x,y,w,h} 有限数字");
+	}
+	DisplayServer *ds = DisplayServer::get_singleton();
+	ds->window_set_position(Point2i((int)fx, (int)fy), DisplayServerEnums::MAIN_WINDOW_ID);
+	ds->window_set_size(Size2i(MAX((int)fw, 1), MAX((int)fh, 1)), DisplayServerEnums::MAIN_WINDOW_ID);
+	return _ok(Dictionary());
+}
+
+Dictionary Ops::h_set_no_focus(const Dictionary &p_args) {
+	// C-lite 启动期焦点死锁规避：嵌入窗口初始 no-focus（--embedded-no-focus），
+	// 编辑器 ready 后由 Electron 经此解除（window_set_flag 运行时切换已内置）。
+	const Variant v = p_args.get("enabled", Variant());
+	if (v.get_type() != Variant::BOOL) {
+		return _err("invalid_params", "enabled 必须为布尔");
+	}
+	DisplayServer::get_singleton()->window_set_flag(DisplayServerEnums::WINDOW_FLAG_NO_FOCUS, v.operator bool(), DisplayServerEnums::MAIN_WINDOW_ID);
+	return _ok(Dictionary());
 }
 
 #endif // TOOLS_ENABLED

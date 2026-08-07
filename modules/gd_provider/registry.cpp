@@ -40,6 +40,13 @@ static Dictionary _num_param(const String &p_desc) {
 	return d;
 }
 
+static Dictionary _bool_param(const String &p_desc) {
+	Dictionary d;
+	d["type"] = "boolean";
+	d["description"] = p_desc;
+	return d;
+}
+
 void Registry::register_method(const String &p_name, const String &p_desc, const Dictionary &p_schema, Handler p_handler) {
 	Method m;
 	m.name = p_name;
@@ -90,6 +97,18 @@ void Registry::_register_all() {
 	register_method("editor.get_theme", "编辑器主题信息（主题名/预设/基础色/强调色/字号）", _schema({}, {}), Ops::h_get_theme);
 	register_method("editor.get_scale", "编辑器 UI 缩放比例（EDSCALE）", _schema({}, {}), Ops::h_get_scale);
 	register_method("editor.get_project_info", "项目信息（名称/主场景/渲染器/引擎版本/路径）", _schema({}, {}), Ops::h_get_project_info);
+
+	// —— C-lite 视口窗口嵌入：viewport.set_window_rect（宿主同步嵌入窗口几何，2026-08-07） ——
+	Dictionary rect_props;
+	rect_props["x"] = _num_param("视口矩形 X（Godot 屏幕坐标空间 = Win32 物理像素 − 虚拟屏幕原点）");
+	rect_props["y"] = _num_param("视口矩形 Y");
+	rect_props["w"] = _num_param("视口矩形宽（像素）");
+	rect_props["h"] = _num_param("视口矩形高（像素）");
+	register_method("viewport.set_window_rect", "设置嵌入视口窗口几何（仅 --wid 嵌入模式；Electron 主窗口移动/缩放/布局变化时同步）", _schema(rect_props, { "x", "y", "w", "h" }), Ops::h_set_window_rect);
+
+	Dictionary no_focus_props;
+	no_focus_props["enabled"] = _bool_param("true = 窗口不可激活（启动期防焦点死锁）；false = 恢复可激活");
+	register_method("viewport.set_no_focus", "切换嵌入窗口 no-focus 标志（C-lite：编辑器 ready 后解除启动期保护）", _schema(no_focus_props, { "enabled" }), Ops::h_set_no_focus);
 
 	print_line("[gd_provider] Registry 就绪: " + itos(s_methods.size()) + " 个能力方法");
 }

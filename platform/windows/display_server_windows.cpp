@@ -2360,10 +2360,8 @@ void DisplayServerWindows::window_set_position(const Point2i &p_position, Displa
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
-		print_line("Embedded window can't be moved.");
-		return;
-	}
+	// fork(C-lite): 放开 embedded 窗口自移动（Electron 宿主经 WS viewport.set_window_rect 同步几何；
+	// 见 doc/plans/视口渲染-窗口嵌入方案-设计与验证计划.md §4.2）
 
 	if (wd.fullscreen || wd.maximized) {
 		return;
@@ -2501,10 +2499,7 @@ void DisplayServerWindows::window_set_size(const Size2i p_size, DisplayServerEnu
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
-		print_line("Embedded window can't be resized.");
-		return;
-	}
+	// fork(C-lite): 放开 embedded 窗口自缩放（同 window_set_position 的 C-lite 改动）
 
 	if (wd.fullscreen || wd.maximized) {
 		return;

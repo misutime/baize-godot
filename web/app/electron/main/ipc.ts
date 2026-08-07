@@ -4,8 +4,9 @@
  */
 import { ipcMain } from "electron";
 
-import { IPC } from "../../src/shared/ipc";
+import { type ViewportRect, IPC } from "../../src/shared/ipc";
 import { state } from "../state";
+import { syncViewportRect } from "./godot";
 
 export function setupIpc(): void {
   // 方法白名单：只允许能力面命名空间（review P2：防任意方法调用）
@@ -31,5 +32,14 @@ export function setupIpc(): void {
         error: { message: e2.message ?? String(err), code: e2.code, data: e2.data },
       };
     }
+  });
+
+  // C-lite：渲染进程上报视口矩形（DIP，相对内容区）→ 缓存 + 同步（sender 校验同 request）。
+  ipcMain.on(IPC.viewportRect, (e, rect: ViewportRect) => {
+    if (e.sender !== state.mainWindow?.webContents) {
+      return; // 拒绝非主窗口的上报
+    }
+    state.viewportRect = rect;
+    syncViewportRect();
   });
 }

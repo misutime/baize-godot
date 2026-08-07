@@ -41,6 +41,9 @@ const bridge: GodotBridge = {
       ipcRenderer.removeListener(IPC.process, handler);
     };
   },
+  viewportRectChanged: (rect) => {
+    ipcRenderer.send(IPC.viewportRect, rect);
+  },
 };
 
 contextBridge.exposeInMainWorld("godot", bridge);
