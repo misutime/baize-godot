@@ -96,7 +96,25 @@
 
 **验证**：splash 期 60 次脚本点击风暴 → 双方消息循环均响应、几何同步生效（窗口离开 splash 尺寸）。
 
-**遗留**：① ~~解除时机用 5s 延迟，后续换 Provider ready 事件精确化~~ → **已解决（2026-08-07）**：`editor.ready` 事件精确解除 + 1s×5 退避重试 + 5s 兜底；② 启动期窗口几何（W2）与 DPI 换算细节待验收（观察到视口矩形高度异常 1228，需查布局/DPI）；③ 根因机制细节（双线程具体等待对象）未完全坐实，如复发可尝试 minidump 取证。
+**遗留**：① ~~解除时机用 5s 延迟，后续换 Provider ready 事件精确化~~ → **已解决（2026-08-07）**：`editor.ready` 事件精确解除 + 1s×5 退避重试 + 5s 兜底；② ~~启动期窗口几何（W2）与 DPI 换算细节待验收~~ → **移动滞后已解决（见 §4.5）**；视口矩形高度异常（曾观察 1228）待 W2 布局/DPI 复核；③ 根因机制细节（双线程具体等待对象）未完全坐实，如复发可尝试 minidump 取证。
+
+### 4.5 拖拽跟随延迟：owner 跟随（2026-08-07）
+
+**现象**：移动 Electron 窗口时 Godot 窗口跟随有明显延迟（肉眼可辨的脱离感）。
+
+**根因**：WS 几何同步的两次事件循环跳转（Electron 'move' 事件派发 + Godot 帧轮询）+ 连续事件流下请求排队积压——实测 750px/s 连续拖动相位滞后 318px/~424ms；且排队中的陈旧绝对坐标与跟随互相覆盖。
+
+**修复**：
+1. Godot fork：`DisplayServerWindows` 每帧 `_update_embedded_follow()`（process_events 内）——按 **owner 窗口位置 + offset** 重组自身位置（offset 由 `window_set_position` 绝对定位刷新，防初始摆放/布局纠正与跟随打架）；位移路径完全无需 WS；
+2. Electron：移除 'move'/'will-move' 几何同步（位移由 Godot 原生跟随）；resize/布局仍走 WS 绝对纠正。
+
+**验证**：连续拖动 750px/s 相位滞后 **318px → 全贴合（≤2ms 采样分辨率）**；初始摆放偏移正确（offset 基线竞态已修）；纯 resize 尺寸跟随且静止后收敛到正确偏移。
+
+**补充根因（2026-08-07 用户实测复现后追查）**：拖动期间仍有明显滞后且与焦点状态相关——真根因 = **编辑器失焦低功耗节流**（editor/editor_node.cpp NOTIFICATION_APPLICATION_FOCUS_OUT：`unfocused_low_processor_mode_sleep_usec` 默认 100ms → 10fps）。拖动 Electron 窗口 → Godot 失焦 → 主循环 10fps → 每帧跟随/轮询被拉长（失焦单跳实测 101ms）。修复：嵌入模式下跳过失焦节流（`!Engine::is_embedded_in_editor()` 门控）——失焦单跳恢复 7ms。**注：此前的"时好时坏"不是代码回退，是 Godot 窗口聚焦状态决定帧率。**
+
+**架构定案（消除陈旧坐标污染）**：位置由 owner 跟随独占——`set_window_rect` 嵌入模式仅应用尺寸；偏移经新能力 `viewport.set_viewport_offset`（renderer 布局数据，天然新鲜）维护；offset 由 `window_set_embedded_offset` 写入并即时应用。
+
+**遗留**：组合 move+resize 风暴期 ~8px 瞬态漂移（静止收敛，W2 细节）；视口矩形高度异常（曾观察 1228）待 W2 布局/DPI 复核。
 - W6（DPI/多屏）：当前单屏 scale=1 通过；需多显示器环境验证坐标换算。
 - W7（Play 窗口）：依赖 `run.*` 能力面（M2 里程碑），机制同路径（游戏进程 `--wid`）。
 
