@@ -17,19 +17,7 @@ import { createClient, type EditorStatePayload, type PropInfo, type TreeNode } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-declare global {
-  interface Window {
-    godot: {
-      request: (method: string, params?: unknown) => Promise<unknown>;
-      onEvent: (listener: (method: string, params: unknown) => void) => () => void;
-      onProcessStatus: (listener: (status: {
-        state: "starting" | "running" | "exited" | "error" | "restarting";
-        code?: number | null;
-        provider: "connecting" | "connected" | "disconnected";
-      }) => void) => () => void;
-    };
-  }
-}
+import type { GodotProcessStatus } from "../../shared/ipc";
 
 /** 提取 RpcCallError 的内部字符串码（Provider 放 error.data.code；message 是中文，正则匹配不可靠）。 */
 function errorCode(e: unknown): string | undefined {
@@ -295,11 +283,7 @@ export default function App(): React.JSX.Element {
   const [nodeName, setNodeName] = useState<string>("");
   // M1 收尾：标题栏项目名 + 视口状态面板（Godot 进程/连接状态下行）
   const [projectName, setProjectName] = useState<string | null>(null);
-  const [godotStatus, setGodotStatus] = useState<{
-    state: "starting" | "running" | "exited" | "error" | "restarting";
-    code?: number | null;
-    provider: "connecting" | "connected" | "disconnected";
-  } | null>(null);
+  const [godotStatus, setGodotStatus] = useState<GodotProcessStatus | null>(null);
   // review 修复：请求代际（props 与全量 refresh 各自防过期响应覆盖）+ 选中路径基线（草稿按节点作用域清空）
   const propsGenRef = useRef(0);
   const refreshGenRef = useRef(0);
