@@ -1,7 +1,7 @@
 {
   "name": "@baize/godot-rpc",
   "version": "0.1.0",
-  "description": "JSON-RPC 契约与传输核心：类型/编解码/配对（RpcClient）/Transport 接口 + ws·ipc 实现（零运行时依赖，纯 TS）",
+  "description": "JSON-RPC 契约与传输核心：类型/编解码/配对（RpcClient）/Transport 接口 + ws 实现（零运行时依赖，纯 TS；gd_provider 端到端测试套件）",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -15,9 +15,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

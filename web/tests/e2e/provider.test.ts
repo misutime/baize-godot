@@ -5,7 +5,7 @@
  * 测试项目：test-projects/provider（仓库内）。
  *
  * 用途：C++ Provider 行为验证（Godot 模块无单测框架，端到端断言为可靠方式）；
- * 三包（godot-rpc/godot-process/godot-sdk）↔ Provider 连通回归。
+ * 测试套件（godot-rpc/godot-process/godot-sdk）↔ Provider 连通回归。
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

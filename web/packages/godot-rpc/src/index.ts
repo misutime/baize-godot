@@ -11,5 +11,3 @@ export * from "./client";
 export * from "./transport";
 export { createWsTransport } from "./ws";
 export type { WsTransportOptions } from "./ws";
-export { createIpcTransport } from "./ipc";
-export type { IpcTransportDeps } from "./ipc";

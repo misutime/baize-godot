@@ -1,17 +1,13 @@
 {
-  "name": "baize-web",
+  "name": "baize-provider-tests",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "scripts": {
-    "build": "pnpm -r --filter \"./packages/*\" run build",
-    "test": "pnpm -r run test",
-    "lint": "biome check .",
-    "format": "biome format --write .",
+    "test": "pnpm --filter @baize/godot-rpc --filter @baize/godot-sdk run test",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "latest",
     "vitest": "^3.0.0"
   }
 }

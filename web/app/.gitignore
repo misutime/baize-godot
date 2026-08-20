@@ -1,8 +1,0 @@
-# 构建产物（vite-plugin-electron 主进程/preload、vite 渲染进程）
-dist-electron/
-dist/
-
-# playwright e2e 产物
-test-results/
-playwright-report/
-playwright/.cache/

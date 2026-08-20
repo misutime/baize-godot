@@ -1,10 +1,8 @@
 /**
- * @baize/godot-sdk：能力面客户端（方法绑定 + 事件订阅 + react hooks）。
+ * @baize/godot-sdk：能力面客户端（方法绑定 + 事件订阅）。
  *
  * 用法：createClient(transport) → { scene, editor, ... }——transport 由调用方注入：
- * - Electron 渲染进程：@baize/godot-rpc 的 createIpcTransport（经主进程转发）；
- * - Node CLI / AI：createWsTransport（直连 Godot WS）；
- * - 未来 QuickJS 脚本：inproc transport（进程内直调）。
+ * - Node CLI / AI：@baize/godot-rpc 的 createWsTransport（直连 Godot WS）。
  *
  * 方法/事件清单当前为骨架（scene.* 与 editor.* 沿用既有语义）；Godot Provider 的
  * Catalog 定案后由 schema 生成替换（保持签名一致）。

@@ -1,7 +1,7 @@
 {
   "name": "@baize/godot-process",
   "version": "0.1.0",
-  "description": "Electron 主进程宿主：Godot 进程连接/认证/生命周期（spawn 编排 M0 随 Provider 实现）",
+  "description": "Godot WS 客户端（GodotClient）：连接 + 认证握手 + 生命周期（gd_provider 端到端测试套件）",
   "type": "module",
   "license": "MIT",
   "private": true,
@@ -9,10 +9,6 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "build": "tsc --noEmit && tsdown",
-    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,17 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/ws": "^8.5.0",
-    "tsdown": "^0.22.14",
-    "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.0.0",
-    "ws": "^8.21.0"
-  },
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
-    }
+    "vitest": "^3.0.0"
   }
 }

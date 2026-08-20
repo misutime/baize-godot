@@ -1,8 +1,6 @@
 packages:
-  - app
   - packages/*
-# pnpm 11：依赖构建权限用 allowBuilds（onlyBuiltDependencies 已废弃，占位字符串不生效）；
-# esbuild/tsdown 需要 postinstall 下载平台二进制；electron 需要 postinstall 下载运行时。
+# pnpm 11：依赖构建权限用 allowBuilds（onlyBuiltDependencies 已废弃，占位字符串不生效）。
 allowBuilds:
+  electron: set this to true or false
   esbuild: true
-  electron: true
