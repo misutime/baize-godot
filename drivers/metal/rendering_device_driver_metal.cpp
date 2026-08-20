@@ -127,6 +127,9 @@ RDD::BufferID RenderingDeviceDriverMetal::buffer_create(uint64_t p_size, BitFiel
 				options = base_hazard_tracking | MTL::ResourceStorageModePrivate;
 			}
 			break;
+		case MEMORY_ALLOCATION_TYPE_GPU_MAPPABLE:
+			options = base_hazard_tracking | MTL::ResourceStorageModeShared;
+			break;
 	}
 
 	MTL::Buffer *obj = device->newBuffer(p_size, options);
@@ -951,10 +954,7 @@ Error RenderingDeviceDriverMetal::swap_chain_resize(CommandQueueID p_cmd_queue, 
 
 	DataFormat new_data_format = DATA_FORMAT_MAX;
 	ColorSpace new_color_space = COLOR_SPACE_MAX;
-	Error err = surface->resize(p_desired_framebuffer_count, new_data_format, new_color_space);
-	if (err != OK) {
-		return err;
-	}
+	RETURN_IF_ERROR(surface->resize(p_desired_framebuffer_count, new_data_format, new_color_space));
 
 	if (new_data_format != swap_chain->data_format) {
 		_swap_chain_release(swap_chain);
@@ -2749,6 +2749,8 @@ bool RenderingDeviceDriverMetal::has_feature(Features p_feature) {
 #endif
 			return is_supported;
 		}
+		case SUPPORTS_GPU_MAPPABLE_BUFFER:
+			return true;
 		default:
 			return false;
 	}

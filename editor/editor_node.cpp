@@ -51,6 +51,7 @@
 #include "core/version.h"
 #include "editor/animation/animation_player_editor_plugin.h"
 #include "editor/asset_library/asset_library_editor_plugin.h"
+#include "editor/audio/audio_stream_editor_plugin.h"
 #include "editor/audio/audio_stream_preview.h"
 #include "editor/audio/editor_audio_buses.h"
 #include "editor/debugger/debugger_editor_plugin.h"
@@ -135,6 +136,7 @@
 #include "editor/scene/material_editor_plugin.h"
 #include "editor/scene/particle_process_material_editor_plugin.h"
 #include "editor/script/editor_script.h"
+#include "editor/script/find_in_files.h"
 #include "editor/script/script_text_editor.h"
 #include "editor/script/text_editor.h"
 #include "editor/settings/editor_build_profile.h"
@@ -217,7 +219,8 @@ EditorNode *EditorNode::singleton = nullptr;
 
 static const String EDITOR_NODE_CONFIG_SECTION = "EditorNode";
 
-static const String REMOVE_ANDROID_BUILD_TEMPLATE_MESSAGE = TTRC("The Android build template is already installed in this project and it won't be overwritten.\nRemove the \"%s\" directory manually before attempting this operation again.");
+static const String ANDROID_BUILD_TEMPLATE_ALREADY_INSTALLED_MESSAGE = TTRC("The Android build template is already installed.");
+static const String REMOVE_ANDROID_BUILD_TEMPLATE_MESSAGE = TTRC("Remove the \"%s\" directory manually, or enable automatic deletion in the Editor Settings (Export > Android > Build > Automatically Delete Build Directory) before attempting this operation again.");
 static const String INSTALL_ANDROID_BUILD_TEMPLATE_MESSAGE = TTRC("This will set up your project for gradle Android builds by installing the source template to \"%s\".\nNote that in order to make gradle builds instead of using pre-built APKs, the \"Use Gradle Build\" option should be enabled in the Android export preset.");
 
 constexpr int LARGE_RESOURCE_WARNING_SIZE_THRESHOLD = 512'000; // 500 KB
@@ -2859,7 +2862,7 @@ void EditorNode::_dialog_action(String p_file) {
 			ObjectID current_id = editor_history.get_current();
 			Object *current_obj = current_id.is_valid() ? ObjectDB::get_instance(current_id) : nullptr;
 			ERR_FAIL_NULL(current_obj);
-			current_obj->notify_property_list_changed();
+			InspectorDock::get_inspector_singleton()->update_properties_recursive();
 		} break;
 		case LAYOUT_SAVE: {
 			if (p_file.is_empty()) {
@@ -3065,6 +3068,7 @@ void EditorNode::push_item(Object *p_object, const String &p_property, bool p_in
 		GroupsDock::get_singleton()->set_selection(Vector<Node *>());
 		SceneTreeDock::get_singleton()->set_selected(nullptr);
 		InspectorDock::get_singleton()->update(nullptr);
+		EditorDebuggerNode::get_singleton()->clear_remote_tree_selection();
 		hide_unused_editors();
 		return;
 	}
@@ -3382,6 +3386,58 @@ void EditorNode::_android_install_build_template() {
 
 void EditorNode::_android_explore_build_templates() {
 	OS::get_singleton()->shell_show_in_file_manager(ProjectSettings::get_singleton()->globalize_path(export_template_manager->get_android_build_directory(android_export_preset).get_base_dir()), true);
+}
+
+void EditorNode::_android_remove_build_templates(bool p_prompt_for_removal) {
+	String removal_text = ANDROID_BUILD_TEMPLATE_ALREADY_INSTALLED_MESSAGE;
+	if (p_prompt_for_removal) {
+		removal_text += "\n" + vformat(TTR(REMOVE_ANDROID_BUILD_TEMPLATE_MESSAGE), export_template_manager->get_android_build_directory(android_export_preset));
+	}
+	remove_android_build_template->set_text(removal_text);
+	remove_android_build_template->popup_centered_clamped(Size2(600, 200) * EDSCALE, 0.7);
+}
+
+Error EditorNode::setup_android_build_template(const Ref<EditorExportPreset> &p_preset, bool p_confirmed) {
+	android_export_preset = p_preset;
+	if (export_template_manager->is_android_template_installed(p_preset)) {
+		if (export_template_manager->is_android_build_version_valid(p_preset)) {
+			if (!p_confirmed) {
+				// The setup is valid, maybe the user wants to delete and reinstall it...
+				_android_remove_build_templates(false);
+			}
+			return OK;
+		}
+
+		// If we get here, then the installed android build directory is no longer valid (e.g. editor upgrade).
+		// Let's check whether we can automatically delete the build directory. If not, we return an error and let the
+		// user handle the deletion.
+		bool can_delete_automatically = EDITOR_GET("export/android/build/automatically_delete_build_directory");
+		if (can_delete_automatically) {
+			if (!p_confirmed) {
+				install_android_build_template->popup_centered();
+				return ERR_UNCONFIGURED;
+			}
+
+			if (export_template_manager->delete_android_build_directory(android_export_preset) == OK) {
+				return setup_android_build_template(android_export_preset, p_confirmed);
+			}
+		}
+
+		// If we get here, we need to prompt the user to delete the android build directory, either because we cannot do
+		// it automatically, or because we tried to do it automatically and failed.
+		_android_remove_build_templates(true);
+		return ERR_UNCONFIGURED;
+	} else if (!export_template_manager->can_install_android_template(p_preset)) {
+		gradle_build_manage_templates->popup_centered();
+	} else {
+		if (p_confirmed) {
+			return export_template_manager->install_android_template(p_preset);
+		} else {
+			install_android_build_template->popup_centered();
+		}
+	}
+
+	return ERR_UNCONFIGURED;
 }
 
 static String _get_unsaved_scene_dialog_text(String p_scene_filename, uint64_t p_opened_timestamp) {
@@ -3714,20 +3770,14 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			project_settings_editor->popup_project_settings();
 		} break;
 
-		case PROJECT_FIND_IN_FILES: {
-			ScriptEditor::get_singleton()->open_find_in_files_dialog("");
+		case PROJECT_FIND_IN_FILES:
+		case PROJECT_REPLACE_IN_FILES: {
+			FindInFiles::get_singleton()->open_dock("", PROJECT_REPLACE_IN_FILES == p_option);
 		} break;
 
 		case PROJECT_INSTALL_ANDROID_SOURCE: {
 			if (p_confirmed) {
-				if (export_template_manager->is_android_template_installed(android_export_preset)) {
-					remove_android_build_template->set_text(vformat(TTR(REMOVE_ANDROID_BUILD_TEMPLATE_MESSAGE), export_template_manager->get_android_build_directory(android_export_preset)));
-					remove_android_build_template->popup_centered();
-				} else if (!export_template_manager->can_install_android_template(android_export_preset)) {
-					gradle_build_manage_templates->popup_centered();
-				} else {
-					export_template_manager->install_android_template(android_export_preset);
-				}
+				setup_android_build_template(android_export_preset, p_confirmed);
 			} else {
 				bool has_custom_gradle_build = false;
 				choose_android_export_profile->clear();
@@ -3751,14 +3801,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				} else {
 					choose_android_export_profile->hide();
 
-					if (export_template_manager->is_android_template_installed(android_export_preset)) {
-						remove_android_build_template->set_text(vformat(TTR(REMOVE_ANDROID_BUILD_TEMPLATE_MESSAGE), export_template_manager->get_android_build_directory(android_export_preset)));
-						remove_android_build_template->popup_centered();
-					} else if (export_template_manager->can_install_android_template(android_export_preset)) {
-						install_android_build_template->popup_centered();
-					} else {
-						gradle_build_manage_templates->popup_centered();
-					}
+					setup_android_build_template(android_export_preset, p_confirmed);
 				}
 			}
 		} break;
@@ -5056,16 +5099,15 @@ Error EditorNode::open_scene(const String &p_scene, bool p_ignore_broken_deps, b
 		}
 	}
 
-	Error err = load_scene(p_scene, p_ignore_broken_deps, p_set_inherited, p_force_open_imported);
-	if (err != OK) {
-		return err;
-	}
+	bool ignore_state = !editor_data.get_edited_scene_root();
+
+	RETURN_IF_ERROR(load_scene(p_scene, p_ignore_broken_deps, p_set_inherited, p_force_open_imported));
 
 	int current_scene_idx = editor_data.get_edited_scene_count() - 1;
 	Node *new_scene = editor_data.get_edited_scene_root(current_scene_idx);
 	ERR_FAIL_NULL_V(new_scene, ERR_BUG);
 
-	_set_current_scene_nocheck(current_scene_idx);
+	_set_current_scene_nocheck(current_scene_idx, ignore_state);
 
 	// When editor plugins load in, they might use node transforms during their own setup, so make sure they're up to date.
 	get_tree()->flush_transform_notifications();
@@ -8132,6 +8174,7 @@ void EditorNode::_build_project_menu(bool p_dark_mode) {
 
 	project_menu->add_icon_shortcut(get_editor_theme_native_menu_icon(SNAME("ClassList"), menu_type == MENU_TYPE_GLOBAL, p_dark_mode), ED_GET_SHORTCUT("editor/project_settings"), PROJECT_OPEN_SETTINGS);
 	project_menu->add_shortcut(ED_GET_SHORTCUT("editor/find_in_files"), PROJECT_FIND_IN_FILES);
+	project_menu->add_shortcut(ED_GET_SHORTCUT("editor/replace_in_files"), PROJECT_REPLACE_IN_FILES);
 	project_menu->add_separator();
 
 	project_menu->add_item(TTRC("Version Control"), PROJECT_VERSION_CONTROL);
@@ -8370,21 +8413,21 @@ void EditorNode::_bottom_panel_resized() {
 void EditorNode::_touch_actions_panel_mode_changed() {
 	int panel_mode = EDITOR_GET("interface/touchscreen/touch_actions_panel");
 	switch (panel_mode) {
-		case 1:
+		case 1: // Embedded
 			if (touch_actions_panel != nullptr) {
 				touch_actions_panel->queue_free();
 			}
-			touch_actions_panel = memnew(TouchActionsPanel);
-			main_hbox->call_deferred("add_child", touch_actions_panel);
+			touch_actions_panel = memnew(TouchActionsPanel(false));
+			main_box->call_deferred("add_child", touch_actions_panel);
 			break;
-		case 2:
+		case 2: // Floating
 			if (touch_actions_panel != nullptr) {
 				touch_actions_panel->queue_free();
 			}
-			touch_actions_panel = memnew(TouchActionsPanel);
+			touch_actions_panel = memnew(TouchActionsPanel(true));
 			call_deferred("add_child", touch_actions_panel);
 			break;
-		case 0:
+		case 0: // Disabled
 			if (touch_actions_panel != nullptr) {
 				touch_actions_panel->queue_free();
 				touch_actions_panel = nullptr;
@@ -8692,6 +8735,10 @@ EditorNode::EditorNode() {
 		Ref<EditorInspectorParticleProcessMaterialPlugin> ppm;
 		ppm.instantiate();
 		EditorInspector::add_inspector_plugin(ppm);
+
+		Ref<EditorInspectorPluginAudioStreamWAV> plugin;
+		plugin.instantiate();
+		EditorInspector::add_inspector_plugin(plugin);
 	}
 
 	editor_selection = memnew(EditorSelection);
@@ -8759,11 +8806,13 @@ EditorNode::EditorNode() {
 	title_bar = memnew(EditorTitleBar);
 	base_vbox->add_child(title_bar);
 
-	main_hbox = memnew(HBoxContainer);
-	main_hbox->add_child(main_vbox);
+	main_box = memnew(BoxContainer);
+	main_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	main_box->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	main_vbox->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	main_hbox->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	base_vbox->add_child(main_hbox);
+	main_vbox->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	main_box->add_child(main_vbox);
+	base_vbox->add_child(main_box);
 
 	_touch_actions_panel_mode_changed();
 
@@ -9069,6 +9118,7 @@ EditorNode::EditorNode() {
 
 	ED_SHORTCUT_AND_COMMAND("editor/project_settings", TTRC("Project Settings..."), KeyModifierMask::CMD_OR_CTRL + KeyModifierMask::SHIFT + Key::COMMA, TTRC("Project Settings"));
 	ED_SHORTCUT_AND_COMMAND("editor/find_in_files", TTRC("Find in Files..."), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::SHIFT | Key::F);
+	ED_SHORTCUT_AND_COMMAND("editor/replace_in_files", TTRC("Replace in Files..."), KeyModifierMask::CMD_OR_CTRL | KeyModifierMask::SHIFT | Key::R);
 
 	ED_SHORTCUT_AND_COMMAND("editor/export", TTRC("Export..."), Key::NONE, TTRC("Export"));
 
@@ -9419,6 +9469,7 @@ EditorNode::EditorNode() {
 
 	remove_android_build_template = memnew(ConfirmationDialog);
 	remove_android_build_template->set_ok_button_text(OS::get_singleton()->get_platform_string(OS::PLATFORM_STRING_FILE_MANAGER_OPEN));
+	remove_android_build_template->set_autowrap(true);
 	remove_android_build_template->connect(SceneStringName(confirmed), callable_mp(this, &EditorNode::_android_explore_build_templates));
 	gui_base->add_child(remove_android_build_template);
 

@@ -64,6 +64,20 @@ EditorLanguage *GDScriptLanguage::get_editor_language() {
 }
 #endif // TOOLS_ENABLED
 
+static String _get_indentation() {
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint()) {
+		bool use_space_indentation = EDITOR_GET("text_editor/behavior/indent/type");
+
+		if (use_space_indentation) {
+			int indent_size = EDITOR_GET("text_editor/behavior/indent/size");
+			return String(" ").repeat(indent_size);
+		}
+	}
+#endif
+	return "\t";
+}
+
 Vector<String> GDScriptLanguage::get_comment_delimiters() const {
 	static const Vector<String> delimiters = { "#" };
 	return delimiters;
@@ -476,10 +490,6 @@ String GDScriptLanguage::debug_parse_stack_level_expression(int p_level, const S
 	}
 
 	return String();
-}
-
-void GDScriptLanguage::get_recognized_extensions(List<String> *p_extensions) const {
-	p_extensions->push_back("gd");
 }
 
 void GDScriptLanguage::get_public_functions(List<MethodInfo> *p_functions) const {
@@ -2738,7 +2748,7 @@ static bool _guess_identifier_type_from_base(GDScriptParser::CompletionContext &
 				if (ClassDB::get_property_info(class_name, p_identifier, &prop)) {
 					StringName getter = ClassDB::get_property_getter(class_name, p_identifier);
 					if (getter != StringName()) {
-						MethodBind *g = ClassDB::get_method(class_name, getter);
+						const MethodBind *g = ClassDB::get_method(class_name, getter);
 						if (g) {
 							r_type = _type_from_property(g->get_return_info());
 							return true;
@@ -2922,7 +2932,7 @@ static bool _guess_method_return_type_from_base(GDScriptParser::CompletionContex
 				if (!GDScriptAnalyzer::class_exists(base_type.native_type)) {
 					return false;
 				}
-				MethodBind *mb = ClassDB::get_method(base_type.native_type, p_method);
+				const MethodBind *mb = ClassDB::get_method(base_type.native_type, p_method);
 				if (mb) {
 					r_type = _type_from_property(mb->get_return_info());
 					return true;
@@ -3874,27 +3884,15 @@ static void _find_call_arguments(GDScriptParser::CompletionContext &p_context, c
 
 //////// END COMPLETION //////////
 
-String GDScriptLanguage::_get_indentation() const {
 #ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint()) {
-		bool use_space_indentation = EDITOR_GET("text_editor/behavior/indent/type");
 
-		if (use_space_indentation) {
-			int indent_size = EDITOR_GET("text_editor/behavior/indent/size");
-			return String(" ").repeat(indent_size);
-		}
-	}
-#endif
-	return "\t";
-}
-
-void GDScriptLanguage::auto_indent_code(String &p_code, int p_from_line, int p_to_line) const {
+void GDScriptEditorLanguage::format_code(String &r_code, uint32_t p_from_line, uint32_t p_to_line) const {
 	String indent = _get_indentation();
 
-	Vector<String> lines = p_code.split("\n");
+	Vector<String> lines = r_code.split("\n");
 	List<int> indent_stack;
 
-	for (int i = 0; i < lines.size(); i++) {
+	for (uint32_t i = 0; i < lines.size(); i++) {
 		String l = lines[i];
 		int tc = 0;
 		for (int j = 0; j < l.length(); j++) {
@@ -3936,16 +3934,14 @@ void GDScriptLanguage::auto_indent_code(String &p_code, int p_from_line, int p_t
 		lines.write[i] = l;
 	}
 
-	p_code = "";
+	r_code = String();
 	for (int i = 0; i < lines.size(); i++) {
 		if (i > 0) {
-			p_code += "\n";
+			r_code += "\n";
 		}
-		p_code += lines[i];
+		r_code += lines[i];
 	}
 }
-
-#ifdef TOOLS_ENABLED
 
 static Error _lookup_symbol_from_base(const GDScriptParser::DataType &p_base, const String &p_symbol, EditorLanguage::LookupResult &r_result) {
 	GDScriptParser::DataType base_type = p_base;

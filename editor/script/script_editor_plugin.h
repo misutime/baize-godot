@@ -121,7 +121,7 @@ class DocumentOutline : public VBoxContainer {
 	GDCLASS(DocumentOutline, VBoxContainer);
 
 	ScriptEditor *script_editor = nullptr;
-	ItemList *item_list = nullptr;
+	Tree *tree = nullptr;
 	HBoxContainer *buttons_hbox = nullptr;
 	FilterLineEdit *filter = nullptr;
 	Button *sort_button = nullptr;
@@ -129,8 +129,10 @@ class DocumentOutline : public VBoxContainer {
 	bool members_overview_enabled = false;
 	bool help_overview_enabled = false;
 
+	Control *current_editor = nullptr;
+
 	void _toggle_sort(bool p_alphabetic_sort);
-	void _item_list_selected(int p_idx);
+	void _tree_selected();
 
 protected:
 	void _notification(int p_what);
@@ -272,8 +274,6 @@ class ScriptEditor : public PanelContainer {
 	Button *script_back = nullptr;
 	Button *script_forward = nullptr;
 
-	FindInFiles *find_in_files = nullptr;
-
 	WindowWrapper *window_wrapper = nullptr;
 
 #ifdef ANDROID_ENABLED
@@ -287,7 +287,6 @@ class ScriptEditor : public PanelContainer {
 
 	static int script_editor_func_count;
 	static CreateScriptEditorFunc script_editor_funcs[SCRIPT_EDITOR_FUNC_MAX];
-
 	Vector<Ref<EditorSyntaxHighlighter>> syntax_highlighters;
 
 	struct ScriptHistory {
@@ -399,8 +398,6 @@ class ScriptEditor : public PanelContainer {
 	virtual void input(const Ref<InputEvent> &p_event) override;
 	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
 
-	void _setup_popup_menu(PopupMenu *p_menu, bool p_is_context_menu = true);
-	void _prepare_popup_menu(PopupMenu *p_menu, bool p_is_context_menu = true);
 	void _prepare_file_menu();
 	void _file_menu_closed();
 
@@ -460,11 +457,12 @@ public:
 	static ScriptEditor *get_singleton() { return script_editor; }
 	static ScriptEditor *get_bottom_script_editor() { return bottom_script_editor; }
 
+	static Dictionary get_context_data(Control *p_tab_control);
+
 	bool toggle_files_panel();
 	bool is_files_panel_toggled();
 	void apply_scripts() const;
 	void reload_scripts(bool p_refresh_only = false);
-	void open_find_in_files_dialog(const String &p_initial_text = "", bool p_replace = false);
 	void open_script_create_dialog(const String &p_base_name, const String &p_base_path);
 	void open_text_file_create_dialog(const String &p_base_path, const String &p_base_name = "");
 	Ref<Resource> open_file(const String &p_file);
@@ -571,4 +569,5 @@ public:
 	virtual void edited_scene_changed() override { script_editor->edited_scene_changed(); }
 
 	ScriptEditorPlugin();
+	~ScriptEditorPlugin();
 };

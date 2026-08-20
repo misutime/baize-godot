@@ -645,7 +645,7 @@ GDScriptCodeGenerator::Address GDScriptCompiler::_parse_expression(CodeGen &code
 							// Native method, use faster path.
 							GDScriptCodeGenerator::Address self;
 							self.mode = GDScriptCodeGenerator::Address::SELF;
-							MethodBind *method = ClassDB::get_method(codegen.script->native->get_name(), call->function_name);
+							const MethodBind *method = ClassDB::get_method(codegen.script->native->get_name(), call->function_name);
 
 							if (_can_use_validate_call(method, arguments)) {
 								// Exact arguments, use validated call.
@@ -680,7 +680,7 @@ GDScriptCodeGenerator::Address GDScriptCompiler::_parse_expression(CodeGen &code
 									static_cast<GDScriptParser::IdentifierNode *>(subscript->base)->source == GDScriptParser::IdentifierNode::NATIVE_CLASS && !Engine::get_singleton()->has_singleton(static_cast<GDScriptParser::IdentifierNode *>(subscript->base)->name)) {
 								// It's a static native method call.
 								StringName class_name = static_cast<GDScriptParser::IdentifierNode *>(subscript->base)->name;
-								MethodBind *method = ClassDB::get_method(class_name, subscript->attribute->name);
+								const MethodBind *method = ClassDB::get_method(class_name, subscript->attribute->name);
 								if (_can_use_validate_call(method, arguments)) {
 									// Exact arguments, use validated call.
 									gen->write_call_native_static_validated(result, method, arguments);
@@ -704,7 +704,7 @@ GDScriptCodeGenerator::Address GDScriptCompiler::_parse_expression(CodeGen &code
 										class_name = base.type.native_type == StringName() ? base.type.script_type->get_instance_base_type() : base.type.native_type;
 									}
 									if (GDScriptAnalyzer::class_exists(class_name) && ClassDB::has_method(class_name, call->function_name)) {
-										MethodBind *method = ClassDB::get_method(class_name, call->function_name);
+										const MethodBind *method = ClassDB::get_method(class_name, call->function_name);
 										if (_can_use_validate_call(method, arguments)) {
 											// Exact arguments, use validated call.
 											gen->write_call_method_bind_validated(result, base, method, arguments);
@@ -752,7 +752,7 @@ GDScriptCodeGenerator::Address GDScriptCompiler::_parse_expression(CodeGen &code
 
 			GDScriptCodeGenerator::Address result = codegen.add_temporary(_gdtype_from_datatype(get_node->type_constraint, codegen.script));
 
-			MethodBind *get_node_method = ClassDB::get_method("Node", "get_node");
+			const MethodBind *get_node_method = ClassDB::get_method("Node", "get_node");
 			gen->write_call_method_bind_validated(result, GDScriptCodeGenerator::Address(GDScriptCodeGenerator::Address::SELF), get_node_method, args);
 
 			return result;
@@ -2781,10 +2781,7 @@ Error GDScriptCompiler::_prepare_compilation(GDScript *p_script, const GDScriptP
 			}
 
 			if (main_script->has_class(base.ptr())) {
-				Error err = _prepare_compilation(base.ptr(), p_class->base_type.class_type, p_keep_state);
-				if (err) {
-					return err;
-				}
+				RETURN_IF_ERROR(_prepare_compilation(base.ptr(), p_class->base_type.class_type, p_keep_state));
 			} else if (!base->is_script_valid()) {
 				String base_qualified_name = base->fully_qualified_name;
 				String base_path = base->path;
@@ -2991,10 +2988,7 @@ Error GDScriptCompiler::_prepare_compilation(GDScript *p_script, const GDScriptP
 
 		// Subclass might still be parsing, just skip it
 		if (!parsing_classes.has(subclass_ptr)) {
-			Error err = _prepare_compilation(subclass_ptr, inner_class, p_keep_state);
-			if (err) {
-				return err;
-			}
+			RETURN_IF_ERROR(_prepare_compilation(subclass_ptr, inner_class, p_keep_state));
 		}
 
 		p_script->constants.insert(name, subclass); //once parsed, goes to the list of constants
@@ -3018,16 +3012,10 @@ Error GDScriptCompiler::_compile_class(GDScript *p_script, const GDScriptParser:
 			const GDScriptParser::VariableNode *variable = member.variable;
 			if (variable->property == GDScriptParser::VariableNode::PROP_INLINE) {
 				if (variable->setter != nullptr) {
-					Error err = _parse_setter_getter(p_script, p_class, variable, true);
-					if (err) {
-						return err;
-					}
+					RETURN_IF_ERROR(_parse_setter_getter(p_script, p_class, variable, true));
 				}
 				if (variable->getter != nullptr) {
-					Error err = _parse_setter_getter(p_script, p_class, variable, false);
-					if (err) {
-						return err;
-					}
+					RETURN_IF_ERROR(_parse_setter_getter(p_script, p_class, variable, false));
 				}
 			}
 		}
@@ -3081,10 +3069,7 @@ Error GDScriptCompiler::_compile_class(GDScript *p_script, const GDScriptParser:
 		StringName name = inner_class->identifier->name;
 		GDScript *subclass = p_script->subclasses[name].ptr();
 
-		Error err = _compile_class(subclass, inner_class, p_keep_state);
-		if (err) {
-			return err;
-		}
+		RETURN_IF_ERROR(_compile_class(subclass, inner_class, p_keep_state));
 
 		has_static_data = has_static_data || inner_class->has_static_data;
 	}
@@ -3292,16 +3277,9 @@ Error GDScriptCompiler::compile(const GDScriptParser *p_parser, GDScript *p_scri
 	make_scripts(p_script, root, p_keep_state);
 
 	main_script->_owner = nullptr;
-	Error err = _prepare_compilation(main_script, parser->get_tree(), p_keep_state);
+	RETURN_IF_ERROR(_prepare_compilation(main_script, parser->get_tree(), p_keep_state));
 
-	if (err) {
-		return err;
-	}
-
-	err = _compile_class(main_script, root, p_keep_state);
-	if (err) {
-		return err;
-	}
+	RETURN_IF_ERROR(_compile_class(main_script, root, p_keep_state));
 
 	ScriptLambdaInfo new_lambda_info = _get_script_lambda_replacement_info(p_script);
 
@@ -3313,7 +3291,7 @@ Error GDScriptCompiler::compile(const GDScriptParser *p_parser, GDScript *p_scri
 		GDScriptCache::add_static_script(p_script);
 	}
 
-	err = GDScriptCache::finish_compiling(main_script->path);
+	Error err = GDScriptCache::finish_compiling(main_script->path);
 	if (err) {
 		_set_error(R"(Failed to compile depended scripts.)", nullptr);
 	}

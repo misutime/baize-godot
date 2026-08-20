@@ -131,11 +131,8 @@ struct ObjectGDExtension {
 
 	/// A type for this Object extension.
 	/// This is not exposed through the GDExtension API (yet) so it is inferred from above parameters.
-	GDType *gdtype;
-	void create_gdtype();
-	void destroy_gdtype();
-
-	~ObjectGDExtension();
+	/// The GDType's lifetime is (usually) owned by ClassDB.
+	const GDType *gdtype = nullptr;
 };
 
 #define GDVIRTUAL_CALL(m_name, ...) _gdvirtual_##m_name##_call(__VA_ARGS__)
@@ -248,7 +245,7 @@ private:
 #define GDCLASS(m_class, m_inherits) \
 	GDSOFTCLASS(m_class, m_inherits) \
 private: \
-	void operator=(const m_class &p_rval) {} \
+	void operator=(const m_class &p_rval) = delete; \
 	friend class ::ClassDB; \
 \
 	static GDType &get_gdtype_static_mutable() { \

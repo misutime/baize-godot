@@ -538,10 +538,7 @@ Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_c
 				for (GDScriptParser::ClassNode *look_class : script_classes) {
 					if (look_class->identifier && look_class->identifier->name == name) {
 						if (!look_class->self_type.is_set()) {
-							Error err = resolve_class_inheritance(look_class, id);
-							if (err) {
-								return err;
-							}
+							RETURN_IF_ERROR(resolve_class_inheritance(look_class, id));
 						}
 						base = look_class->self_type;
 						found = true;
@@ -652,11 +649,9 @@ Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_c
 }
 
 Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_class, bool p_recursive) {
-	Error err = resolve_class_inheritance(p_class);
-	if (err) {
-		return err;
-	}
+	RETURN_IF_ERROR(resolve_class_inheritance(p_class));
 
+	Error err = OK;
 	if (p_recursive) {
 		for (int i = 0; i < p_class->members.size(); i++) {
 			if (p_class->members[i].type == GDScriptParser::ClassNode::Member::CLASS) {
@@ -4423,7 +4418,7 @@ void GDScriptAnalyzer::reduce_identifier_from_base(GDScriptParser::IdentifierNod
 		MethodInfo method_info;
 		if (ClassDB::has_property(native, name)) {
 			StringName getter_name = ClassDB::get_property_getter(native, name);
-			MethodBind *getter = ClassDB::get_method(native, getter_name);
+			const MethodBind *getter = ClassDB::get_method(native, getter_name);
 			if (getter != nullptr) {
 				bool has_setter = ClassDB::get_property_setter(native, name) != StringName();
 				GDScriptParser::DataType ptype = type_from_property(getter->get_return_info(), false, p_identifier);
@@ -6123,7 +6118,7 @@ bool GDScriptAnalyzer::get_function_signature(GDScriptParser::Node *p_source, bo
 			r_method_flags.set_flag(METHOD_FLAG_STATIC);
 		}
 #ifdef DEBUG_ENABLED
-		MethodBind *native_method = ClassDB::get_method(base_native, function_name);
+		const MethodBind *native_method = ClassDB::get_method(base_native, function_name);
 		if (native_method && r_native_class) {
 			*r_native_class = native_method->get_instance_class();
 		}
@@ -6739,16 +6734,10 @@ Error GDScriptAnalyzer::resolve_dependencies() {
 Error GDScriptAnalyzer::analyze() {
 	parser->errors.clear();
 
-	Error err = resolve_inheritance();
-	if (err) {
-		return err;
-	}
+	RETURN_IF_ERROR(resolve_inheritance());
 
 	resolve_interface();
-	err = resolve_body();
-	if (err) {
-		return err;
-	}
+	RETURN_IF_ERROR(resolve_body());
 
 	return resolve_dependencies();
 }

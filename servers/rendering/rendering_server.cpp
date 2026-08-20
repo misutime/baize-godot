@@ -1453,6 +1453,7 @@ Array RenderingServer::_get_array_from_surface(uint64_t p_format, Vector<uint8_t
 									Vector3 vec = Vector3(float(v[0]) / 65535.0, float(v[1]) / 65535.0, float(v[2]) / 65535.0);
 									w[j] = (vec * p_aabb.size) + p_aabb.position;
 								}
+								ret[i] = arr_3d;
 								continue;
 							}
 
@@ -3813,6 +3814,7 @@ void RenderingServer::init() {
 
 	// OpenGL limits
 	GLOBAL_DEF_RST(PropertyInfo(Variant::INT, "rendering/limits/opengl/max_renderable_elements", PROPERTY_HINT_RANGE, "1024,65536,1"), 65536);
+	GLOBAL_DEF_RST(PropertyInfo(Variant::INT, "rendering/limits/opengl/max_decals", PROPERTY_HINT_RANGE, "2,512,1"), 64);
 	GLOBAL_DEF_RST(PropertyInfo(Variant::INT, "rendering/limits/opengl/max_renderable_lights", PROPERTY_HINT_RANGE, "2,256,1"), 32);
 	GLOBAL_DEF_RST(PropertyInfo(Variant::INT, "rendering/limits/opengl/max_lights_per_object", PROPERTY_HINT_RANGE, "2,1024,1"), 8);
 
