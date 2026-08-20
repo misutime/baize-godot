@@ -93,25 +93,6 @@ Patches:
 - `0006-explicit-includes.patch` ([GH-111557](https://github.com/godotengine/godot/pull/111557))
 
 
-## cefviewcore
-
-- Upstream: https://github.com/CefView/CefViewCore
-- Version: git (6d4a405252be014b2bb72c1f39fa6c03f416daf1, 2026-05-18)
-- License: MIT
-
-Files extracted from upstream source (vendored in full, source tree only; 构建产物与元数据排除):
-
-- `CMakeLists.txt`, `CMakePresets.json`
-- `cmake/`
-- `include/`
-- `src/`
-- `LICENSE`, `readme.md`, `.editorconfig`, `.gitattributes`, `.clang-format`
-
-Notes:
-
-- 本项目 vendor 后与上游断开，可自由修改（见 `doc/plans/Godot编辑器UI重构方案-TS路线-CEF集成-C++生态复核与从零选型.md` §8.5）。
-- CEF 版本锁定与构建参数见该文档 §C0.0（`-DSTATIC_CRT=ON -DCMAKE_CXX_STANDARD=20`）。
-
 
 ## brotli
 
