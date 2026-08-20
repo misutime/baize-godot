@@ -89,7 +89,7 @@
 - 项目保持**引擎贴近上游**（不做深定制），自定义功能全部外挂；
 - 复用 godot-cpp 社区生态。
 
-本项目这三个场景都不成立（自用、TS 脚本用 fork 直注册、已在深定制），所以核心能力层选引擎模块；**GDExtension 不参与 Provider 的 Ops/Registry/Transport/Events 任何一层**。
+本项目这三个场景都不成立（自用、脚本层在 fork 内直做、已在深定制），所以核心能力层选引擎模块；**GDExtension 不参与 Provider 的 Ops/Registry/Transport/Events 任何一层**。
 
 ---
 
@@ -99,5 +99,5 @@
 - ClassDB 暴露面：`class_editorinterface.rst`（编辑器门面）；godot-docs/classes/ 无 `class_editor_node`
 - EditorNode 内部：`editor/editor_node.cpp:8399`（cmdline_mode）；Ops 直取单例（ops.cpp:516,636）
 - 语言注册：`modules/gdscript/register_types.cpp:144`；`core/object/script_language_extension.h:237`（ScriptLanguageExtension : ScriptLanguage）
-- 生命周期：`modules/att_nodejs_sidecar/register_types.cpp`（EDITOR 级首帧）
-- 调用链路与分层：`doc/plans/整体架构-Godot核心-ElectronUI-TSScript-设计方案.md`（§3.0 术语、§4.1 调用链路示例）
+- 生命周期：`modules/gd_provider/register_types.cpp`（EDITOR 级首帧启动）
+- 调用链路与分层：`doc/plans/AI-first对接架构-gd_provider-设计方案.md`（决策链、四层结构、协议契约）
