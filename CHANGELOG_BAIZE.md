@@ -10,8 +10,9 @@
 
 ## 2026-08-21（起始日）
 - 新增 `CHANGELOG_BAIZE.md`：fork 定制流水账，从今日起记录与上游的差异。
-- 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.2）——战略宪法/技术路线/架构模式/生态集成/实施路线。
-- AGENTS.md 重写为 All-in C# 路线（架构总览 D1-D6：4.7.2 基底 / .NET 11 / 仅 C# / 少自研多集成 / ECS-first + Scene DB / 三级 Reload）。
+- 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.3）——战略宪法/技术路线/架构模式/生态集成/实施路线。
+- **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
+- AGENTS.md 重写为 All-in C# 路线（架构总览 D1-D6：4.8-dev 基底 / .NET 11 / 仅 C# / 少自研多集成 / ECS-first + Scene DB / 三级 Reload）。
 - Taskfile.yml 精简（移除 verify-provider/TEST_PROJECT，dev-run 简化为 `--editor`）。
 - `core/string/ustring.cpp/.h`：FORK-CUSTOM UTF-8 智能解码在案（中文优先宪法根基，commit b175d92bd6 + 审查修复 e08c1ea0f8）。
 - `editor/animation/animation_track_editor.cpp`：`imported_anim_warning->hide()` 修复在案。
