@@ -1,0 +1,8 @@
+# baize-godot：测试项目通用忽略
+# .godot/ 编辑器缓存（子目录项目用，上游 .gitignore 只覆盖根目录）
+.godot/
+# Godot 4.4+ 生成的 .uid 文件（上游默认不提交，重新生成）
+*.uid
+# 构建产物
+bin/
+obj/
