@@ -66,6 +66,38 @@ class Program
         Console.WriteLine($"ecsworld-smoke: Reset 后 TickIndex = {world.TickIndex}");
         if (world.TickIndex != 0) { Console.WriteLine("FAIL: Reset"); failures++; }
 
+        // 7. CommandBuffer 链式创建（延迟结构变更）
+        var cb = world.CommandBuffer;
+        cb.CreateEntity()
+          .Add(new Position { X = 5, Z = 0 })
+          .Add(new Velocity { X = 0, Z = 1 })
+          .AddTag<PlayerTag>();
+        world.Step(InputFrame.Empty);   // Playback 执行创建
+        Console.WriteLine($"ecsworld-smoke: CommandBuffer 创建后实体数 = {world.Store.Entities.Count}");
+        if (world.Store.Entities.Count != 1) { Console.WriteLine("FAIL: CommandBuffer 创建"); failures++; }
+
+        // 8. 事件系统（纯数据通信）
+        world.Events.Emit(new DamageRequest(1, 10));
+        world.Step(InputFrame.Empty);   // Flush 后事件可读
+        int events = world.Events.Consume<DamageRequest>();
+        Console.WriteLine($"ecsworld-smoke: 消费 DamageRequest 事件 = {events}");
+        if (events != 1) { Console.WriteLine("FAIL: 事件"); failures++; }
+
+        // 9. 确定性回放验证（同一输入序列两次运行，状态一致）
+        var w1 = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        var w2 = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        var e1 = w1.Store.CreateEntity();
+        var e2 = w2.Store.CreateEntity();
+        e1.Add(new Position { X = 0, Z = 0 }); e1.Add(new Velocity { X = 2, Z = 3 });
+        e2.Add(new Position { X = 0, Z = 0 }); e2.Add(new Velocity { X = 2, Z = 3 });
+        var frames = new[] { new InputFrame(1, 0, false), new InputFrame(0, 1, true), new InputFrame(-1, 0, false) };
+        foreach (var f in frames) w1.Step(f);
+        foreach (var f in frames) w2.Step(f);
+        var p1 = e1.GetComponent<Position>();
+        var p2 = e2.GetComponent<Position>();
+        Console.WriteLine($"ecsworld-smoke: 确定性回放 w1=({p1.X:F2},{p1.Z:F2}) w2=({p2.X:F2},{p2.Z:F2})");
+        if (Math.Abs(p1.X - p2.X) > 0.001f || Math.Abs(p1.Z - p2.Z) > 0.001f) { Console.WriteLine("FAIL: 确定性回放"); failures++; }
+
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
         if (failures == 0) { Console.WriteLine("ecsworld-smoke: 验证成功——EcsWorld 框架可用"); }
         else { Environment.Exit(1); }
