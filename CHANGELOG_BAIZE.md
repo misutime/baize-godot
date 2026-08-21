@@ -15,6 +15,7 @@
 - **P1 实施完成（无 GDScript 引擎）**：无 GDScript + mono 引擎构建/启动验证通过（gen.h 仅 MODULE_MONO_ENABLED）；修复禁用后暴露问题——script_text_editor.cpp 的 gdscript 设置查询加 #ifdef 保护（消除 WARNING）、HotReloadAssemblyWatcher.cs 的 Timer.Start 加树内检查（FORK-CUSTOM，修复 headless 崩溃 0xC0000005）；test-projects/.gitignore 排除 .godot 缓存/.uid。
 - **创建项目即 C#**：project_dialog.cpp 新建项目 features 自动带 "C#"（MODULE_MONO_ENABLED 时）；GodotSharpEditor _EnablePlugin 自动创建 csproj/sln（无需手动"项目→工具→C#"或等 .cs 文件）——空项目打开即生成 net11 C# 工程（验证通过）。
 - **解决方案默认 .slnx**：DotNetSolution.Save() 默认生成 .slnx（XML，生态新标准；加载侧本就支持），保留 .sln 回退（GenerateSlnx=false）——验证：dotnet build .slnx 通过、Godot 识别 .slnx 不另建 .sln。
+- **阶段重排（shifu 裁决，总方案 v3.8）**：P1.5 C# Platform Contract（构建/运行/诊断/tool 生命周期收口）；P2 起 ECS 为唯一 Gameplay 权威（EcsWorldHost 替代每实体一 Node 桥接）；P3 Schema/Baker 提前；P6 拆 P6A/P6B；P1-R 延后到 P3 后。
 - **slnx review 修复（PR #5）**：改用官方 SolutionPersistence（SolutionModel + SlnXml）生成 slnx（schema 合法 BuildType + XML 转义）；LegacySolutionPath 精确清理另一格式（自定义名/双向切换）；csproj BOM。
 - **CI 平台矩阵裁剪（PR #6）**：runner.yml 只保留 Linux+Windows+静态检查，移除 Android/iOS/macOS/Web 构建（平台文件保留可手动触发，符合宪法 6 先禁用后裁剪）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
