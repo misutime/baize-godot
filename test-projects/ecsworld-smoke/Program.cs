@@ -12,7 +12,14 @@ using Friflo.Engine.ECS.Systems;
 public struct Position : IComponent { public float X, Z; }
 public struct Velocity : IComponent { public float X, Z; }
 public struct PlayerTag : ITag { }
-
+// Phase 顺序测试用（P1-1：BaseSystem 用 OnUpdateGroup）
+public class LogSystem : BaseSystem
+{
+    private readonly string _name;
+    private readonly System.Collections.Generic.List<string> _log;
+    public LogSystem(string name, System.Collections.Generic.List<string> log) { _name = name; _log = log; }
+    protected override void OnUpdateGroup() { _log.Add(_name); }
+}
 // Resource（全局单例，借鉴 Bevy）
 public class Score { public int Value; public Score(int v) { Value = v; } }
 
@@ -99,6 +106,8 @@ class Program
         // 9. 确定性回放验证（同一输入序列两次运行，状态一致）
         var w1 = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
         var w2 = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        w1.AddSystem(new MoveSystem(), Phase.Simulation);   // P2-4：注册系统让确定性真正被验证
+        w2.AddSystem(new MoveSystem(), Phase.Simulation);
         var e1 = w1.Store.CreateEntity();
         var e2 = w2.Store.CreateEntity();
         e1.Add(new Position { X = 0, Z = 0 }); e1.Add(new Velocity { X = 2, Z = 3 });
@@ -110,6 +119,8 @@ class Program
         var p2 = e2.GetComponent<Position>();
         Console.WriteLine($"ecsworld-smoke: 确定性回放 w1=({p1.X:F2},{p1.Z:F2}) w2=({p2.X:F2},{p2.Z:F2})");
         if (Math.Abs(p1.X - p2.X) > 0.001f || Math.Abs(p1.Z - p2.Z) > 0.001f) { Console.WriteLine("FAIL: 确定性回放"); failures++; }
+        // P2-4：断言系统确实运行（位置非零——MoveSystem 已处理）
+        if (Math.Abs(p1.X) < 0.001f && Math.Abs(p1.Z) < 0.001f) { Console.WriteLine("FAIL: 确定性测试未实际运行系统"); failures++; }
 
         // 10. Resource（全局单例，借鉴 Bevy）
         world.Resources.Set(new Score(100));
@@ -132,6 +143,16 @@ class Program
         Console.WriteLine($"ecsworld-smoke: EventReader 消费 DeathEvent = {deathEvents}");
         if (deathEvents != 1) { Console.WriteLine("FAIL: EventReader"); failures++; }
 
+        // 13. Phase 调度顺序（P1-1 验证：乱序注册也按 Input→...→RenderExtract 执行）
+        var phaseWorld = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        var orderLog = new System.Collections.Generic.List<string>();
+        phaseWorld.AddSystem(new LogSystem("Cleanup", orderLog), Phase.Cleanup);
+        phaseWorld.AddSystem(new LogSystem("Input", orderLog), Phase.Input);
+        phaseWorld.AddSystem(new LogSystem("Simulation", orderLog), Phase.Simulation);
+        phaseWorld.Step(InputFrame.Empty);
+        var order = string.Join(">", orderLog);
+        Console.WriteLine($"ecsworld-smoke: Phase 顺序 = {order}");
+        if (order != "Input>Simulation>Cleanup") { Console.WriteLine($"FAIL: Phase 顺序（实际 {order}）"); failures++; }
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
 
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
