@@ -159,9 +159,12 @@ class Program
         var evWorldB = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
         evWorldA.Events.Writer<DeathEvent>().Send(new DeathEvent(1));
         evWorldA.Step(InputFrame.Empty);   // A 的 Flush
+        // 先 Read 断言（非破坏性——防旧实现 A.Consume 清空共享缓冲导致假通过）
+        int aRead = evWorldA.Events.Reader<DeathEvent>().Read().Count;
+        int bRead = evWorldB.Events.Reader<DeathEvent>().Read().Count;
         int aEvents = evWorldA.Events.Reader<DeathEvent>().Consume();
         int bEvents = evWorldB.Events.Reader<DeathEvent>().Consume();
-        Console.WriteLine($"ecsworld-smoke: 事件隔离 A={aEvents} B={bEvents}");
+        Console.WriteLine($"ecsworld-smoke: 事件隔离 A={aRead}/{aEvents} B={bRead}/{bEvents}");
         if (aEvents != 1 || bEvents != 0) { Console.WriteLine("FAIL: 双世界事件隔离"); failures++; }
 
         // 15. Reset 清空 pending（review P1-2：Send 后 Reset，事件不残留）
