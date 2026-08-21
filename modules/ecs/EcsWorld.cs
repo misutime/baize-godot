@@ -123,7 +123,7 @@ public sealed class EcsWorld : IDisposable
     /// <summary>获取 CommandBuffer（延迟结构变更：创建/删除/添加组件）。</summary>
     public WorldCommandBuffer CommandBuffer => _commandBuffer;
 
-    /// <summary>重置世界：清空实体、Tick、命令、事件、资源、系统状态（P1-3 修复）。</summary>
+    /// <summary>重置世界：清空实体、Tick、命令、事件、系统状态（保留 Resources 配置——由调用方重建游戏状态）。</summary>
     public void Reset()
     {
         // 删除所有实体
@@ -134,7 +134,6 @@ public sealed class EcsWorld : IDisposable
         _tickIndex = 0;
         _commandBuffer.Reset();
         _events.Reset();
-        _resources.Clear();
 
         // P1-3：重置有状态的系统（实现 IResettableSystem 的）
         foreach (var group in _phaseGroups.Values)
