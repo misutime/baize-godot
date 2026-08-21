@@ -15,6 +15,8 @@
 - **P1 实施完成（无 GDScript 引擎）**：无 GDScript + mono 引擎构建/启动验证通过（gen.h 仅 MODULE_MONO_ENABLED）；修复禁用后暴露问题——script_text_editor.cpp 的 gdscript 设置查询加 #ifdef 保护（消除 WARNING）、HotReloadAssemblyWatcher.cs 的 Timer.Start 加树内检查（FORK-CUSTOM，修复 headless 崩溃 0xC0000005）；test-projects/.gitignore 排除 .godot 缓存/.uid。
 - **创建项目即 C#**：project_dialog.cpp 新建项目 features 自动带 "C#"（MODULE_MONO_ENABLED 时）；GodotSharpEditor _EnablePlugin 自动创建 csproj/sln（无需手动"项目→工具→C#"或等 .cs 文件）——空项目打开即生成 net11 C# 工程（验证通过）。
 - **解决方案默认 .slnx**：DotNetSolution.Save() 默认生成 .slnx（XML，生态新标准；加载侧本就支持），保留 .sln 回退（GenerateSlnx=false）——验证：dotnet build .slnx 通过、Godot 识别 .slnx 不另建 .sln。
+- **slnx review 修复（PR #5）**：改用官方 SolutionPersistence（SolutionModel + SlnXml）生成 slnx（schema 合法 BuildType + XML 转义）；LegacySolutionPath 精确清理另一格式（自定义名/双向切换）；csproj BOM。
+- **CI 平台矩阵裁剪（PR #6）**：runner.yml 只保留 Linux+Windows+静态检查，移除 Android/iOS/macOS/Web 构建（平台文件保留可手动触发，符合宪法 6 先禁用后裁剪）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
 - **产品聚焦：风格化 3D 光谱**（覆盖 Anime NPR 三渲二 → Stylized PBR 全段，不做 2D 游戏、不做高写实 3D——见总方案 §1.3）。
 - **宪法 6：先禁用后裁剪**（不用的功能不构建/不启用、源码保留，保上游合并亲和，深入定制后才物理删除）+ **风格化渲染架构 §1.4**（统一核心 + 风格化能力层 + Profile，shifu 审查定案）。
