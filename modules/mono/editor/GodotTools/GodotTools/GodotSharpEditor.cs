@@ -83,7 +83,12 @@ namespace GodotTools
 
                 if (guid.Length > 0)
                 {
-                    var solution = new DotNetSolution(name, slnDir);
+                    var solution = new DotNetSolution(name, slnDir)
+                    {
+                        // FORK-CUSTOM（P1-3）：传入实际旧解决方案路径（可能非默认命名），
+                        // 保存后据此精确清理另一格式避免双文件。
+                        LegacySolutionPath = GodotSharpDirs.ProjectSlnPath
+                    };
 
                     var projectInfo = new DotNetSolution.ProjectInfo(guid,
                         Path.GetRelativePath(slnDir, GodotSharpDirs.ProjectCsProjPath),
