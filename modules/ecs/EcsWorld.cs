@@ -23,6 +23,7 @@ public sealed class EcsWorld : IDisposable
     private readonly PhaseGroup _phases;
     private readonly WorldCommandBuffer _commandBuffer;
     private readonly WorldEvents _events;
+    private readonly EcsResource _resources;
 
     private ulong _tickIndex;
     private bool _disposed;
@@ -36,8 +37,11 @@ public sealed class EcsWorld : IDisposable
     /// <summary>底层 Friflo Store（高级用途，一般不用）。</summary>
     public EntityStore Store => _store;
 
-    /// <summary>事件总线（系统间纯数据通信）。</summary>
+    /// <summary>事件总线（系统间纯数据通信，EventWriter/EventReader）。</summary>
     public WorldEvents Events => _events;
+
+    /// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
+    public EcsResource Resources => _resources;
 
     /// <summary>创建 EcsWorld。固定步长默认 1/60 秒。</summary>
     /// <param name="registerTypes">AOT 类型注册回调（游戏项目传入 EcsAotRegistration.RegisterAll，P2-3 生成器）。</param>
@@ -62,6 +66,7 @@ public sealed class EcsWorld : IDisposable
         _phases = new PhaseGroup();
         _commandBuffer = new WorldCommandBuffer(_store);
         _events = new WorldEvents();
+        _resources = new EcsResource();
     }
 
     /// <summary>推进一个固定 Tick：跑所有阶段系统（Input → ... → RenderExtract）。</summary>
@@ -109,6 +114,7 @@ public sealed class EcsWorld : IDisposable
         _tickIndex = 0;
         _commandBuffer.Reset();
         _events.Reset();
+        _resources.Clear();
     }
 
     /// <summary>释放资源。</summary>

@@ -13,6 +13,19 @@ public struct Position : IComponent { public float X, Z; }
 public struct Velocity : IComponent { public float X, Z; }
 public struct PlayerTag : ITag { }
 
+// Resource（全局单例，借鉴 Bevy）
+public class Score { public int Value; public Score(int v) { Value = v; } }
+
+// Bundle（组件组合，借鉴 Bevy）
+public struct PlayerBundle : IEntityBundle
+{
+    public Position Pos;
+    public Velocity Vel;
+    public void Apply(in EntityCommand entity)
+    {
+        entity.Add(Pos).Add(Vel).AddTag<PlayerTag>();
+    }
+}
 // 移动系统（有 Position + Velocity 的实体）
 public class MoveSystem : QuerySystem<Position, Velocity>
 {
@@ -77,9 +90,9 @@ class Program
         if (world.Store.Entities.Count != 1) { Console.WriteLine("FAIL: CommandBuffer 创建"); failures++; }
 
         // 8. 事件系统（纯数据通信）
-        world.Events.Emit(new DamageRequest(1, 10));
+        world.Events.Writer<DamageRequest>().Send(new DamageRequest(1, 10));
         world.Step(InputFrame.Empty);   // Flush 后事件可读
-        int events = world.Events.Consume<DamageRequest>();
+        int events = world.Events.Reader<DamageRequest>().Consume();
         Console.WriteLine($"ecsworld-smoke: 消费 DamageRequest 事件 = {events}");
         if (events != 1) { Console.WriteLine("FAIL: 事件"); failures++; }
 
@@ -97,6 +110,29 @@ class Program
         var p2 = e2.GetComponent<Position>();
         Console.WriteLine($"ecsworld-smoke: 确定性回放 w1=({p1.X:F2},{p1.Z:F2}) w2=({p2.X:F2},{p2.Z:F2})");
         if (Math.Abs(p1.X - p2.X) > 0.001f || Math.Abs(p1.Z - p2.Z) > 0.001f) { Console.WriteLine("FAIL: 确定性回放"); failures++; }
+
+        // 10. Resource（全局单例，借鉴 Bevy）
+        world.Resources.Set(new Score(100));
+        var score = world.Resources.Get<Score>();
+        Console.WriteLine($"ecsworld-smoke: Resource Score = {score.Value}");
+        if (score == null || score.Value != 100) { Console.WriteLine("FAIL: Resource"); failures++; }
+
+        // 11. Bundle（组件组合，借鉴 Bevy）
+        var bundleWorld = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        bundleWorld.Step(InputFrame.Empty);   // schema 已建，正常
+        bundleWorld.CommandBuffer.Spawn(new PlayerBundle { Pos = new Position { X = 1, Z = 2 }, Vel = new Velocity { X = 1, Z = 1 } });
+        bundleWorld.Step(InputFrame.Empty);   // Playback 创建
+        Console.WriteLine($"ecsworld-smoke: Bundle 创建后实体数 = {bundleWorld.Store.Entities.Count}");
+        if (bundleWorld.Store.Entities.Count != 1) { Console.WriteLine("FAIL: Bundle"); failures++; }
+
+        // 12. EventWriter/EventReader（读写分离）
+        world.Events.Writer<DeathEvent>().Send(new DeathEvent(42));
+        world.Step(InputFrame.Empty);
+        int deathEvents = world.Events.Reader<DeathEvent>().Consume();
+        Console.WriteLine($"ecsworld-smoke: EventReader 消费 DeathEvent = {deathEvents}");
+        if (deathEvents != 1) { Console.WriteLine("FAIL: EventReader"); failures++; }
+
+        Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
 
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
         if (failures == 0) { Console.WriteLine("ecsworld-smoke: 验证成功——EcsWorld 框架可用"); }
