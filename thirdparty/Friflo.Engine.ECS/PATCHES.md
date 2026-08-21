@@ -14,6 +14,7 @@
 
 ## 待办（P2 硬伤修复，进行中）
 
-- [ ] **P2-1 关系掩码 int → long/BitSet**：`Relations/Internal/AbstractEntityRelations.cs`（251 行）+ `Utils/BitSet.fast.cs`（84 行，256 位 SIMD）
+- [x] **P2-1 关系掩码 int → BitSet（256 位）**：isOwner/isLinked（EntityNode）+ indexBit（AbstractComponentIndex）+ relationBit（AbstractEntityRelations）全面 BitSet 化——40+ 类型关系/索引验证通过
 - [ ] **P2-2 Fliox 剥离 → MemoryPack**：`Serialize/EntitySerializer.cs`（522 行）+ 28 个引用 Fliox 的文件 + csproj 去 Fliox
 - [ ] **P2-3 AOT 自动注册源生成器**：`Base/NativeAOT`（Roslyn 生成器自动收集组件注册）
+

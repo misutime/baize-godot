@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Friflo.Engine.ECS.Collections;
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable MemberCanBeProtected.Global
 // ReSharper disable InlineTemporaryVariable
@@ -34,7 +35,8 @@ internal abstract class AbstractEntityRelations
     
     internal  readonly  EntityStore                 store;
     internal  readonly  IdArrayHeap                 idHeap      = new();
-    internal  readonly  int                         relationBit;
+    // FORK-CUSTOM（P2-1）：relationBit 从 int → BitSet（256 位，修复 32 类型截断）
+    internal  readonly  BitSet                      relationBit;
     
     //  --- link relations
     /// map:  indexed / linked entity (id)  ->  entities (ids) containing a <see cref="ILinkRelation"/> referencing the indexed / linked entity.
@@ -49,7 +51,7 @@ internal abstract class AbstractEntityRelations
         store           = archetype.entityStore;
         this.heap       = heap;
         var types       = new ComponentTypes(componentType);
-        relationBit     = (int)types.bitSet.l0;
+        relationBit     = types.bitSet;
     }
     
     internal  abstract bool                 AddRelation<TRelation>       (int id, in TRelation relation) where TRelation : struct, IRelation;
@@ -206,7 +208,7 @@ internal abstract class AbstractEntityRelations
     protected int AddEntityRelation(int id, IdArray positions)
     {
         if (positions.count == 0) {
-            store.nodes[id].isOwner |= relationBit;
+            store.nodes[id].isOwner.Add(relationBit);
         }
         int position = Archetype.AddEntity(archetype, id);
         positions.Add(position, idHeap);
@@ -237,7 +239,7 @@ internal abstract class AbstractEntityRelations
         Archetype.MoveLastComponentsTo(type, position, false);
         if (positions.count == 1) {
             map.Remove(id);
-            store.nodes[id].isOwner &= ~relationBit;
+            store.nodes[id].isOwner.Remove(relationBit);
             return default;
         }
         positions.RemoveAt(positionIndex, localIdHeap);

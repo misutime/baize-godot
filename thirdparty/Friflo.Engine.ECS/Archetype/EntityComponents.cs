@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using Friflo.Engine.ECS.Relations;
+using Friflo.Engine.ECS.Utils;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 
@@ -69,13 +70,14 @@ public readonly struct EntityComponents : IEnumerable<EntityComponent>
     private static bool GetRelationTypes(Entity entity, out ComponentTypes relationTypes)
     {
         relationTypes  = default;
+        // FORK-CUSTOM（P2-1）：isOwner 已是 BitSet，用 Intersect 而非 l0 截断
         var isOwner = entity.store.nodes[entity.Id].isOwner; 
-        if (isOwner == 0) {
+        if (isOwner.IsDefault()) {
             return false;
         }
-        var intersect = isOwner & EntityStoreBase.Static.EntitySchema.relationTypes.bitSet.l0;
-        relationTypes.bitSet.l0 = intersect;
-        return intersect != 0;
+        var intersect = BitSet.Intersect(isOwner, EntityStoreBase.Static.EntitySchema.relationTypes.bitSet);
+        relationTypes.bitSet = intersect;
+        return !intersect.IsDefault();
     }
     
     internal object[] GetComponentArray()

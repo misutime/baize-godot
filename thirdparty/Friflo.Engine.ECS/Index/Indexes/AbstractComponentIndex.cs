@@ -1,9 +1,10 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
 using Friflo.Engine.ECS.Collections;
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable once CheckNamespace
 namespace Friflo.Engine.ECS.Index;
@@ -24,7 +25,8 @@ public abstract class AbstractComponentIndex
     internal  readonly  EntityStore     store;
     internal  readonly  ComponentType   componentType;
     internal  readonly  int             structIndex;
-    internal  readonly  int             indexBit;
+    // FORK-CUSTOM（P2-1）：indexBit 从 int → BitSet（修复索引掩码 32 类型限制）
+    internal  readonly  BitSet          indexBit;
     internal            bool            modified;
     #endregion
     
@@ -45,7 +47,7 @@ public abstract class AbstractComponentIndex
         this.componentType  = componentType;
         structIndex         = componentType.StructIndex;
         var types           = new ComponentTypes(componentType);
-        indexBit            = (int)types.bitSet.l0;
+        indexBit            = types.bitSet;
     }
 }
 

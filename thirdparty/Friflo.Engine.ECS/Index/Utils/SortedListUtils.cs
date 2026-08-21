@@ -1,10 +1,11 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using Friflo.Engine.ECS.Collections;
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable once CheckNamespace
 namespace Friflo.Engine.ECS.Index;
@@ -21,7 +22,7 @@ internal static class SortedListUtils
         if (index == -1) {
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
-        componentIndex.store.nodes[id].isOwner &= ~componentIndex.indexBit;
+        componentIndex.store.nodes[id].isOwner.Remove(componentIndex.indexBit);
         if (ids.Count == 1) {
             map.Remove(value);
             return;
@@ -38,7 +39,7 @@ internal static class SortedListUtils
         if (idSpan.IndexOf(id) != -1) {
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
-        componentIndex.store.nodes[id].isOwner |= componentIndex.indexBit;
+        componentIndex.store.nodes[id].isOwner.Add(componentIndex.indexBit);
         ids.Add(id, idHeap);
         map[value] = ids;
     }

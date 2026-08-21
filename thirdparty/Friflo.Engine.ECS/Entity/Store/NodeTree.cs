@@ -1,9 +1,10 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Text;
 using Friflo.Engine.ECS.Collections;
+using Friflo.Engine.ECS.Utils;
 using Friflo.Engine.ECS.Index;
 
 // ReSharper disable InlineTemporaryVariable
@@ -517,10 +518,10 @@ public partial class EntityStore
         }
         entityCount--;
         ref var node = ref nodes[id];
-        if (node.isOwner != 0) {
+        if (!node.isOwner.IsDefault()) {
             RemoveEntityReferences(entity, node);
         }
-        if (node.isLinked != 0) {
+        if (!node.isLinked.IsDefault()) {
             RemoveLinksToEntity(entity);
         }
         // ClearTreeFlags(nodes, id, NodeFlags.TreeNode); // --- mark its child nodes as floating
@@ -549,9 +550,10 @@ public partial class EntityStore
         var indexTypes          = new ComponentTypes();
         var relationTypes       = new ComponentTypes();
         var schema              = Static.EntitySchema;
+        // FORK-CUSTOM（P2-1）：isOwner 已是 BitSet，用 Intersect
         var isOwner             = node.isOwner;
-        indexTypes.bitSet.l0    = schema.indexTypes.   bitSet.l0 & isOwner; // intersect
-        relationTypes.bitSet.l0 = schema.relationTypes.bitSet.l0 & isOwner; // intersect
+        indexTypes.bitSet       = BitSet.Intersect(schema.indexTypes.bitSet, isOwner);
+        relationTypes.bitSet    = BitSet.Intersect(schema.relationTypes.bitSet, isOwner);
         
         // --- remove entity id from component index
         var indexMap = extension.indexMap;

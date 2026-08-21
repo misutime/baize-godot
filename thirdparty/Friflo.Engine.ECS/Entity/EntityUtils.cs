@@ -1,10 +1,11 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
 using System.Text;
 using Friflo.Engine.ECS.Serialize;
+using Friflo.Engine.ECS.Utils;
 using Friflo.Json.Fliox;
 
 // ReSharper disable RedundantTypeDeclarationBody
@@ -93,12 +94,13 @@ public static class EntityUtils
 #region relations
     public static ComponentTypes GetRelationTypes(Entity entity)
     {
+        // FORK-CUSTOM（P2-1）：isOwner 已是 BitSet
         var isOwner = entity.store.nodes[entity.Id].isOwner; 
-        if (isOwner == 0) {
+        if (isOwner.IsDefault()) {
             return default;
         }
         ComponentTypes relationTypes = new ComponentTypes();
-        relationTypes.bitSet.l0 = isOwner & EntityStoreBase.Static.EntitySchema.relationTypes.bitSet.l0;
+        relationTypes.bitSet = BitSet.Intersect(isOwner, EntityStoreBase.Static.EntitySchema.relationTypes.bitSet);
         return relationTypes;
     }
     #endregion

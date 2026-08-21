@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -38,8 +38,9 @@ internal sealed class ComponentWriter
     internal JsonValue Write(Entity entity, List<JsonValue> members, bool pretty)
     {
         var archetype = entity.archetype;
-        var relationTypesL0 = entity.store.nodes[entity.Id].isOwner & relationTypes.bitSet.l0;
-        if (entity.ComponentCount() == 0 && relationTypesL0 == 0) {
+        // FORK-CUSTOM（P2-1）：isOwner 已是 BitSet，用 HasAny 判断是否有关系类型
+        bool hasRelationTypes = entity.store.nodes[entity.Id].isOwner.HasAny(relationTypes.bitSet);
+        if (entity.ComponentCount() == 0 && !hasRelationTypes) {
             return default;
         }
         var componentCount = 0;
@@ -66,7 +67,8 @@ internal sealed class ComponentWriter
             componentCount++;
         }
         var relationsTypes  = new ComponentTypes();
-        relationsTypes.bitSet.l0 = relationTypesL0;
+        // FORK-CUSTOM（P2-1）：用完整 BitSet 交集（不再 l0 截断）
+        relationsTypes.bitSet = BitSet.Intersect(entity.store.nodes[entity.Id].isOwner, relationTypes.bitSet);
         foreach (var relationType in relationsTypes) {
             relationType.WriteRelations(this, entity);
             componentCount++;

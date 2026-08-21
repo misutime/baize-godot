@@ -1,8 +1,9 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using Friflo.Engine.ECS.Collections;
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable once CheckNamespace
 namespace Friflo.Engine.ECS.Index;
@@ -23,11 +24,10 @@ internal static class EntityIndexUtils
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
         var nodes           =  componentIndex.store.nodes;
-        int complement      = ~componentIndex.indexBit;
-        nodes[id].isOwner  &=  complement;
+        // FORK-CUSTOM（P2-1）：indexBit 已是 BitSet，用 Remove
+        nodes[id].isOwner.Remove(componentIndex.indexBit);
         if (ids.Count == 1) {
-            nodes[target].isLinked   &= complement;
-            componentIndex.modified = true;
+            nodes[target].isLinked.Remove(componentIndex.indexBit);
             map.Remove(target);
             return;
         }
@@ -45,10 +45,10 @@ internal static class EntityIndexUtils
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
         var nodes           = componentIndex.store.nodes;
-        int indexBit        = componentIndex.indexBit;
-        nodes[id].isOwner  |= indexBit;
+        // FORK-CUSTOM（P2-1）：indexBit 已是 BitSet，用 Add
+        nodes[id].isOwner.Add(componentIndex.indexBit);
         if (ids.Count == 0) {
-            nodes[target].isLinked   |= indexBit;
+            nodes[target].isLinked.Add(componentIndex.indexBit);
             componentIndex.modified = true;
         }
         ids.Add(id, idHeap);

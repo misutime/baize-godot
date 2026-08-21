@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -46,10 +46,11 @@ public struct EntityNode
     public              NodeFlags       Flags       =>  archetype != null ? Created : default;
     
     /// <summary>Property only used to see component names encoded by <see cref="isOwner"/>. </summary>
-    internal            ComponentTypes  IsOwner     =>  new ComponentTypes{ bitSet = new BitSet { l0 = isOwner } };
+    // FORK-CUSTOM（P2-1）：isOwner/isLinked 已是 BitSet，直接使用（不再 l0 截断）
+    internal            ComponentTypes  IsOwner     =>  new ComponentTypes{ bitSet = isOwner };
     
     /// <summary>Property only used to see component names encoded by <see cref="isLinked"/>. </summary>
-    internal            ComponentTypes  IsLinked    =>  new ComponentTypes{ bitSet = new BitSet { l0 = isLinked   } };
+    internal            ComponentTypes  IsLinked    =>  new ComponentTypes{ bitSet = isLinked };
                     
     public   override   string          ToString()  => GetString();
     #endregion
@@ -75,7 +76,9 @@ public struct EntityNode
     /// Otherwise, all <see cref="AbstractEntityRelations"/> and <see cref="AbstractComponentIndex"/> instances need to be iterated
     /// to check if the entity is a key in their Dictionary's and perform required cleanup.
     /// </remarks>
-    [Browse(Never)] internal    int             isOwner;            //  4
+    // FORK-CUSTOM（P2-1）：isOwner/isLinked 从 int → BitSet（256 位）——
+    // 修复"只有前 32 个组件类型能被关系/索引干净支持"的硬伤（上游 int 截断）。
+    [Browse(Never)] internal    BitSet          isOwner;            // 32  改为 BitSet（上游 int 4 字节，限制 32 类型）
     
     /// <summary>
     /// Bit mask for all <see cref="EntityIndex"/> and all <see cref="EntityLinkRelations{TRelation}"/> instances.<br/> 
@@ -87,8 +90,8 @@ public struct EntityNode
     /// Otherwise, all <see cref="EntityIndex"/> and <see cref="EntityLinkRelations{TRelation}"/> instances need to be iterated
     /// to check if the entity is a key in their Dictionary's and perform required cleanup.
     /// </remarks>
-    [Browse(Never)] internal    int             isLinked;           //  4
-    
+    // FORK-CUSTOM（P2-1）：同上，int → BitSet
+    [Browse(Never)] internal    BitSet          isLinked;           // 32  改为 BitSet（上游 int 4 字节，限制 32 类型）
     /// <remarks> Used to avoid enumeration of <see cref="EntityStore.Intern.signalHandlers"/> </remarks>
                     internal    byte            signalTypeCount;    //  1   number of different signal types attached to the entity.
     

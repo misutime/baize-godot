@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -22,7 +22,7 @@ internal static class LinkRelationUtils
         }
         var nodes =  componentIndex.store.nodes;
         if (ids.Count == 1) {
-            nodes[target].isLinked   &= ~componentIndex.relationBit;
+            nodes[target].isLinked.Remove(componentIndex.relationBit);
             map.Remove(target);
             return;
         }
@@ -41,7 +41,7 @@ internal static class LinkRelationUtils
         }
         var nodes = componentIndex.store.nodes;
         if (ids.Count == 0) {
-            nodes[target].isLinked   |= componentIndex.relationBit;
+            nodes[target].isLinked.Add(componentIndex.relationBit);
         }
         ids.Add(id, linkHeap);
         map[target] = ids;

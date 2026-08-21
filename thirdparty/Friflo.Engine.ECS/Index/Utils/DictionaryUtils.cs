@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -19,7 +19,7 @@ internal static class DictionaryUtils
         if (index == -1) {
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
-        componentIndex.store.nodes[id].isOwner &= ~componentIndex.indexBit;
+        componentIndex.store.nodes[id].isOwner.Remove(componentIndex.indexBit);
         if (ids.Count == 1) {
             componentIndex.modified = true; 
             map.Remove(value);
@@ -37,7 +37,7 @@ internal static class DictionaryUtils
         if (idSpan.IndexOf(id) != -1) {
             return; // unexpected. Better safe than sorry. Used belts with suspenders :)
         }
-        componentIndex.store.nodes[id].isOwner |= componentIndex.indexBit;
+        componentIndex.store.nodes[id].isOwner.Add(componentIndex.indexBit);
         if (ids.Count == 0) {
             componentIndex.modified = true;
         }

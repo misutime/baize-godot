@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -85,7 +85,7 @@ public static partial class EntityExtensions
         var store           = entity.store;
         var relationsMap    = store.extension.relationsMap;
         var relationsTypes  = new ComponentTypes();
-        relationsTypes.bitSet.l0 = store.nodes[entity.Id].isOwner & schema.linkRelationTypes.bitSet.l0;
+        relationsTypes.bitSet = BitSet.Intersect(store.nodes[entity.Id].isOwner, schema.linkRelationTypes.bitSet);
         foreach (var componentType in relationsTypes) {
             var relations   = relationsMap[componentType.StructIndex];
             count          += relations.GetRelationCount(entity);
@@ -98,12 +98,13 @@ public static partial class EntityExtensions
     internal static void GetIncomingLinkTypes(Entity target, out ComponentTypes indexTypes, out ComponentTypes relationTypes)
     {
         var store               = target.store;
+        // FORK-CUSTOM（P2-1）：isLinked 已是 BitSet，用 Intersect
         var isLinked            = store.nodes[target.Id].isLinked;
         indexTypes              = new ComponentTypes();
         relationTypes           = new ComponentTypes();
         var schema              = EntityStoreBase.Static.EntitySchema;
-        indexTypes.bitSet.l0    = schema.indexTypes.   bitSet.l0 & isLinked; // intersect
-        relationTypes.bitSet.l0 = schema.relationTypes.bitSet.l0 & isLinked; // intersect
+        indexTypes.bitSet       = BitSet.Intersect(schema.indexTypes.bitSet, isLinked);
+        relationTypes.bitSet    = BitSet.Intersect(schema.relationTypes.bitSet, isLinked);
     }
     #endregion
 }
