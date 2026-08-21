@@ -17,19 +17,43 @@ namespace Friflo.Engine.ECS.Generator;
 [Generator(LanguageNames.CSharp)]
 public sealed class AotRegistrationGenerator : IIncrementalGenerator
 {
-    private const string ComponentIface = "Friflo.Engine.ECS.IComponent";
-    private const string TagIface = "Friflo.Engine.ECS.ITag";
-    private const string RelationGenericIface = "Friflo.Engine.ECS.IRelation<";
-    private const string LinkRelationIface = "Friflo.Engine.ECS.ILinkRelation";
-    private const string IndexedComponentIface = "Friflo.Engine.ECS.IIndexedComponent<";
-    private const string ScriptClass = "Friflo.Engine.ECS.Script";
+    private const string ComponentMetadataName = "Friflo.Engine.ECS.IComponent";
+    private const string TagMetadataName = "Friflo.Engine.ECS.ITag";
+    private const string RelationMetadataName = "Friflo.Engine.ECS.IRelation`1";
+    private const string LinkRelationMetadataName = "Friflo.Engine.ECS.ILinkRelation";
+    private const string IndexedComponentMetadataName = "Friflo.Engine.ECS.IIndexedComponent`1";
+    private const string EntityMetadataName = "Friflo.Engine.ECS.Entity";
+    private const string ScriptMetadataName = "Friflo.Engine.ECS.Script";
 
+    private static readonly DiagnosticDescriptor OpenGenericType = new(
+        "FECSGEN001",
+        "不支持开放泛型 ECS 类型",
+        "ECS 类型 '{0}' 是开放泛型，无法生成 AOT 注册代码",
+        "Friflo.Engine.ECS.Generator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor InaccessibleType = new(
+        "FECSGEN002",
+        "ECS 类型不可访问",
+        "ECS 类型 '{0}' 或其包含类型不可从生成代码访问",
+        "Friflo.Engine.ECS.Generator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor MissingScriptConstructor = new(
+        "FECSGEN003",
+        "Script 缺少 public 无参构造函数",
+        "Script 类型 '{0}' 必须提供 public 无参构造函数才能生成 AOT 注册代码",
+        "Friflo.Engine.ECS.Generator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // 在 transform 阶段立即提取类型信息（不能跨 Collect 保留 SemanticModel）
         var typeInfo = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: static (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax,
+                predicate: static (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax,
                 transform: static (ctx, _) => ExtractTypeInfo(ctx))
             .Where(static info => info != null)
             .Select(static (info, _) => info!)
@@ -37,27 +61,24 @@ public sealed class AotRegistrationGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(typeInfo, static (spc, types) =>
         {
-            var components = new SortedSet<string>();
-            var indexed = new SortedSet<string>();
-            var relations = new SortedSet<string>();
-            var linkRelations = new SortedSet<string>();
-            var tags = new SortedSet<string>();
-            var scripts = new SortedSet<string>();
-
+            var registrationCalls = new SortedSet<string>();
+            var reportedDiagnostics = new HashSet<string>();
             foreach (var info in types)
             {
-                switch (info.Kind)
+                if (info.Diagnostic != null)
                 {
-                    case TypeKind.Component: components.Add(info.FullName); break;
-                    case TypeKind.IndexedComponent: indexed.Add(info.FullName); break;
-                    case TypeKind.Relation: relations.Add(info.FullName); break;
-                    case TypeKind.LinkRelation: linkRelations.Add(info.FullName); break;
-                    case TypeKind.Tag: tags.Add(info.FullName); break;
-                    case TypeKind.Script: scripts.Add(info.FullName); break;
+                    var diagnosticKey = info.Diagnostic.Id + "|" + info.TypeName;
+                    if (reportedDiagnostics.Add(diagnosticKey))
+                    {
+                        spc.ReportDiagnostic(info.Diagnostic);
+                    }
+                    continue;
                 }
+
+                registrationCalls.Add(GetRegistrationCall(info.Type!));
             }
 
-            if (components.Count + indexed.Count + relations.Count + linkRelations.Count + tags.Count + scripts.Count == 0)
+            if (registrationCalls.Count == 0)
             {
                 return;
             }
@@ -73,12 +94,7 @@ public sealed class AotRegistrationGenerator : IIncrementalGenerator
             sb.AppendLine("    public static void RegisterAll(NativeAOT aot)");
             sb.AppendLine("    {");
 
-            foreach (var t in components) sb.AppendLine($"        aot.RegisterComponent<{t}>();");
-            foreach (var t in indexed) sb.AppendLine($"        aot.RegisterIndexedComponentStruct<{t}, int>();"); // 简化：值类型索引
-            foreach (var t in relations) sb.AppendLine($"        aot.RegisterRelation<{t}, long>();"); // 简化：long key
-            foreach (var t in linkRelations) sb.AppendLine($"        aot.RegisterLinkRelation<{t}>();");
-            foreach (var t in tags) sb.AppendLine($"        aot.RegisterTag<{t}>();");
-            foreach (var t in scripts) sb.AppendLine($"        aot.RegisterScript<{t}>();");
+            foreach (var call in registrationCalls) sb.AppendLine($"        {call}");
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -87,60 +103,170 @@ public sealed class AotRegistrationGenerator : IIncrementalGenerator
         });
     }
 
-    private enum TypeKind { Component, IndexedComponent, Relation, LinkRelation, Tag, Script }
+    private enum RegistrationKind
+    {
+        Component,
+        IndexedClass,
+        IndexedStruct,
+        IndexedEntity,
+        Relation,
+        LinkRelation,
+        Tag,
+        Script
+    }
 
     private sealed class TypeInfo
     {
         public string FullName = "";
-        public TypeKind Kind;
+        public string? TypeArgument;
+        public RegistrationKind Kind;
     }
 
-    private static TypeInfo? ExtractTypeInfo(GeneratorSyntaxContext ctx)
+    private sealed class ExtractionResult
     {
-        if (ctx.SemanticModel == null) return null;
+        public TypeInfo? Type;
+        public Diagnostic? Diagnostic;
+        public string TypeName = "";
+    }
+
+    private static ExtractionResult? ExtractTypeInfo(GeneratorSyntaxContext ctx)
+    {
         if (ctx.SemanticModel.GetDeclaredSymbol(ctx.Node) is not INamedTypeSymbol symbol) return null;
-        if (symbol.IsAbstract) return null;
-        if (!symbol.Locations.Any(l => l.IsInSource)) return null;
+        if (symbol.IsAbstract || !symbol.Locations.Any(static location => location.IsInSource)) return null;
 
-        var fullName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-            .Replace("global::", "");
-        var baseType = symbol.BaseType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
-        var interfaces = symbol.AllInterfaces
-            .Select(i => i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", ""))
-            .ToList();
+        var compilation = ctx.SemanticModel.Compilation;
+        var componentInterface = compilation.GetTypeByMetadataName(ComponentMetadataName);
+        var tagInterface = compilation.GetTypeByMetadataName(TagMetadataName);
+        var relationInterface = compilation.GetTypeByMetadataName(RelationMetadataName);
+        var linkRelationInterface = compilation.GetTypeByMetadataName(LinkRelationMetadataName);
+        var indexedComponentInterface = compilation.GetTypeByMetadataName(IndexedComponentMetadataName);
+        var entityType = compilation.GetTypeByMetadataName(EntityMetadataName);
+        var scriptType = compilation.GetTypeByMetadataName(ScriptMetadataName);
 
-        var info = new TypeInfo { FullName = fullName };
+        var relation = symbol.AllInterfaces.FirstOrDefault(i =>
+            SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, relationInterface));
+        var indexed = symbol.AllInterfaces.FirstOrDefault(i =>
+            SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, indexedComponentInterface));
 
-        if (baseType == ScriptClass)
+        RegistrationKind? kind = null;
+        ITypeSymbol? typeArgument = null;
+        if (IsDerivedFrom(symbol, scriptType))
         {
-            info.Kind = TypeKind.Script;
-            return info;
+            kind = RegistrationKind.Script;
         }
-        if (interfaces.Contains(LinkRelationIface))
+        else if (symbol.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, linkRelationInterface)))
         {
-            info.Kind = TypeKind.LinkRelation;
-            return info;
+            kind = RegistrationKind.LinkRelation;
         }
-        if (interfaces.Any(i => i.StartsWith(RelationGenericIface)))
+        else if (relation != null)
         {
-            info.Kind = TypeKind.Relation;
-            return info;
+            kind = RegistrationKind.Relation;
+            typeArgument = relation.TypeArguments[0];
         }
-        if (interfaces.Any(i => i.StartsWith(IndexedComponentIface)))
+        else if (indexed != null)
         {
-            info.Kind = TypeKind.IndexedComponent;
-            return info;
+            typeArgument = indexed.TypeArguments[0];
+            kind = SymbolEqualityComparer.Default.Equals(typeArgument, entityType)
+                ? RegistrationKind.IndexedEntity
+                : typeArgument.IsReferenceType
+                    ? RegistrationKind.IndexedClass
+                    : RegistrationKind.IndexedStruct;
         }
-        if (interfaces.Contains(ComponentIface))
+        else if (symbol.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, componentInterface)))
         {
-            info.Kind = TypeKind.Component;
-            return info;
+            kind = RegistrationKind.Component;
         }
-        if (interfaces.Contains(TagIface))
+        else if (symbol.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, tagInterface)))
         {
-            info.Kind = TypeKind.Tag;
-            return info;
+            kind = RegistrationKind.Tag;
         }
-        return null;
+
+        if (kind == null) return null;
+
+        var fullName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var location = symbol.Locations.FirstOrDefault(static item => item.IsInSource);
+        if (IsOpenGeneric(symbol))
+        {
+            return Unsupported(fullName, Diagnostic.Create(OpenGenericType, location, fullName));
+        }
+        if (!IsAccessible(symbol))
+        {
+            return Unsupported(fullName, Diagnostic.Create(InaccessibleType, location, fullName));
+        }
+        if (kind == RegistrationKind.Script && !HasPublicParameterlessConstructor(symbol))
+        {
+            return Unsupported(fullName, Diagnostic.Create(MissingScriptConstructor, location, fullName));
+        }
+
+        return new ExtractionResult
+        {
+            TypeName = fullName,
+            Type = new TypeInfo
+            {
+                FullName = fullName,
+                TypeArgument = typeArgument?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                Kind = kind.Value
+            }
+        };
+    }
+
+    private static ExtractionResult Unsupported(string typeName, Diagnostic diagnostic)
+    {
+        return new ExtractionResult { TypeName = typeName, Diagnostic = diagnostic };
+    }
+
+    private static bool IsDerivedFrom(INamedTypeSymbol symbol, INamedTypeSymbol? expectedBase)
+    {
+        if (expectedBase == null) return false;
+        for (var current = symbol.BaseType; current != null; current = current.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current, expectedBase)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsOpenGeneric(INamedTypeSymbol symbol)
+    {
+        for (var current = symbol; current != null; current = current.ContainingType)
+        {
+            if (current.TypeParameters.Length != 0) return true;
+        }
+        return false;
+    }
+
+    private static bool IsAccessible(INamedTypeSymbol symbol)
+    {
+        for (var current = symbol; current != null; current = current.ContainingType)
+        {
+            if (current.IsFileLocal) return false;
+            if (current.DeclaredAccessibility is not (
+                Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool HasPublicParameterlessConstructor(INamedTypeSymbol symbol)
+    {
+        return symbol.InstanceConstructors.Any(constructor =>
+            constructor.Parameters.Length == 0 && constructor.DeclaredAccessibility == Accessibility.Public);
+    }
+
+    private static string GetRegistrationCall(TypeInfo info)
+    {
+        return info.Kind switch
+        {
+            RegistrationKind.Component => $"aot.RegisterComponent<{info.FullName}>();",
+            RegistrationKind.IndexedClass => $"aot.RegisterIndexedComponentClass<{info.FullName}, {info.TypeArgument}>();",
+            RegistrationKind.IndexedStruct => $"aot.RegisterIndexedComponentStruct<{info.FullName}, {info.TypeArgument}>();",
+            RegistrationKind.IndexedEntity => $"aot.RegisterIndexedComponentEntity<{info.FullName}>();",
+            RegistrationKind.Relation => $"aot.RegisterRelation<{info.FullName}, {info.TypeArgument}>();",
+            RegistrationKind.LinkRelation => $"aot.RegisterLinkRelation<{info.FullName}>();",
+            RegistrationKind.Tag => $"aot.RegisterTag<{info.FullName}>();",
+            RegistrationKind.Script => $"aot.RegisterScript<{info.FullName}>();",
+            _ => ""
+        };
     }
 }

@@ -3,6 +3,7 @@
 
 using System;
 using System.Text;
+using Friflo.Engine.ECS.Utils;
 // ReSharper disable FieldCanBeMadeReadOnly.Local
 // ReSharper disable InconsistentNaming
 // ReSharper disable once CheckNamespace
@@ -32,7 +33,7 @@ internal abstract class StructHeap : IComponentStash
     internal  abstract  void        ResizeComponents        (int capacity, int count);
     internal  abstract  void        MoveComponent           (int from, int to);
     internal  abstract  void        CopyComponentTo         (int sourcePos, StructHeap targetHeap, int targetPos);
-    internal  abstract  void        CopyComponent           (int sourcePos, StructHeap targetHeap, int targetPos, in CopyContext context, long updateIndexTypes);
+    internal  abstract  void        CopyComponent           (int sourcePos, StructHeap targetHeap, int targetPos, in CopyContext context, BitSet updateIndexTypes);
     internal  abstract  void        SetComponentDefault     (int compIndex);
     internal  abstract  void        SetComponentsDefault    (int compIndexStart, int count);
     internal  abstract  object      GetComponentDebug       (int compIndex);

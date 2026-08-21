@@ -1,6 +1,7 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable UseNullPropagation
 // ReSharper disable once CheckNamespace
@@ -308,12 +309,12 @@ public static partial class EntityStoreExtensions {
         return new Entity(store, id, revision);
     }
     
-    private static readonly long IndexTypesMask = EntityStoreBase.Static.EntitySchema.indexTypes.bitSet.l0;
+    private static readonly BitSet IndexTypesMask = EntityStoreBase.Static.EntitySchema.indexTypes.bitSet;
     
-    private static void UpdateIndexedComponents(Entity entity, Archetype archetype, long indexTypesMask)
+    private static void UpdateIndexedComponents(Entity entity, Archetype archetype, BitSet indexTypesMask)
     {
         var indexTypes = new ComponentTypes();
-        indexTypes.bitSet.l0 = indexTypesMask;
+        indexTypes.bitSet = indexTypesMask;
         foreach (var indexType in indexTypes) {
             archetype.heapMap[indexType.StructIndex].AddIndex(entity);
         }
@@ -323,8 +324,8 @@ public static partial class EntityStoreExtensions {
     {
         var store = entity.store;
         // --- add indexed components to indexes
-        var indexTypesMask = archetype.componentTypes.bitSet.l0 & IndexTypesMask;
-        if (indexTypesMask != 0) {
+        var indexTypesMask = BitSet.Intersect(archetype.componentTypes.bitSet, IndexTypesMask);
+        if (!indexTypesMask.IsDefault()) {
             UpdateIndexedComponents(entity, archetype, indexTypesMask);
         }
         // --- create entity event

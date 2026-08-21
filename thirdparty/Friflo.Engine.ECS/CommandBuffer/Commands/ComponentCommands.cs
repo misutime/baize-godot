@@ -1,7 +1,8 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
+using Friflo.Engine.ECS.Utils;
 using static Friflo.Engine.ECS.ComponentChangedAction;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
@@ -16,7 +17,7 @@ internal abstract class ComponentCommands : IComponentStash
 {
     [Browse(Never)] internal            int             commandCount;       //  4
     [Browse(Never)] internal readonly   int             structIndex;        //  4
-    [Browse(Never)] internal readonly   long            indexMask;          //  8
+    [Browse(Never)] internal readonly   BitSet          indexMask;          // 32
     
     
     public   abstract object   GetStashDebug();
@@ -28,7 +29,7 @@ internal abstract class ComponentCommands : IComponentStash
     internal ComponentCommands(int structIndex, Type indexType) {
         this.structIndex = structIndex;
         if (indexType != null) {
-            indexMask = 1L << structIndex;
+            indexMask.SetBit(structIndex);
         }
     }
 }
@@ -68,7 +69,7 @@ internal sealed class ComponentCommands<T> : ComponentCommands, IComponentStash<
             if (archetype == null) {
                 throw EntityNotFound(command.ToString());
             }
-            if ((archetype.componentTypes.bitSet.l0 & indexMask) != 0) {
+            if (archetype.componentTypes.bitSet.HasAny(indexMask)) {
                 RemoveIndexedComponent(playback, node, entityId);
             }
 #if NET6_0_OR_GREATER

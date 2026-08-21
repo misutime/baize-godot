@@ -1,8 +1,9 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Text;
+using Friflo.Engine.ECS.Utils;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 
@@ -145,8 +146,8 @@ public sealed class CreateEntityBatch
         var entity = new Entity(entityStore, id, revision);
         
         // -- add indexed components to indexes
-        var indexTypes = archetype.componentTypes.bitSet.l0 & indexTypesMask;
-        if (indexTypes != 0) {
+        var indexTypes = BitSet.Intersect(archetype.componentTypes.bitSet, indexTypesMask);
+        if (!indexTypes.IsDefault()) {
             AddIndexedComponents(entity, indexTypes);
         }
         if (autoReturn) {
@@ -160,12 +161,12 @@ public sealed class CreateEntityBatch
         return entity;
     }
     
-    private readonly long indexTypesMask = EntityStoreBase.Static.EntitySchema.indexTypes.bitSet.l0;
+    private readonly BitSet indexTypesMask = EntityStoreBase.Static.EntitySchema.indexTypes.bitSet;
     
-    private void AddIndexedComponents(Entity entity, long indexTypes)
+    private void AddIndexedComponents(Entity entity, BitSet indexTypes)
     {
         var types =  new ComponentTypes();
-        types.bitSet.l0 = indexTypes;
+        types.bitSet = indexTypes;
         foreach (var type in types) {
             archetype.heapMap[type.StructIndex].AddIndex(entity);
         }

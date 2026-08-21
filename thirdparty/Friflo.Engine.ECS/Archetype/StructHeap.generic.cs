@@ -3,6 +3,7 @@
 
 using System;
 using Friflo.Engine.ECS.Index;
+using Friflo.Engine.ECS.Utils;
 // ReSharper disable UseNullPropagation
 // ReSharper disable StaticMemberInGenericType
 // ReSharper disable once CheckNamespace
@@ -69,7 +70,7 @@ internal sealed class StructHeap<T> : StructHeap, IComponentStash<T>
         targetHeap.components[targetPos] = components[sourcePos];
     }
     
-    internal override void CopyComponent(int sourcePos, StructHeap targetHeap, int targetPos, in CopyContext context, long updateIndexTypes)
+    internal override void CopyComponent(int sourcePos, StructHeap targetHeap, int targetPos, in CopyContext context, BitSet updateIndexTypes)
     {
         if (typeof(T) == typeof(TreeNode)) {
             return;
@@ -88,9 +89,9 @@ internal sealed class StructHeap<T> : StructHeap, IComponentStash<T>
         }
     }
     
-    private static void AddOrUpdateIndex(in T source, in T target, in Entity targetEntity, StructHeap<T> targetHeap, long updateIndexTypes)
+    private static void AddOrUpdateIndex(in T source, in T target, in Entity targetEntity, StructHeap<T> targetHeap, BitSet updateIndexTypes)
     {
-        if (((1 << StructInfo<T>.Index) & updateIndexTypes) == 0) {
+        if (!updateIndexTypes.Has(StructInfo<T>.Index)) {
             StoreIndex.AddIndex(targetEntity.store, targetEntity.Id, source);
         } else {
             targetHeap.componentStash = target;

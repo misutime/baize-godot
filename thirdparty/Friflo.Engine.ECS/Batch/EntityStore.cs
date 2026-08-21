@@ -1,8 +1,9 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
+using Friflo.Engine.ECS.Utils;
 
 // ReSharper disable SuggestBaseTypeForParameter
 // ReSharper disable UseNullPropagation
@@ -21,7 +22,7 @@ public partial class EntityStoreBase
     [Browse(Never)]
     internal int PooledEntityBatchCount => internBase.entityBatches.Count;
     
-    private readonly long indexTypesMask = Static.EntitySchema.indexTypes.bitSet.l0;
+    private readonly BitSet indexTypesMask = Static.EntitySchema.indexTypes.bitSet;
 
     internal EntityBatch GetBatch(int entityId)
     {
@@ -54,7 +55,7 @@ public partial class EntityStoreBase
         
         // --- stash old component values only if an event handler is set or an indexed component changes 
         var oldHeapMap          = archetype.heapMap;
-        var indexChanges        = ((batch.componentsAdd.bitSet.l0 | batch.componentsRemove.bitSet.l0) & indexTypesMask) != 0;
+        var indexChanges        = BitSet.Add(batch.componentsAdd.bitSet, batch.componentsRemove.bitSet).HasAny(indexTypesMask);
         var sendRemoveEvents    = internBase.componentRemoved != null;
         var sendAddEvents       = internBase.componentAdded   != null;
         if (sendRemoveEvents || sendAddEvents || indexChanges) {
@@ -84,8 +85,8 @@ public partial class EntityStoreBase
             }
         }
         // --- update indexes of removed indexed components
-        var removedIndexTypes = batch.componentsRemove.bitSet.l0 & indexTypesMask;
-        if (removedIndexTypes != 0) {
+        var removedIndexTypes = BitSet.Intersect(batch.componentsRemove.bitSet, indexTypesMask);
+        if (!removedIndexTypes.IsDefault()) {
             RemoveComponentIndexes(removedIndexTypes, new Entity((EntityStore)this, entityId, node.revision), oldHeapMap);
         }
         
@@ -116,10 +117,10 @@ public partial class EntityStoreBase
         }
     }
     
-    private static void RemoveComponentIndexes(long indexTypes, Entity entity, StructHeap[] oldHeapMap)
+    private static void RemoveComponentIndexes(BitSet indexTypes, Entity entity, StructHeap[] oldHeapMap)
     {
         var indexedComponentsRemove = new ComponentTypes();
-        indexedComponentsRemove.bitSet.l0 = indexTypes;
+        indexedComponentsRemove.bitSet = indexTypes;
         foreach (var componentType in indexedComponentsRemove) {
             var heap = oldHeapMap[componentType.StructIndex];
             heap?.RemoveIndex(entity);

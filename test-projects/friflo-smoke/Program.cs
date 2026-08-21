@@ -10,7 +10,7 @@ class Program
     static void Main()
     {
         var store = new EntityStore();
-        
+
         // 创建 1 万实体
         for (int i = 0; i < 10000; i++)
         {

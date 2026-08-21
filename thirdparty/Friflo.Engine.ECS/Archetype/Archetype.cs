@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Friflo.Engine.ECS.Relations;
+using Friflo.Engine.ECS.Utils;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 
@@ -311,7 +312,7 @@ public sealed class Archetype
     /// <see cref="TreeNode"/> components (child entities) are not copied.<br/>
     /// Otherwise, two different entities would have the same child entities.
     /// </summary>
-    internal static void CopyComponents(Archetype sourceArch, Archetype targetArch, in CopyContext context, long updateIndexTypes)
+    internal static void CopyComponents(Archetype sourceArch, Archetype targetArch, in CopyContext context, BitSet updateIndexTypes)
     {
         var sourceIndex = context.source.compIndex;
         var targetIndex = context.target.compIndex;

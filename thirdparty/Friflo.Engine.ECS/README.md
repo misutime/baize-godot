@@ -37,10 +37,9 @@ High Performance C# ECS - Entity Component System.
 - [x] Fully reactive / entity events ⚡
 - [x] Systems / System groups ⚙️
 - [x] Watch entities, components, relations, tags, query results, systems, ... in debugger 🐞
-- [x] JSON Serialization 💿
 - [x] SIMD Support 🧮
-- [x] Supports .NET Standard 2.1 .NET 5 .NET 6 .NET 7 .NET 8    
-  WASM / WebAssembly, Unity (Mono, AOT/IL2CPP, WebGL), Godot, MonoGame, ... and Native AOT
+<!-- FORK-CUSTOM（P2-2）：JSON Serialization 已剥离（Fliox 删除，序列化职责归 MemoryPack/STJ） -->
+- [x] Supports .NET 11（FORK-CUSTOM：All-in C# net11 独占）
 - [x] **100% secure C#** 🔒. No *unsafe code*, *native dll bindings* and *access violations*. 
   See [Wiki ⋅ Library](https://friflo.gitbook.io/friflo.engine.ecs/package/library#assembly-dll).  
 
