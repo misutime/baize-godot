@@ -17,7 +17,3 @@ config/features=PackedStringArray("4.8", "C#", "Forward Plus")
 [dotnet]
 
 project/assembly_name="p15-check"
-
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/p15_plugin/plugin.cfg")
