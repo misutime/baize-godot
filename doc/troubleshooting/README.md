@@ -53,6 +53,68 @@
 - **preview 版本的 rollForward 匹配**：`LatestMajor` 跳过 preview，需 `latestPatch`（见 `.NET-11-Preview-升级正式版清单.md` 2b）。
 
 ---
+## 2026-08-21：C# EditorPlugin 插件加载失败 "无法加载附加插件脚本"
+
+### 现象
+项目设置 → 插件 → 勾选启用 C# EditorPlugin → 报错：
+"无法从路径 res://addons/p15_plugin/plugin.cs 加载附加插件脚本：该脚本可能存在代码错误。正在禁用...以防止进一步出错"。
+但 `dotnet build` 成功（插件代码本身编译无错）。
+
+### 排查链
+1. **先查编译**：dotnet build 通过——代码没问题；
+2. **查 headless 行为**：headless 打开编辑器，插件 `_EnterTree` 不打印（未加载）；
+3. **查上游类查找逻辑**：`modules/mono/csharp_script.cpp:394` 发现
+   `String class_name = p_path.get_file().get_basename()`——**C# 脚本的类名必须匹配文件名**；
+4. **根因确认**：`plugin.cs` 里的类名是 `P15Plugin` ≠ 文件名 `plugin` → 按文件名找不到类 → 加载失败。
+
+### 根因
+**Godot C# 按文件名找类**（`csharp_script.cpp` 用 `p_path.get_file().get_basename()` 做类名）——
+`plugin.cs` 必须含 `class plugin`，类名 `P15Plugin` 不匹配导致无法实例化。
+
+### 修复
+改类名匹配文件名：`public partial class plugin : EditorPlugin`（不是 `P15Plugin`）。
+上游模板的 `_CLASS_` 占位符就是文件名，天然匹配。
+
+### 验证
+headless 打开编辑器 → `p15-plugin: EditorPlugin 加载成功 (P1.5)` + 卸载（完整生命周期）。
+
+### 经验
+- **C# 脚本/插件类名必须与文件名完全一致**（大小写敏感）——这是 Godot C# 的核心约定；
+- 创建 EditorPlugin 时用上游模板（类名=文件名），不要自定义类名；
+- headless 模式**能**验证 EditorPlugin 生命周期（_EnterTree/_ExitTree 会打印）——之前以为 headless 不加载插件是误判。
+
+---
+
+## 2026-08-21：Android 条件 TFM（net9）被编辑器自动删除
+
+### 现象
+项目 csproj 里的 Android 条件 `TargetFramework net9.0`（H6 硬约束：Android 导出模板 jar 库未对齐 net11 前保持 net9）
+在编辑器打开项目后被自动删除，只剩主 TFM net11.0。
+
+### 排查链
+1. **发现**：p15-check.csproj 的 android net9 条件消失（git diff 显示被删）；
+2. **定位**：`GodotSharpEditor.ApplyNecessaryChangesToSolution`（csproj 存在时每次打开调用）→
+   `ProjectUtils.UpgradeProjectIfNeeded` → `EnsureTargetFrameworkMatchesMinimumRequirement`；
+3. **根因确认**：该方法遍历条件 TargetFramework，`tfmVersion <= minTfmVersion`（net9 ≤ net11）时收集到
+   `propertiesToChange`；主 TFM 不高于最小要求时**删除**条件属性——上游假设"主 TFM 够新就不需要条件 TFM"，
+   与我们的 H6（Android 必须 net9）冲突。
+
+### 根因
+**上游 `EnsureTargetFrameworkMatchesMinimumRequirement` 会删除版本 ≤ 最小要求的条件 TFM**，
+破坏 H6 硬约束（Android 保持 net9 是主动决策，不是"该升级"）。
+
+### 修复
+`ProjectUtils.cs`：收集 `propertiesToChange` 时**跳过 Android 条件属性**
+（`property.Condition.Contains("android")` → continue），主 TFM 升级到更新版本时才评估。
+
+### 验证
+编辑器打开项目后，csproj 的 `android net9.0` 条件保留。
+
+### 经验
+- **上游"自动升级"逻辑可能破坏我们的主动决策**（H1-H6 硬约束）——凡涉及 TFM/版本自动修改处需审查；
+- 排查"配置被改动"类问题：`git diff` 定位改动 → 回溯编辑器打开时的 `ApplyNecessaryChangesToSolution` 链。
+
+---
 
 ## 模板（新问题用）
 
