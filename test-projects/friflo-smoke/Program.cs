@@ -31,5 +31,6 @@ class Program
         // 验证
         Console.WriteLine($"friflo-smoke: {count} 实体处理成功 (net11)");
         if (count == 10000) { Console.WriteLine("friflo-smoke: 验证成功"); }
+        else { Environment.Exit(1); }  // FORK-CUSTOM：失败时非零退出（CI 门禁）
     }
 }
