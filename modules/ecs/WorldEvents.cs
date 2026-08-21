@@ -4,6 +4,8 @@
 // 系统间通信用纯数据事件（替代 Action 回调——S1-2 反思）：
 // 写事件（EventWriter）与读事件（EventReader）显式分离。
 // P2-3 修复：按事件类型存 List<T>（无装箱）+ 双缓冲复用（无每 Tick 分配）+ 类型化 Reader。
+// review 第2轮修复：事件缓冲为 WorldEvents 实例所有（非静态共享——多世界隔离）；
+// Reset 清空 pending + current（不复用 FlushAction 提升 pending）。
 
 using System;
 using System.Collections.Generic;
@@ -12,20 +14,46 @@ namespace Baize.Ecs;
 
 /// <summary>
 /// 世界事件总线：EventWriter 写入，EventReader 读取，Tick 切换时 Flush。
+/// 每实例独立缓冲（多 EcsWorld 互不污染）。
 /// </summary>
 public sealed class WorldEvents
 {
-    // 按事件类型存储的 List<T>（双缓冲：pending 写入 / current 读取）
-    private sealed class EventBuffer<T> where T : struct
+    // 类型化事件 holder（实例级——P1-1 修复：非静态共享）
+    private interface IEventHolder
+    {
+        void Flush();
+        void ClearAll();
+    }
+
+    private sealed class EventHolder<T> : IEventHolder where T : struct
     {
         public readonly List<T> Pending = new();
         public readonly List<T> Current = new();
+
+        public void Flush()
+        {
+            Current.Clear();
+            foreach (var e in Pending) Current.Add(e);
+            Pending.Clear();
+        }
+
+        public void ClearAll()
+        {
+            Pending.Clear();
+            Current.Clear();
+        }
     }
 
-    // 用泛型 static 缓存每类型的缓冲（无装箱，无每 Tick 分配）
-    private static class BufferCache<T> where T : struct
+    private readonly Dictionary<Type, IEventHolder> _holders = new();
+
+    private EventHolder<T> GetHolder<T>() where T : struct
     {
-        public static EventBuffer<T> Instance { get; } = new();
+        if (!_holders.TryGetValue(typeof(T), out var holder))
+        {
+            holder = new EventHolder<T>();
+            _holders[typeof(T)] = holder;
+        }
+        return (EventHolder<T>)holder;
     }
 
     /// <summary>获取写端（系统声明"我发事件"）。</summary>
@@ -36,62 +64,38 @@ public sealed class WorldEvents
 
     internal void Emit<T>(in T evt) where T : struct
     {
-        EnsureFlusher<T>();                        // 首次发送注册 Flusher
-        BufferCache<T>.Instance.Pending.Add(evt);  // List<T>，无装箱
+        GetHolder<T>().Pending.Add(evt);   // List<T>，无装箱
     }
 
     internal IReadOnlyList<T> ReadAll<T>() where T : struct
     {
-        return BufferCache<T>.Instance.Current;
+        return GetHolder<T>().Current;
     }
 
     internal int ConsumeAll<T>() where T : struct
     {
-        var buf = BufferCache<T>.Instance;
-        int count = buf.Current.Count;
-        buf.Current.Clear();
+        var holder = GetHolder<T>();
+        int count = holder.Current.Count;
+        holder.Current.Clear();
         return count;
     }
 
     /// <summary>Tick 切换：pending → current（EcsWorld 调用，双缓冲复用）。</summary>
     public void Flush()
     {
-        // 遍历所有已用类型（缓存注册）
-        foreach (var pair in _usedTypes)
+        foreach (var holder in _holders.Values)
         {
-            var method = pair.FlushAction;
-            method();
+            holder.Flush();
         }
     }
 
-    private readonly List<(Type Type, Action FlushAction)> _usedTypes = new();
-
-    private void EnsureFlusher<T>() where T : struct
-    {
-        // 按类型检查是否已注册（不能只用一个 bool——每个类型都要注册 Flusher）
-        var t = typeof(T);
-        foreach (var pair in _usedTypes)
-        {
-            if (pair.Type == t) return;
-        }
-        _usedTypes.Add((t, () =>
-        {
-            var buf = BufferCache<T>.Instance;
-            buf.Current.Clear();
-            foreach (var e in buf.Pending) buf.Current.Add(e);
-            buf.Pending.Clear();
-        }));
-    }
-
-    /// <summary>清空所有事件（Reset 用）。</summary>
+    /// <summary>清空所有事件（Reset 用，P1-2 修复：pending + current 都清，不提升 pending）。</summary>
     public void Reset()
     {
-        foreach (var pair in _usedTypes)
+        foreach (var holder in _holders.Values)
         {
-            pair.FlushAction();
-            // 清空 current
+            holder.ClearAll();
         }
-        _usedTypes.Clear();
     }
 }
 
@@ -142,4 +146,3 @@ public readonly struct DeathEvent
         EntityId = entityId;
     }
 }
-

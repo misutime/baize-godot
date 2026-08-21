@@ -153,6 +153,25 @@ class Program
         var order = string.Join(">", orderLog);
         Console.WriteLine($"ecsworld-smoke: Phase 顺序 = {order}");
         if (order != "Input>Simulation>Cleanup") { Console.WriteLine($"FAIL: Phase 顺序（实际 {order}）"); failures++; }
+
+        // 14. 双世界事件隔离（review P1-1：事件缓冲实例级，多世界不污染）
+        var evWorldA = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        var evWorldB = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        evWorldA.Events.Writer<DeathEvent>().Send(new DeathEvent(1));
+        evWorldA.Step(InputFrame.Empty);   // A 的 Flush
+        int aEvents = evWorldA.Events.Reader<DeathEvent>().Consume();
+        int bEvents = evWorldB.Events.Reader<DeathEvent>().Consume();
+        Console.WriteLine($"ecsworld-smoke: 事件隔离 A={aEvents} B={bEvents}");
+        if (aEvents != 1 || bEvents != 0) { Console.WriteLine("FAIL: 双世界事件隔离"); failures++; }
+
+        // 15. Reset 清空 pending（review P1-2：Send 后 Reset，事件不残留）
+        var evWorldC = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+        evWorldC.Events.Writer<DeathEvent>().Send(new DeathEvent(2));   // pending
+        evWorldC.Reset();                                               // 清空 pending+current
+        int cEvents = evWorldC.Events.Reader<DeathEvent>().Consume();
+        Console.WriteLine($"ecsworld-smoke: Reset 清空 pending 后事件 = {cEvents}");
+        if (cEvents != 0) { Console.WriteLine("FAIL: Reset 清空 pending"); failures++; }
+
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
 
         Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");

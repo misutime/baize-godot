@@ -82,7 +82,12 @@ public sealed class WorldCommandBuffer
         }
     }
 
-    /// <summary>清空缓冲并归还（Reset 用，P2-1 修复：Clear 后 ReturnBuffer 避免池泄漏）。</summary>
+    /// <summary>
+    /// 清空缓冲并归还（Reset 用，P2-1 修复：Clear 后 ReturnBuffer 避免池泄漏）。
+    /// 已知限制（Friflo 底层）：CreateEntity 已预留的 ID 无法回收（NewId 已消耗）——
+    /// 避免"CreateEntity 后不 Playback 就 Reset"的反复操作（会推进 sequenceId）；
+    /// 正常流程 Create→Playback（ID 使用）或 Create→下 Tick 继续 Playback 无此问题。
+    /// </summary>
     public void Reset()
     {
         lock (_lock)
