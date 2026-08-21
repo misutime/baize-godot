@@ -59,37 +59,81 @@ if ($projectValid -and -not $SkipBuild) {
     }
 }
 
-# ⑤ C# EditorPlugin 生命周期（headless editor 加载并断言插件标记）
+# ⑤⑥ 前置：引擎必须存在（缺失 = 失败，不静默跳过）
+if ($projectValid -and -not (Test-Path $godotExe)) {
+    $failures += "引擎不存在: $godotExe（需先 task dev 构建）"
+}
+
+# 辅助：启动 Godot 子进程 + 30 秒墙钟超时（AGENTS.md 30 秒规则）
+function Invoke-GodotWithTimeout {
+    param(
+        [string]$ArgString,
+        [string]$OutLog,
+        [string]$ErrLog
+    )
+    # Start-Job + Wait-Job -Timeout 实现 30 秒墙钟超时（AGENTS.md 30 秒规则）。
+    # 退出码通过 job 输出 "EXITCODE=n" 传递（PowerShell 5.1 的 job ExitCode 属性不可靠）。
+    $job = Start-Job -ScriptBlock {
+        param($exe, $argsStr, $outLog, $errLog)
+        # cmd /c 正确解析引号边界 + 返回进程退出码（& 会把 $argsStr 当一个参数传，导致 Godot 挂起）
+        cmd /c "`"$exe`" $argsStr > `"$outLog`" 2> `"$errLog`""
+        Write-Output "EXITCODE=$LASTEXITCODE"
+    } -ArgumentList $godotExe, $ArgString, $OutLog, $ErrLog
+    if (-not (Wait-Job $job -Timeout 30)) {
+        Stop-Job $job -ErrorAction SilentlyContinue
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+        return @{ TimedOut = $true; ExitCode = -1 }
+    }
+    $jobOut = Receive-Job $job
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    $exitCode = -1
+    foreach ($line in $jobOut) {
+        if ($line -match '^EXITCODE=(\d+)$') {
+            $exitCode = [int]$Matches[1]
+            break
+        }
+    }
+    return @{ TimedOut = $false; ExitCode = $exitCode }
+}
+
+# ⑤ C# EditorPlugin 生命周期（headless editor 加载并断言插件标记 + 退出码）
 if ($projectValid -and (Test-Path $godotExe)) {
     Write-Host "--- headless editor（EditorPlugin 加载断言）---"
     $editorLog = Join-Path $logDir "e2e_editor_$Project.log"
+    $editorErr = Join-Path $logDir "e2e_editor_$Project.err.log"
     $editorArgs = "--path `"$projDir`" --headless --editor --quit-after 4"
-    $proc = Start-Process -FilePath $godotExe -ArgumentList $editorArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $editorLog -RedirectStandardError (Join-Path $logDir "e2e_editor_$Project.err.log")
+    $r = Invoke-GodotWithTimeout -ArgString $editorArgs -OutLog $editorLog -ErrLog $editorErr
     $editorOutput = Get-Content $editorLog -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-    if ($editorOutput -match "EditorPlugin 加载成功") {
-        Write-Host "✓ EditorPlugin 加载成功（_EnterTree 命中）"
+    if ($r.TimedOut) {
+        $failures += "⑤ EditorPlugin 超时（30 秒未退出）"
+    } elseif ($r.ExitCode -ne 0) {
+        $failures += "⑤ EditorPlugin 阶段退出码非零 (exit=$($r.ExitCode))"
+    } elseif ($editorOutput -match "EditorPlugin 加载成功") {
+        Write-Host "✓ EditorPlugin 加载成功（_EnterTree 命中，exit=0）"
     } else {
-        $failures += "⑤ EditorPlugin 未加载（headless editor 输出无 'EditorPlugin 加载成功'，见 $editorLog）"
+        $failures += "⑤ EditorPlugin 未加载（输出无 'EditorPlugin 加载成功'，见 $editorLog）"
     }
-    # 清理 editor 进程（30 秒规则）
     Stop-Process -Name 'godot.windows*' -Force -ErrorAction SilentlyContinue
 }
 
-# ⑥ headless 运行（验证标记）
+# ⑥ headless 运行（验证标记 + 退出码）
 if ($projectValid -and (Test-Path $godotExe)) {
     Write-Host "--- headless 运行 ---"
     $outLog = Join-Path $logDir "e2e_run_$Project.log"
+    $runErr = Join-Path $logDir "e2e_run_$Project.err.log"
     $runArgs = "--path `"$projDir`" --headless --quit-after 3"
-    $proc = Start-Process -FilePath $godotExe -ArgumentList $runArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outLog -RedirectStandardError (Join-Path $logDir "e2e_run_$Project.err.log")
+    $r = Invoke-GodotWithTimeout -ArgString $runArgs -OutLog $outLog -ErrLog $runErr
     $output = Get-Content $outLog -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-    Write-Host "exit: $($proc.ExitCode)"
-    if ($proc.ExitCode -ne 0) {
-        $failures += "⑥ 运行失败 (exit=$($proc.ExitCode))"
+    if ($r.TimedOut) {
+        $failures += "⑥ 运行超时（30 秒未退出）"
+    } elseif ($r.ExitCode -ne 0) {
+        $failures += "⑥ 运行失败 (exit=$($r.ExitCode))"
     } elseif ($output -match "验证成功") {
         Write-Host "✓ 运行成功 + 验证标记命中"
     } else {
         $failures += "⑥ 运行成功但未命中验证标记（输出见 $outLog）"
     }
+    Stop-Process -Name 'godot.windows*' -Force -ErrorAction SilentlyContinue
 }
 
 # 汇总

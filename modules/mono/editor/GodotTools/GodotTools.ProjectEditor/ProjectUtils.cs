@@ -153,9 +153,13 @@ namespace GodotTools.ProjectEditor
                     // FORK-CUSTOM（H6 硬约束）：Android 条件 TFM（net9，导出模板 jar 库未对齐 net11）保留——
                     // 不因版本 ≤ 最小要求而被升级/删除，除非主 TFM 升级到更新版本（届时才评估）。
                     // 同时覆盖属性级条件与属性组级条件（<PropertyGroup Condition="android"> 写法）。
-                    bool androidCondition = property.Condition.Contains("android", StringComparison.OrdinalIgnoreCase)
-                        || (groupHasCondition && propertyGroup.Condition.Contains("android", StringComparison.OrdinalIgnoreCase));
-                    if (androidCondition)
+                    // FORK-CUSTOM（H6 硬约束）：Android 条件 TFM（net9）保留——按解析的平台值判断
+                    // （非子串 Contains，避免 EnableAndroidTooling 等变量名误判）。
+                    string? propPlatform = GetGodotPlatformFromCondition(property.Condition);
+                    string? groupPlatform = groupHasCondition ? GetGodotPlatformFromCondition(propertyGroup.Condition) : null;
+                    bool isAndroidTfm = string.Equals(propPlatform, "android", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(groupPlatform, "android", StringComparison.OrdinalIgnoreCase);
+                    if (isAndroidTfm)
                     {
                         continue;
                     }
@@ -217,14 +221,24 @@ namespace GodotTools.ProjectEditor
                 project.HasUnsavedChanges = true;
             }
 
+            static string? GetGodotPlatformFromCondition(string condition)
+            {
+                // 解析条件里 GodotTargetPlatform 的平台值（如 'android'），无匹配返回 null。
+                var match = GodotTargetPlatformConditionRegex().Match(condition);
+                if (match.Success)
+                {
+                    return match.Groups["platform"].Value;
+                }
+                return null;
+            }
+
             static bool ConditionMatchesGodotPlatform(string condition)
             {
                 // Check if the condition is checking the 'GodotTargetPlatform' for one of the
                 // Godot platforms with built-in support in the Godot.NET.Sdk.
-                var match = GodotTargetPlatformConditionRegex().Match(condition);
-                if (match.Success)
+                string? platform = GetGodotPlatformFromCondition(condition);
+                if (platform != null)
                 {
-                    string platform = match.Groups["platform"].Value;
                     return _platformNames.Contains(platform, StringComparer.OrdinalIgnoreCase);
                 }
 
