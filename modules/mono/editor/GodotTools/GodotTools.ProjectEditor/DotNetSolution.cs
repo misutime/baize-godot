@@ -6,28 +6,20 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using Microsoft.VisualStudio.SolutionPersistence;
+using Microsoft.VisualStudio.SolutionPersistence.Model;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 
 namespace GodotTools.ProjectEditor
 {
     public class DotNetSolution
     {
         // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准，XML 简洁、merge 友好）。
+        // 用官方 SolutionPersistence（Microsoft.VisualStudio.SolutionPersistence）序列化——
+        // 自动保证 schema 正确（BuildType/Platform/ProjectType 声明）与 XML 属性转义。
         // 保留 .sln 生成能力（GenerateSlnx=false 时兼容旧流程）。
-        private const string _slnxTemplate =
-@"<Solution>
-  <Configurations>
-    <Platform Name=""Any CPU"" />
-{0}
-  </Configurations>
-{1}
-</Solution>
-";
 
-        private const string _slnxProjectConfig =
-@"    <ProjectConfiguration Project=""{0}"" Configuration=""{1}"" Platform=""Any CPU"" Build=""true"" />";
-
-        private const string _slnxProjectDecl =
-@"  <Project Path=""{0}"" />";
 
         private const string _solutionTemplate =
 @"Microsoft Visual Studio Solution File, Format Version 12.00
@@ -76,6 +68,9 @@ EndProject";
         // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准）；设 false 回退 .sln。
         public bool GenerateSlnx { get; set; } = true;
 
+        // slnx 的 Platform 声明（与上游 .sln 的 "Any CPU" 一致）。
+        private readonly List<string> _platforms = new() { "Any CPU" };
+
         public void AddNewProject(string name, ProjectInfo projectInfo)
         {
             _projects[name] = projectInfo;
@@ -104,33 +99,33 @@ EndProject";
             // FORK-CUSTOM（All-in C#）：默认生成 .slnx（生态新标准）；GenerateSlnx=false 时生成 .sln。
             if (GenerateSlnx)
             {
-                var configDecl = new StringBuilder();
-                var projectDecl = new StringBuilder();
-
-                bool isFirstConfig = true;
+                // 用官方 SolutionPersistence 模型构建——自动产出 schema 合法的 slnx
+                // （BuildType/Platform 声明 + XML 属性转义）。
+                var model = new SolutionModel();
+                foreach (string platform in _platforms)
+                {
+                    model.AddPlatform(platform);
+                }
                 foreach (var pair in _projects)
                 {
-                    string name = pair.Key;
                     ProjectInfo projectInfo = pair.Value;
-
                     foreach (string config in projectInfo.Configs)
                     {
-                        if (!isFirstConfig)
-                            configDecl.Append('\n');
-                        configDecl.Append(string.Format(CultureInfo.InvariantCulture, _slnxProjectConfig,
-                            projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal), config));
-                        isFirstConfig = false;
+                        model.AddBuildType(config);
                     }
-
-                    if (projectDecl.Length > 0)
-                        projectDecl.Append('\n');
-                    projectDecl.Append(string.Format(CultureInfo.InvariantCulture, _slnxProjectDecl,
-                        projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal)));
+                    model.AddProject(projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal), null, null);
                 }
 
                 string slnxPath = Path.Combine(DirectoryPath, Name + ".slnx");
-                string slnxContent = string.Format(CultureInfo.InvariantCulture, _slnxTemplate, configDecl, projectDecl);
-                File.WriteAllText(slnxPath, slnxContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+                SolutionSerializers.SlnXml.SaveAsync(slnxPath, model, CancellationToken.None).GetAwaiter().GetResult();
+
+                // FORK-CUSTOM（P1-3 修复）：避免新旧格式双文件——生成 slnx 后移除旧 .sln。
+                string legacySlnPath = Path.Combine(DirectoryPath, Name + ".sln");
+                if (File.Exists(legacySlnPath))
+                {
+                    FileUtils.SaveBackupCopy(legacySlnPath);
+                    File.Delete(legacySlnPath);
+                }
                 return;
             }
 

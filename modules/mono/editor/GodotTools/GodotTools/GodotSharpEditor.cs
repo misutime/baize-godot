@@ -94,6 +94,9 @@ namespace GodotTools
                     try
                     {
                         solution.Save();
+                        // FORK-CUSTOM（P1-3 修复）：保存后刷新已缓存的 ProjectSlnPath
+                        // （重新探测 .slnx/.sln），避免旧路径失效（导出/IDE 检测用）。
+                        GodotSharpDirs.DetermineProjectLocation();
                     }
                     catch (IOException e)
                     {
