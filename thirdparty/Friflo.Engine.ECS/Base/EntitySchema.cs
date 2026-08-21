@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -19,7 +19,7 @@ namespace Friflo.Engine.ECS;
 public sealed class EntitySchema
 {
 #region public properties
-    /// <summary> List of <see cref="Assembly"/>'s referencing the <b>Fliox.Engine</b> assembly as dependency. </summary>
+    /// <summary> List of <see cref="Assembly"/>'s referencing the <b>Friflo.Engine.ECS</b> assembly as dependency. </summary>
     public   ReadOnlySpan<EngineDependant>              EngineDependants    => new (engineDependants);
     /// <summary> Return all <b>component</b> types - structs implementing <see cref="IComponent"/>. </summary>
     /// <remarks>
@@ -72,7 +72,6 @@ public sealed class EntitySchema
     [Browse(Never)] internal readonly   ComponentType[]                     components;
     [Browse(Never)] internal readonly   ScriptType[]                        scripts;
     [Browse(Never)] internal readonly   TagType[]                           tags;
-    [Browse(Never)] internal readonly   ComponentType                       unresolvedType;
     // --- lookup: component / script
     [Browse(Never)] internal readonly   Dictionary<string, SchemaType>      schemaTypeByKey;
     [Browse(Never)] internal readonly   Dictionary<Type,   ScriptType>      scriptTypeByType;
@@ -137,7 +136,6 @@ public sealed class EntitySchema
                 }
             }
         }
-        unresolvedType = componentTypeByType[typeof(Unresolved)];
 
         foreach (var scriptType in scriptList) {
             var key = scriptType.ComponentKey;

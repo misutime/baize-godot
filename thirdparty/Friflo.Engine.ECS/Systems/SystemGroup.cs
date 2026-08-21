@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -7,7 +7,6 @@ using System.Collections;
 using System.Diagnostics;
 using System.Text;
 using Friflo.Engine.ECS.Utils;
-using Friflo.Json.Fliox;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 // Hard Rule! file must not have any dependency a to a specific game engine. E.g. Unity, Godot, Monogame, ...
@@ -23,7 +22,6 @@ namespace Friflo.Engine.ECS.Systems;
 /// </summary>
 [DebuggerTypeProxy(typeof(SystemGroupDebugView))]
 // IEnumerable + Add() enables collection initializer.
-// IEnumerable<> cannot be used as Friflo.Json.Fliox Mapper does not support Read() for IEnumerable<>.
 public class SystemGroup : BaseSystem, IEnumerable
 {
 #region properties
@@ -46,23 +44,13 @@ public class SystemGroup : BaseSystem, IEnumerable
     #endregion
     
 #region fields
-    [Browse(Never)] [Serialize] private     string                              name;
+    [Browse(Never)]             private     string                              name;
     [Browse(Never)]             internal    ReadOnlyList<BaseSystem>.Mutate     childSystems;
     [Browse(Never)]             internal    ReadOnlyList<CommandBuffer>.Mutate  commandBuffers;
-    [Browse(Never)] [Ignore]    private     bool                                monitorPerf;
+    [Browse(Never)]             private     bool                                monitorPerf;
     #endregion
     
 #region constructor
-    /// <summary>
-    /// Default constructor required to create a SystemGroup via deserialization.<br/>
-    /// Group <see cref="Name"/> is set to <c>System</c> if missing in serialized JSON data.
-    /// </summary>
-    internal SystemGroup() {
-        name            = "System";
-        childSystems    = new ReadOnlyList<BaseSystem>.Mutate(Array.Empty<BaseSystem>());
-        commandBuffers  = new ReadOnlyList<CommandBuffer>.Mutate(Array.Empty<CommandBuffer>());
-    } 
-    
     /// <summary>
     /// Creates a group with the passed <paramref name="name"/>.
     /// </summary>

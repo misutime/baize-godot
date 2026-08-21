@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using static System.Diagnostics.DebuggerBrowsableState;
@@ -17,7 +17,7 @@ namespace Friflo.Engine.ECS;
 /// and dealing with less than a few 1.000 instances.<br/>
 /// <br/>
 /// Optionally attribute the extended class with <see cref="ComponentKeyAttribute"/><br/>
-/// to assign a custom component key name used for JSON serialization.<br/>
+/// to assign a stable component key for schema and persistence layers.<br/>
 /// <br/>
 /// <i>Info:</i> Its functionality is similar to a class extending <c>MonoBehaviour</c> added to a <c>GameObject</c> in Unity.
 /// </remarks>

@@ -1,11 +1,10 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using Friflo.Json.Fliox;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 
@@ -18,7 +17,6 @@ namespace Friflo.Engine.ECS;
 public struct  Position : IComponent, IEquatable<Position>
 {
     [Browse(Never)]
-    [Ignore]
     [FieldOffset(0)] public     Vector3 value;  // 12
     //
     [FieldOffset(0)] public     float   x;      // (4)

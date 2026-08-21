@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -14,7 +14,7 @@ namespace Friflo.Engine.ECS;
 public sealed class TagType : SchemaType, IComparable<TagType>
 {
 #region fields
-    /// <summary> The key name of an <see cref="ITag"/> used for JSON serialization. </summary>
+    /// <summary> The stable schema name of an <see cref="ITag"/>. </summary>
     public   readonly   string  TagName;        //  8
     /// <summary> The index in <see cref="EntitySchema"/>.<see cref="EntitySchema.Tags"/>. </summary>
     public   readonly   int     TagIndex;       //  4

@@ -1,9 +1,8 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Text;
-using Friflo.Json.Fliox;
 using static System.Diagnostics.DebuggerBrowsableState;
 using Browse = System.Diagnostics.DebuggerBrowsableAttribute;
 // Hard Rule! file must not have any dependency a to a specific game engine. E.g. Unity, Godot, Monogame, ...
@@ -21,7 +20,7 @@ public abstract class BaseSystem
 {
 #region properties
     /// <summary>The <see cref="UpdateTick"/> passed to <see cref="SystemGroup.Update"/>. </summary>
-    [Browse(Never)] [Ignore]    public ref readonly UpdateTick  Tick        => ref tick;
+    [Browse(Never)]             public ref readonly UpdateTick  Tick        => ref tick;
     
     /// <summary> The system name. The Name of a <see cref="SystemGroup"/> can be changed. </summary>
     [Browse(Never)]             public virtual      string      Name        => systemName;
@@ -33,7 +32,7 @@ public abstract class BaseSystem
     [Browse(Never)]             public              SystemGroup ParentGroup => parentGroup;
 
     /// <summary> If true the system is executed when calling <see cref="SystemGroup.Update"/></summary>
-    [Browse(Never)] [Ignore]    public              bool        Enabled     { get => enabled; set => enabled = value; }
+    [Browse(Never)]             public              bool        Enabled     { get => enabled; set => enabled = value; }
 
     /// <summary> Unique system id of all systems of a <see cref="SystemRoot"/>. </summary>
     [Browse(Never)]             public              int         Id          => id;
@@ -45,13 +44,13 @@ public abstract class BaseSystem
     #endregion
         
 #region internal fields
-    [Browse(Never)] [Ignore]    internal            UpdateTick      tick;
-    [Browse(Never)] [Serialize] internal            int             id;
-    [Browse(Never)] [Serialize] internal            bool            enabled = true;
+    [Browse(Never)]             internal            UpdateTick      tick;
+    [Browse(Never)]             internal            int             id;
+    [Browse(Never)]             internal            bool            enabled = true;
     [Browse(Never)]             private readonly    string          systemName;
     [Browse(Never)]             private             SystemGroup     parentGroup;
     [Browse(Never)]             private             SystemRoot      systemRoot;
-    [Browse(Never)] [Ignore]    internal            SystemPerf      perf;
+    [Browse(Never)]             internal            SystemPerf      perf;
     [Browse(Never)]             private             View            view;
     [Browse(Never)]             private             StringBuilder   stringBuffer;
     #endregion

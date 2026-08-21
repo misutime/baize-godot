@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -6,8 +6,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Reflection;
-using Friflo.Json.Burst;
-using Friflo.Json.Fliox;
 using static Friflo.Engine.ECS.SchemaTypeKind;
 
 // ReSharper disable ConvertToPrimaryConstructor
@@ -31,7 +29,7 @@ public abstract class SchemaType
     /// <summary>
     /// If <see cref="Kind"/> is a <see cref="Component"/> or a <see cref="Script"/> the key assigned
     /// with <see cref="ComponentKeyAttribute"/>.<br/>
-    /// If null the component is not serialized.
+    /// If null, no external persistence key is assigned.
     /// </summary>
     public   readonly   string          ComponentKey;       //  8
     
@@ -65,7 +63,6 @@ public abstract class SchemaType
     /// </summary>
     public   readonly   SymbolColor?    SymbolColor;        // 12  
     
-    internal readonly   Bytes           componentKeyBytes;  // 16
     #endregion
         
 #region methods
@@ -75,9 +72,6 @@ public abstract class SchemaType
         Kind            = kind;
         Type            = type;
         Name            = type.Name;
-        if (componentKey != null) {
-            componentKeyBytes = new Bytes(componentKey);   
-        }
         SchemaUtils.GetComponentSymbol(type, out SymbolName, out SymbolColor);
     }
     
@@ -104,7 +98,6 @@ public abstract class SchemaType
         types.Add(typeof(float),        blittable);
         types.Add(typeof(double),       blittable);
         //
-        types.Add(typeof(JsonValue),    blittable);
         types.Add(typeof(Entity),       blittable);
         // immutable value types in BCL:   https://stackoverflow.com/questions/31721466/examples-of-immutable-types-in-net
         types.Add(typeof(Guid),             blittable);

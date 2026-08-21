@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -14,7 +14,7 @@ namespace Friflo.Engine.ECS;
 /// An <see cref="Entity"/> can contain multiple components but only one of each type.<br/>
 /// <br/>
 /// Optionally attribute the implementing struct with <see cref="ComponentKeyAttribute"/><br/>
-/// to assign a custom component key name used for JSON serialization.<br/>
+/// to assign a stable component key for schema and persistence layers.<br/>
 /// <br/>
 /// Common game specific <see cref="IComponent"/> types defined by the Engine:
 /// <list type="bullet">

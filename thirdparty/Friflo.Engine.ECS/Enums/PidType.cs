@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 // ReSharper disable once CheckNamespace
@@ -12,8 +12,7 @@ public enum PidType
     /// <summary>
     /// Used to simplify testing as the pid and id of an entity are equal.<br/>
     /// It also increases performance in case ids are consecutively.<br/>
-    /// This method is <b>not</b> intended to be used to store entities of an <see cref="EntityStore"/>
-    /// in JSON files or in a database.<br/>
+    /// This method is <b>not</b> intended for persistent entity stores or collaborative databases.<br/>
     /// </summary>
     /// <remarks>
     /// Disadvantages:<br/>
@@ -24,7 +23,7 @@ public enum PidType
     UsePidAsId  = 0,
     /// <summary>
     /// Map random <see cref="Entity.Pid"/>'s to <see cref="Entity.Id"/>'s used within the engine at runtime.<br/>
-    /// This method is intended to be used to store entities of an <see cref="EntityStore"/> in JSON files or in a database. 
+    /// This method is intended for persistent entity stores and collaborative databases.
     /// </summary>
     RandomPids  = 1,
 }

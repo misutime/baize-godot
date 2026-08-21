@@ -1,11 +1,9 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Diagnostics.CodeAnalysis;
 using Friflo.Engine.ECS.Relations;
-using Friflo.Engine.ECS.Serialize;
-using Friflo.Json.Fliox;
 using static Friflo.Engine.ECS.SchemaTypeKind;
 
 // ReSharper disable ConvertToPrimaryConstructor
@@ -42,9 +40,6 @@ public abstract class ComponentType : SchemaType, IComparable<ComponentType>
     [ExcludeFromCodeCoverage] internal virtual  bool RemoveEntityComponent  (Entity entity)                 => throw new InvalidOperationException();
     [ExcludeFromCodeCoverage] internal virtual  bool AddEntityComponent     (Entity entity)                 => throw new InvalidOperationException();
     [ExcludeFromCodeCoverage] internal virtual  bool AddEntityComponentValue(Entity entity, object value)   => throw new InvalidOperationException();
-    
-    [ExcludeFromCodeCoverage] internal virtual  void WriteRelations(ComponentWriter writer, Entity entity)  => throw new InvalidOperationException();
-    [ExcludeFromCodeCoverage] internal virtual  void ReadRelation  (ComponentReader reader, Entity entity, JsonValue json) => throw new InvalidOperationException();
     
     
     [ExcludeFromCodeCoverage] internal virtual  BatchComponent      CreateBatchComponent()                  => throw new InvalidOperationException();
@@ -140,43 +135,6 @@ internal sealed class RelationType<T> : ComponentType
     internal RelationType(string componentKey, int structIndex, Type relationType, Type keyType)
         : base(componentKey, structIndex, typeof(T), null, null, StructPadding<T>.ByteSize, relationType, keyType)
     {
-    }
-    
-    internal override void WriteRelations(ComponentWriter writer, Entity entity)
-    {
-        var relations = entity.GetRelations<T>();
-        int length = relations.Length;
-        if (length == 0) {
-            return;
-        }
-        var heap = entity.store.extension.relationsMap?[StructInfo<T>.Index].heap;
-        var isFirst = true;
-        
-        writer.writer.MemberArrayStart(componentKeyBytes.AsSpan());
-        var pretty = writer.writer.Pretty;
-        writer.writer.SetPretty(false);  // prevent line wrap when writing array end ']'
-
-        for (int n = 0; n < length; n++){
-            if (isFirst) {
-                isFirst = false;                
-            } else {
-                writer.writer.json.AppendChar(',');
-            }
-            var position = relations.GetPosition(n);
-            var bytes = heap!.Write(writer.componentWriter, position);
-            writer.writer.json.AppendBytes(bytes);
-        }
-        writer.writer.ArrayEnd();
-        writer.writer.SetPretty(pretty);
-    }
-    
-    internal override void ReadRelation(ComponentReader reader, Entity entity, JsonValue json)
-    {
-        var relation = reader.componentReader.Read<T>(json);
-        if (reader.componentReader.Error.ErrSet) {
-            return;
-        }
-        AbstractEntityRelations.AddRelation(entity.store, entity.Id, relation);
     }
     
     internal override StructHeap CreateHeap() {

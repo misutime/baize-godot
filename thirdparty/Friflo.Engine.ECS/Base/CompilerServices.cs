@@ -1,10 +1,9 @@
-﻿
+
 using System;
 using System.Runtime.CompilerServices;
 
 [assembly: CLSCompliant(true)]
 [assembly: InternalsVisibleTo("Tests-internal")]
-[assembly: InternalsVisibleTo("Fliox.Tests-internal")]
 
 #if !NETCOREAPP3_0_OR_GREATER
 

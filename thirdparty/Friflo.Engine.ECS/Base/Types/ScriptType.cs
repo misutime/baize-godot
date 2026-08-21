@@ -1,12 +1,8 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Diagnostics.CodeAnalysis;
-using Friflo.Json.Fliox;
-using Friflo.Json.Fliox.Mapper;
-using Friflo.Json.Fliox.Mapper.Map;
-
 // ReSharper disable InconsistentNaming
 // ReSharper disable once CheckNamespace
 namespace Friflo.Engine.ECS;
@@ -27,7 +23,6 @@ public abstract class ScriptType : SchemaType
     
 #region methods
     internal abstract   Script          CreateScript();
-    internal abstract   void            ReadScript  (ObjectReader reader, JsonValue json, Entity entity);
     
     [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070", Justification = "MemberwiseClone is part of BCL")]
     internal ScriptType(string scriptKey, int scriptIndex, Type type, bool isBlittable)
@@ -88,15 +83,5 @@ internal sealed class ScriptType<T> : ScriptType
         throw new MissingMethodException(msg);
     }
     
-    internal override void ReadScript(ObjectReader reader, JsonValue json, Entity entity) {
-        var mapper = (TypeMapper<T>)reader.TypeCache.GetTypeMapper(typeof(T));
-        var script = entity.GetScript<T>();
-        if (script != null) { 
-            reader.ReadToMapper(mapper, json, script, true);
-            return;
-        }
-        script = reader.ReadMapper(mapper, json);
-        entity.archetype.entityStore.extension.AppendScript(entity, script);
-    }
     #endregion
 }

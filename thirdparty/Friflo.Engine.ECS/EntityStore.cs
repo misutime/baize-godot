@@ -1,10 +1,9 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using Friflo.Engine.ECS.Serialize;
 using static System.Diagnostics.DebuggerBrowsableState;
 using static Friflo.Engine.ECS.StoreOwnership;
 using static Friflo.Engine.ECS.TreeMembership;
@@ -158,7 +157,6 @@ public sealed partial class EntityStore : EntityStoreBase
     // --- buffers
     [Browse(Never)] private             int[]           idBuffer;       //   8
     [Browse(Never)] internal readonly   HashSet<int>    idBufferSet;    //   8
-    [Browse(Never)] private  readonly   DataEntity      dataBuffer;     //   8
                     internal            StoreExtension  extension;      // 112
                     private             Intern          intern;         //  88
     
@@ -208,7 +206,6 @@ public sealed partial class EntityStore : EntityStoreBase
         idBuffer            = new int[1];
         idBufferSet         = new HashSet<int>();
         recycleIds          = true;
-        dataBuffer          = new DataEntity();
         Info                = new EntityStoreInfo(this);
     }
     #endregion
@@ -279,7 +276,7 @@ public sealed partial class EntityStore : EntityStoreBase
             EnsureNodesLength(id + 1);
             return new Entity(this, id, nodes[id].revision);
         }
-        throw new NotSupportedException("Entity serialization using PidType.RandomPids currently not supported");
+        throw new NotSupportedException("Entity references using PidType.RandomPids are currently not supported");
         /* var pid = key;
         if (!extension.pid2Id.TryGetValue(pid, out id)) {
             id = NewId();

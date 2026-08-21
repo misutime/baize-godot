@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 
@@ -15,7 +15,7 @@ namespace Friflo.Engine.ECS;
 /// and use <see cref="EntityStoreBase.GetUniqueEntity"/> to query for this entity.<br/>
 /// <br/>
 /// Optionally attribute the implementing struct with <see cref="TagNameAttribute"/><br/>
-/// to assign a custom tag name used for JSON serialization.
+/// to assign a stable tag name for schema and persistence layers.
 /// </remarks>
 public interface ITag { }
 

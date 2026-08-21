@@ -1,4 +1,4 @@
-﻿// ReSharper disable UnusedType.Global
+// ReSharper disable UnusedType.Global
 // ReSharper disable RedundantTypeDeclarationBody
 
 namespace Friflo.Engine.ECS {
@@ -8,12 +8,6 @@ namespace Friflo.Engine.ECS {
     internal static class NamespaceDoc { }
 }
 
-namespace Friflo.Engine.ECS.Serialize {
-    /// <summary>
-    /// Contains types and methods to serialize / deserialize <see cref="Entity"/>'s as JSON.
-    /// </summary>
-    internal static class NamespaceDoc { }
-}
 
 namespace Friflo.Engine.ECS.Utils {
     /// <summary>

@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System.Text;
@@ -15,7 +15,6 @@ namespace Friflo.Engine.ECS;
 /// <see cref="Entity.Archetype"/>          <br/>
 /// <see cref="Entity.Scripts"/>            <br/>
 /// <see cref="Entity.Parent"/>            <br/>
-/// <see cref="Entity.DebugJSON"/>          <br/>
 /// <see cref="Entity.DebugEventHandlers"/> <br/>
 /// <see cref="Entity.Revision"/>           <br/>
 /// </summary>
@@ -27,7 +26,6 @@ internal readonly struct EntityInfo
     internal            Archetype           Archetype       => entity.GetArchetype();
     internal            Scripts             Scripts         => entity.Scripts;
     internal            Entity              Parent          => entity.Parent;
-    internal            JSON                JSON            => new JSON(EntityUtils.EntityToJSON(entity));
     internal            DebugEventHandlers  EventHandlers   => EntityStore.GetEventHandlers(entity.store, entity.Id);
     internal            EntityLinks         IncomingLinks   => entity.GetAllIncomingLinks();
     internal            short               Revision        => entity.Revision;
@@ -53,19 +51,5 @@ internal readonly struct EntityInfo
         sb.Append(" outgoing: ");
         sb.Append(outgoingLinks);
         return sb.ToString();
-    }
-}
-
-/// <summary>
-/// Struct used to display the entity data as JSON in debugger when expanded.<br/>
-/// </summary>
-internal readonly struct JSON
-{
-    // ReSharper disable once InconsistentNaming
-    internal readonly   string  Value;
-    public   override   string  ToString() => "";
-
-    internal JSON(string json) {
-        Value = json;
     }
 }

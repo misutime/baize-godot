@@ -19,10 +19,4 @@
     <NoWarn>1591</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- FORK-CUSTOM：Fliox 依赖暂保留（P2-2 剥离为独立任务，届时删除并换 MemoryPack） -->
-    <PackageReference Include="Friflo.Json.Fliox" Version="1.0.4" />
-  </ItemGroup>
-
 </Project>
-

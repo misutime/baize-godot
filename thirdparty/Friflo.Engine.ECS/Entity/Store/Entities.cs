@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -138,30 +138,11 @@ public partial class EntityStore
         CreateEntityInternal(archetype, id, out var revision);
         var clone       = new Entity(this, id, revision);
         
-        // var isBlittable = IsBlittable(entity);
-        // if (true) {
-        
         var context = new CopyContext(entity, clone);
         Archetype.CopyComponents(archetype, archetype, context, 0);
         
         CloneScrips(entity, clone);
         
-        /* if (clone.HasComponent<TreeNode>()) {
-            clone.GetComponent<TreeNode>() = default;   // clear child ids. See child entities note in remarks.
-        } */
-        /* keep old implementation using JSON serialization for reference
-        } else {
-            // --- serialize entity
-            var converter       = EntityConverter.Default;
-            converter.EntityToDataEntity(entity, dataBuffer, false);
-            
-            // --- deserialize DataEntity
-            dataBuffer.pid      = IdToPid(clone.Id);
-            dataBuffer.children = null;                     // clear children. See child entities note in remarks.
-            // convert will use entity created above
-            converter.DataEntityToEntity(dataBuffer, this, out string error); // error == null. No possibility for mapping errors
-            AssertNoError(error);
-        } */
         // Send event. See: SEND_EVENT notes
         CreateEntityEvent(clone);
         return clone;
@@ -176,37 +157,6 @@ public partial class EntityStore
             scriptClone.entity  = clone;
             extension.AddScript(clone, scriptClone, scriptType);
         }
-    }
-    
-    // ReSharper disable once UnusedMember.Local
-    [ExcludeFromCodeCoverage]
-    private static void AssertNoError(string error) {
-        if (error == null) {
-            return;
-        }
-        throw new InvalidOperationException($"unexpected error: {error}");
-    }
-    
-    // ReSharper disable once UnusedMember.Local
-    [ExcludeFromCodeCoverage] // unused - method obsolete
-    private static bool IsBlittable(Entity original)
-    {
-        foreach (var componentType in original.Archetype.componentTypes)
-        {
-            if (!componentType.IsBlittable) {
-                return false;
-            }
-        }
-        var scriptTypeByType    = Static.EntitySchema.ScriptTypeByType;
-        var scripts             = original.Scripts;
-        foreach (var script in scripts)
-        {
-            var scriptType = scriptTypeByType[script.GetType()];
-            if (!scriptType.IsBlittable) {
-                return false;
-            }    
-        }
-        return true;
     }
     
     [Conditional("DEBUG")] [ExcludeFromCodeCoverage] // assert invariant

@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -13,10 +13,6 @@ internal static class StructPadding<T>
 {
       private static int GetByteSize() {
         // Unity: when testing as dll in Assets/Plugins folder add required dll's
-        //  Friflo.Json.Fliox.Hub.dll
-        //  Friflo.Json.Fliox.dll
-        //  Friflo.Json.Fliox.Annotation.dll
-        //  Friflo.Json.Burst.dll
         //  Friflo.Engine.Hub.dll
         //  Friflo.Engine.ECS.dll
         //  System.Runtime.CompilerServices.Unsafe.dll

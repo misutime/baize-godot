@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
+// Copyright (c) Ullrich Praetz - https://github.com/friflo. All rights reserved.
 // See LICENSE file in the project root for full license information.
 
 using System;
@@ -8,10 +8,10 @@ using System;
 namespace Friflo.Engine.ECS;
 
 /// <summary>
-/// Assign a custom tag name used for JSON serialization for annotated <b>struct</b>s implementing <see cref="ITag"/>.
+/// Assign a stable schema name to annotated <b>struct</b>s implementing <see cref="ITag"/>.
 /// </summary>
 /// <remarks>
-/// This enables changing a struct name in code without changing the JSON serialization format.
+/// This allows renaming a struct without changing identifiers used by external persistence layers.
 /// </remarks> 
 [AttributeUsage(AttributeTargets.Struct)]
 public sealed class TagNameAttribute : Attribute {
@@ -19,15 +19,15 @@ public sealed class TagNameAttribute : Attribute {
 }
 
 /// <summary>
-/// Assign a custom key used for JSON serialization for annotated <see cref="IComponent"/> and <see cref="Script"/> types.<br/>
-/// If specified key is null The component type is not serialized.
+/// Assign a stable schema key to annotated <see cref="IComponent"/> and <see cref="Script"/> types.<br/>
+/// If the specified key is null, no external persistence key is assigned.
 /// </summary>
 /// <remarks>
 /// The attribute is used for:
 /// - annotated structs implementing <see cref="IComponent"/>.<br/>
 /// - annotated classes extending <see cref="Script"/>.<br/>
 /// <br/>
-/// This enables changing a struct / class name in code without changing the JSON serialization format.  
+/// This allows renaming a struct or class without changing identifiers used by external persistence layers.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class)]
 public sealed class ComponentKeyAttribute : Attribute {
@@ -52,7 +52,7 @@ public sealed class ComponentSymbolAttribute : Attribute {
 /// </summary>
 /// <remarks>
 /// The following example registers a specific generic component instance <c>GenericComponent&lt;int></c>.<br/>
-/// The key used for JSON serialization is <c>"comp-int"</c>.
+/// The registered schema key is <c>"comp-int"</c>.
 /// <code>
 ///     [GenericInstanceType("comp-int", typeof(int))] 
 ///     public struct GenericComponent&lt;T> : IComponent {
