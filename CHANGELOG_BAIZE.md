@@ -17,13 +17,3 @@
 - `editor/animation/animation_track_editor.cpp`：`imported_anim_warning->hide()` 修复在案。
 - `misc/scripts/build.py` + scons-profiles（win/mac dev/pro）+ `doc/customization/` 在案（构建体系）。
 
----
-
-## 待办（规划中，实现后移入上方流水账）
-- 基底切换 4.7.2-stable（当前 4.8-dev）
-- .NET 11 + C# 15（方案 B，Preview 起步）
-- 产品面禁用 GDScript
-- ECS-first Runtime（Friflo.Engine.ECS）
-- Scene DB 编辑器 + Avalonia UI 层
-- AI 对接层：MCP 标准（Wick / MCP C# SDK）
-- 三级 Reload（Level 1 Metadata）
