@@ -1,7 +1,7 @@
 using Godot;
 
 [Tool]
-public partial class P15Plugin : EditorPlugin
+public partial class plugin : EditorPlugin
 {
 	public override void _EnterTree()
 	{
