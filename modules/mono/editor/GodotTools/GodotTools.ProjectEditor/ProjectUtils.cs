@@ -152,7 +152,10 @@ namespace GodotTools.ProjectEditor
                     // when the main one is upgraded to the new minimum version.
                     // FORK-CUSTOM（H6 硬约束）：Android 条件 TFM（net9，导出模板 jar 库未对齐 net11）保留——
                     // 不因版本 ≤ 最小要求而被升级/删除，除非主 TFM 升级到更新版本（届时才评估）。
-                    if (propertyHasCondition && property.Condition.Contains("android", StringComparison.OrdinalIgnoreCase))
+                    // 同时覆盖属性级条件与属性组级条件（<PropertyGroup Condition="android"> 写法）。
+                    bool androidCondition = property.Condition.Contains("android", StringComparison.OrdinalIgnoreCase)
+                        || (groupHasCondition && propertyGroup.Condition.Contains("android", StringComparison.OrdinalIgnoreCase));
+                    if (androidCondition)
                     {
                         continue;
                     }
