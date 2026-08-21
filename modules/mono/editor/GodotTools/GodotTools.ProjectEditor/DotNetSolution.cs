@@ -11,6 +11,24 @@ namespace GodotTools.ProjectEditor
 {
     public class DotNetSolution
     {
+        // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准，XML 简洁、merge 友好）。
+        // 保留 .sln 生成能力（GenerateSlnx=false 时兼容旧流程）。
+        private const string _slnxTemplate =
+@"<Solution>
+  <Configurations>
+    <Platform Name=""Any CPU"" />
+{0}
+  </Configurations>
+{1}
+</Solution>
+";
+
+        private const string _slnxProjectConfig =
+@"    <ProjectConfiguration Project=""{0}"" Configuration=""{1}"" Platform=""Any CPU"" Build=""true"" />";
+
+        private const string _slnxProjectDecl =
+@"  <Project Path=""{0}"" />";
+
         private const string _solutionTemplate =
 @"Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
@@ -55,6 +73,9 @@ EndProject";
             }
         }
 
+        // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准）；设 false 回退 .sln。
+        public bool GenerateSlnx { get; set; } = true;
+
         public void AddNewProject(string name, ProjectInfo projectInfo)
         {
             _projects[name] = projectInfo;
@@ -79,6 +100,39 @@ EndProject";
         {
             if (!Directory.Exists(DirectoryPath))
                 throw new FileNotFoundException("The solution directory does not exist.");
+
+            // FORK-CUSTOM（All-in C#）：默认生成 .slnx（生态新标准）；GenerateSlnx=false 时生成 .sln。
+            if (GenerateSlnx)
+            {
+                var configDecl = new StringBuilder();
+                var projectDecl = new StringBuilder();
+
+                bool isFirstConfig = true;
+                foreach (var pair in _projects)
+                {
+                    string name = pair.Key;
+                    ProjectInfo projectInfo = pair.Value;
+
+                    foreach (string config in projectInfo.Configs)
+                    {
+                        if (!isFirstConfig)
+                            configDecl.Append('\n');
+                        configDecl.Append(string.Format(CultureInfo.InvariantCulture, _slnxProjectConfig,
+                            projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal), config));
+                        isFirstConfig = false;
+                    }
+
+                    if (projectDecl.Length > 0)
+                        projectDecl.Append('\n');
+                    projectDecl.Append(string.Format(CultureInfo.InvariantCulture, _slnxProjectDecl,
+                        projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal)));
+                }
+
+                string slnxPath = Path.Combine(DirectoryPath, Name + ".slnx");
+                string slnxContent = string.Format(CultureInfo.InvariantCulture, _slnxTemplate, configDecl, projectDecl);
+                File.WriteAllText(slnxPath, slnxContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+                return;
+            }
 
             string projectsDecl = string.Empty;
             string slnPlatformsCfg = string.Empty;
