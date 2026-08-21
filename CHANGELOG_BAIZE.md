@@ -13,6 +13,7 @@
 - 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.6）——战略宪法/技术路线/架构模式/生态集成/实施路线。
 - **P0 实施完成（net11 切换）**：global.json 锁 11.0.100-preview.7；12 个引擎程序集切 net11.0 + LangVersion latest（C# 15 预览期写法）；Source Generator 保持 netstandard2.0；4 个 scons-profile 内建 mono + 禁 GDScript；site_scons 全链路 UTF-8；C# 冒烟项目 `test-projects/csharp-check` 实测通过（打印 "All-in C# 验证成功 (net11)"）。
 - **P1 实施完成（无 GDScript 引擎）**：无 GDScript + mono 引擎构建/启动验证通过（gen.h 仅 MODULE_MONO_ENABLED）；修复禁用后暴露问题——script_text_editor.cpp 的 gdscript 设置查询加 #ifdef 保护（消除 WARNING）、HotReloadAssemblyWatcher.cs 的 Timer.Start 加树内检查（FORK-CUSTOM，修复 headless 崩溃 0xC0000005）；test-projects/.gitignore 排除 .godot 缓存/.uid。
+- **创建项目即 C#**：project_dialog.cpp 新建项目 features 自动带 "C#"（MODULE_MONO_ENABLED 时）；GodotSharpEditor _EnablePlugin 自动创建 csproj/sln（无需手动"项目→工具→C#"或等 .cs 文件）——空项目打开即生成 net11 C# 工程（验证通过）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
 - **产品聚焦：风格化 3D 光谱**（覆盖 Anime NPR 三渲二 → Stylized PBR 全段，不做 2D 游戏、不做高写实 3D——见总方案 §1.3）。
 - **宪法 6：先禁用后裁剪**（不用的功能不构建/不启用、源码保留，保上游合并亲和，深入定制后才物理删除）+ **风格化渲染架构 §1.4**（统一核心 + 风格化能力层 + Profile，shifu 审查定案）。
