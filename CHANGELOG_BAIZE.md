@@ -11,6 +11,7 @@
 ## 2026-08-21（起始日）
 - 新增 `CHANGELOG_BAIZE.md`：fork 定制流水账，从今日起记录与上游的差异。
 - 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.6）——战略宪法/技术路线/架构模式/生态集成/实施路线。
+- **P0 实施完成（net11 切换）**：global.json 锁 11.0.100-preview.7；12 个引擎程序集切 net11.0 + LangVersion latest（C# 15 预览期写法）；Source Generator 保持 netstandard2.0；4 个 scons-profile 内建 mono + 禁 GDScript；site_scons 全链路 UTF-8；C# 冒烟项目 `test-projects/csharp-check` 实测通过（打印 "All-in C# 验证成功 (net11)"）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
 - **产品聚焦：风格化 3D 光谱**（覆盖 Anime NPR 三渲二 → Stylized PBR 全段，不做 2D 游戏、不做高写实 3D——见总方案 §1.3）。
 - **宪法 6：先禁用后裁剪**（不用的功能不构建/不启用、源码保留，保上游合并亲和，深入定制后才物理删除）+ **风格化渲染架构 §1.4**（统一核心 + 风格化能力层 + Profile，shifu 审查定案）。
