@@ -15,20 +15,9 @@ jobs:
 
   # Second stage: Run all the builds and some of the tests.
 
-  android-build:
-    name: 🤖 Android
-    needs: static-checks
-    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
-    uses: ./.github/workflows/android_builds.yml
-    secrets:
-      SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
-
-  ios-build:
-    name: 🍏 iOS
-    needs: static-checks
-    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
-    uses: ./.github/workflows/ios_builds.yml
-
+  # FORK-CUSTOM（All-in C#）：裁剪平台矩阵——只保留 Linux + Windows 构建。
+  # Android/iOS/macOS/Web 平台已放弃或非重点（宪法 §1.3 聚焦风格化 3D 桌面+移动），
+  # 不再在 PR 门禁中构建；对应 workflow 文件保留（workflow_dispatch 可手动触发）。
   linux-build:
     name: 🐧 Linux
     needs: static-checks
@@ -37,20 +26,9 @@ jobs:
     with:
       changed-files: ${{ needs.static-checks.outputs.changed-files }}
 
-  macos-build:
-    name: 🍎 macOS
-    needs: static-checks
-    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
-    uses: ./.github/workflows/macos_builds.yml
-
   windows-build:
     name: 🏁 Windows
     needs: static-checks
     if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
     uses: ./.github/workflows/windows_builds.yml
 
-  web-build:
-    name: 🌐 Web
-    needs: static-checks
-    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
-    uses: ./.github/workflows/web_builds.yml
