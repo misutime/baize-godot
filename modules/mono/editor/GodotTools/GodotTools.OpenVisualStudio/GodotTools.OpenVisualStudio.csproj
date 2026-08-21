@@ -3,7 +3,7 @@
     <ProjectGuid>{EAFFF236-FA96-4A4D-BD23-0E51EF988277}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0-windows</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <SelfContained>False</SelfContained>
     <RollForward>LatestMajor</RollForward>

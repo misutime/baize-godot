@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ProjectGuid>{AEBF0036-DA76-4341-B651-A3F2856AB2FA}</ProjectGuid>
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
     <OutputPath>bin/$(Configuration)</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RootNamespace>Godot</RootNamespace>

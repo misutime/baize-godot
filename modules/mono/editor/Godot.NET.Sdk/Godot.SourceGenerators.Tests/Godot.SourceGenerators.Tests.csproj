@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
 
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

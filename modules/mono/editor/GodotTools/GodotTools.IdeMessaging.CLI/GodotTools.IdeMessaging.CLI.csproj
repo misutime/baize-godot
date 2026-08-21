@@ -3,7 +3,7 @@
     <ProjectGuid>{B06C2951-C8E3-4F28-80B2-717CF327EB19}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>

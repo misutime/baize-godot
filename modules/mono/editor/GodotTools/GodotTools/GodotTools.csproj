@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ProjectGuid>{27B00618-A6F2-4828-B922-05CAEB08C286}</ProjectGuid>
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>enable</Nullable>
     <!-- The Godot editor uses the Debug Godot API assemblies -->

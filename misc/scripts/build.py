@@ -11,6 +11,14 @@ import argparse
 import os
 import subprocess
 import sys
+import argparse
+import os
+import subprocess
+import sys
+
+# FORK-CUSTOM：全链路 UTF-8（中文优先宪法）——Windows 下 SCons/locale 默认 GBK，
+# 会导致含中文的 profile/配置文件解码失败；强制 Python UTF-8 模式（等效 PYTHONUTF8=1）。
+os.environ["PYTHONUTF8"] = "1"
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

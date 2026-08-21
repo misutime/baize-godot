@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ProjectGuid>{A8CDAD94-C6D4-4B19-A7E7-76C53CC92984}</ProjectGuid>
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>15</LangVersion>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
