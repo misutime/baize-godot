@@ -4,6 +4,6 @@ public partial class Main : Node
 {
 	public override void _Ready()
 	{
-		GD.Print("baize-csharp-check: All-in C# 验证成功 (net11)");
+		GD.Print("p15-check: P1.5 e2e 验证成功 (net11)");
 	}
 }
