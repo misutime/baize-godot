@@ -97,7 +97,6 @@
 
 - GDExtension 官方定位：godot-docs `engine_details/engine_api/gdextension/`（C 接口/示例/文件格式）
 - ClassDB 暴露面：`class_editorinterface.rst`（编辑器门面）；godot-docs/classes/ 无 `class_editor_node`
-- EditorNode 内部：`editor/editor_node.cpp:8399`（cmdline_mode）；Ops 直取单例（ops.cpp:516,636）
+- EditorNode 内部：`editor/editor_node.cpp:8399`（cmdline_mode）
 - 语言注册：`modules/gdscript/register_types.cpp:144`；`core/object/script_language_extension.h:237`（ScriptLanguageExtension : ScriptLanguage）
-- 生命周期：`modules/gd_provider/register_types.cpp`（EDITOR 级首帧启动）
-- 调用链路与分层：`doc/plans/AI-first对接架构-gd_provider-设计方案.md`（决策链、四层结构、协议契约）
+- 生命周期：模块级首帧启动（MODULE_INITIALIZATION_LEVEL_EDITOR，如已退役的 gd_provider 模式）

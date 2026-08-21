@@ -2,59 +2,63 @@
 
 本文件是 baize-godot fork 的强制开发规则，AI 与开发者均须遵守。与全局规范冲突时，本文件优先（fork 特有约束）。
 
-## 1. 架构总览（2026-08-07 更新：Godot Core + gd_provider AI 对接层）
+## 1. 架构总览（2026-08-21 更新：All-in C# 路线，gd_provider 已退役）
 
-**当前架构**（已放弃 Electron UI / Web / TS 脚本集成，详见
-`doc/plans/AI-first对接架构-gd_provider-设计方案.md`）：
+**当前路线**：Godot Fork All-in C#（决策唯一权威见
+`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_All-in-CSharp_总方案.md`）。
 
 ```text
-外部消费方（AI / CLI / 工具）→ WS/JSON-RPC → gd_provider → Godot Core
+C# 开发面（Gameplay/Tools/编辑器，唯一脚本语言）
+        ↓
+C# Platform（ECS-first Runtime / Schema 中心化 / 三级 Reload / 开发丝滑度）
+        ↓
+Godot Core（C++ 引擎：渲染/物理/资源/平台管线）
 ```
 
-- **Godot Core**：Godot 进程整体（引擎 + 编辑器核心 + 渲染服务）；
-- **gd_provider**：Core 内的对外服务出口（`modules/gd_provider`），四层——**Ops**（操作层：官方 API 编排成语义用例）、
-  **Registry**（能力注册表：方法/参数/错误码/事件声明，唯一事实源）、**Transport**（传输层：
-  WS/JSON-RPC/认证/预算）、**Events**（事件层：diff 推送）；
-- **消费方**：任意外部进程（AI Agent、CLI 工具、未来的 MCP 适配器），经 WS 直连 gd_provider。
+- **Godot Core**：Godot 进程整体（引擎 + 编辑器核心 + 渲染服务），C++ 保留在机器密集计算
+  （渲染内核/物理求解 Jolt/平台 SDK）；
+- **C# 开发面**：Gameplay/Tools/编辑器/脚本全部 C#（Unity 模式——C++ 引擎内核 + C# 唯一开发面）；
+- **ECS-first Runtime**：Friflo.Engine.ECS 底座 + 场景树/关系/序列化（详见总方案 §3-4）；
+- **AI 对接层**：MCP 标准（Wick / MCP C# SDK），gd_provider（C++ 自研）已退役删除；
+- **脚本系统**：Roslyn 运行时编译（编辑器内 C# 编译即脚本，非独立脚本语言）。
 
-**关键决策**（已在新架构文档固化，改决策需先改文档）：
+**关键决策**（均已在总方案固化，改决策需先改总方案）：
 
 | # | 决策 |
 |---|---|
-| D1 | Godot 独立进程 + IPC（WS/JSON-RPC），不做进程内直调 |
-| D2 | 编辑器构建默认 `--editor` 运行；`--headless` 供无界面/CI 场景（逻辑完整） |
-| D4 | 单一协议 + 类型单源（Registry），所有进程外消费方共用 |
-| D5 | 数据真相一律在 Godot（三层：磁盘持久化/会话/运行）；消费方只发语义命令、收事件投影 |
-| D6 | 能力面以 Registry 为唯一事实源，通道只做协议适配 |
-| D8 | 传输定案：WS over TCP loopback 唯一通道，不预建替代（序列化维持 JSON） |
+| D1 | 基底 = Godot 4.7.2-stable（新 fork 定制） |
+| D2 | 目标框架 = 完全 .NET 11 + C# 15（方案 B，Preview 起步） |
+| D3 | 脚本语言 = 仅 C#（产品面禁用 GDScript，源码目录保留减小 merge 冲突） |
+| D4 | 少自研多集成 + 生态优先（社区成熟方案优先，自研仅限差异化创新） |
+| D5 | ECS-first Runtime + Scene DB 编辑器（终极目标）+ Avalonia UI 层 |
+| D6 | 热重载 = 有界优化（三级 Reload，Level 3 ALC 已成熟） |
 
 **GDExtension 定位**：不用作能力层/脚本层载体（原因见
 `doc/plans/GDExtension机制澄清与选型-为什么能力层不用它.md`）。
 
 **已放弃的路线（勿恢复）**：Web/TS 集成（Electron UI、CEF WebDock、Node sidecar、TS 脚本语言、
-`web/ui` 旧壳）已整体放弃并删除——历史见 git，勿从历史恢复旧代码/旧文档到工作区。
-`web/` 目录现仅为 gd_provider 的验证测试套件（见 §13）。
+`web/ui` 旧壳）、gd_provider（C++ AI 对接层，已被 MCP 标准取代）、GDScript——历史见 git，
+勿从历史恢复旧代码/旧文档到工作区。**仓库内禁止新增 .gd 文件**。
+（注意：`platform/web/` 是**上游 Godot Web 导出平台**，保留不动，勿与已删除的 fork `web/` 混淆。）
 
 ## 2. 构建流程
 
-- **task 是唯一构建入口**（Taskfile.yml：dev/pro/dev-install/pro-install/dev-run/verify-provider）。构建逻辑在 `misc/scripts/build.py`。
+- **task 是唯一构建入口**（Taskfile.yml：dev/pro/dev-install/pro-install/dev-run）。构建逻辑在 `misc/scripts/build.py`。
 - `task dev` → `build.py` → scons 构建编辑器（原版流程，无外部预构建钩子）。
 - 构建产物：`bin/godot.windows.editor.*.exe` + `*.console.exe`（console 版日志直出终端，CLI/AI 驱动用）。
 
-## 3. 测试规则（2026-08-07 更新）
+## 3. 测试规则（2026-08-21 更新）
 
 **分层**：
 
 | 层 | 方式 | 覆盖对象 |
 |---|---|---|
-| TS 单测 | `pnpm test`（web/ 下各包 vitest） | godot-rpc/godot-sdk 的纯逻辑（协议编解码/配对/传输/绑定） |
-| 端到端集成 | `pnpm test:e2e`（web/）或 `task verify-provider` | **gd_provider（C++ Provider）行为**——Godot 模块无单测框架且依赖编辑器单例，端到端断言（spawn headless 编辑器 + 测试套件链路 + 错误契约）为可靠验证方式 |
+| C# 单测 | xUnit/NUnit（随项目库） | 纯逻辑（Service/ECS/协议，零引擎） |
+| 端到端 | spawn headless 编辑器 + 断言 | 引擎行为验证（godot --headless + 自动化脚本） |
 
 **强制规则**：
-- 改动 godot-rpc/godot-sdk 代码：必须跑对应包单测 + typecheck（`cd web/packages/<pkg> && npx vitest run && npx tsc --noEmit`）；
-- **改动 gd_provider：必须跑 `task verify-provider`**（自动 spawn headless 编辑器 + 断言 + 清理进程）；前置：`task dev` 构建产物 + 测试项目（`test-projects/provider`，仓库内）；
-- **测试项目一律放仓库内**（`test-projects/`），禁止项目外绝对路径（换机器失效——已踩过 refers/ 外部路径坑）；
-- 新能力方法/协议变更：e2e 补断言（读写验证 + 错误契约）；新 TS 纯逻辑：补单测（协议向量/配对语义）。
+- 测试项目一律放仓库内（`test-projects/`），禁止项目外绝对路径（换机器失效——已踩过 refers/ 外部路径坑）；
+- 新能力/协议变更：e2e 补断言（读写验证 + 错误契约）；新 C# 纯逻辑：补单测。
 
 ## 9. Godot 测试时限（30 秒规则，强制）
 
@@ -87,7 +91,7 @@
 // SPDX-License-Identifier: MIT
 ```
 
-- 适用：本仓库所有**新建**的 C++ 头/源文件（web/ TS 工程文件按各自生态惯例，TS 可省或同用 SPDX 单行）
+- 适用：本仓库所有**新建**的 C++ 头/源文件（C# 文件按各自生态惯例，可省或同用 SPDX 单行）
 - **既有文件不动**：Godot 上游文件保留原版权块
 - 合规依据：MIT 许可由 SPDX 标识 + 仓库 LICENSE 文件满足；Godot 上游 4.x 新文件也逐步转
   SPDX 单行风格
@@ -106,21 +110,9 @@
 - 文件/页面：Godot 文本默认 UTF-8；HTML 必须带 `<meta charset="utf-8">`
 - 日志：中文日志可直接写（String 构造已 UTF-8）；显示依赖终端代码页——Godot 输出面板/UTF-8 终端正常，GBK 控制台需 `chcp 65001`（显示层，非数据问题）
 
-## 13. web/ 测试套件规范（2026-08-07 更新：非 UI，仅验证套件）
-
-`web/` 目录**不是应用**，是 gd_provider 的验证测试套件（Electron/UI/TS 脚本已放弃）。
-
-- **目录结构**：`web/packages/` 放被 e2e 消费的库——
-  `packages/godot-rpc`（@baize/godot-rpc，JSON-RPC 契约 + 传输核心：类型/配对/ws 实现，零依赖）、
-  `packages/godot-sdk`（@baize/godot-sdk，能力面客户端：方法绑定 + 事件订阅，依赖 rpc）、
-  `packages/godot-process`（@baize/godot-process，GodotClient：WS 连接 + 认证握手 + 生命周期，依赖 rpc）。
-  消费关系：e2e（`web/tests/e2e/`）→ godot-sdk/godot-process → godot-rpc。
-- **禁止使用 `baseUrl`**：TS 5.0 起已弃用（`ignoreDeprecations` 仅静默到 6.0），TS 7.0 将移除。
-  无 `baseUrl` 时 `paths` 相对 tsconfig.json 所在目录解析，新增别名直接写相对条目。
-- 验证命令：各包 `npm run typecheck`（`tsc --noEmit`）；e2e = `task verify-provider`（等价 `pnpm --dir web run test:e2e`）。
-
 ## 14. 文档索引
 
-- **当前架构**：`doc/plans/AI-first对接架构-gd_provider-设计方案.md`（决策链 D1-D8、四层结构、协议契约、能力面清单、AI 对接路线）
+- **决策唯一权威**：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_All-in-CSharp_总方案.md`（All-in C# 路线：
+  战略宪法/技术路线/架构模式/生态集成/实施路线——决策以总方案为准，改决策先改总方案）
 - **GDExtension 澄清**：`doc/plans/GDExtension机制澄清与选型-为什么能力层不用它.md`
-- 历史：Electron/CEF/WebUI 等旧架构文档已删除，见 git 历史，勿恢复。
+- 历史：Electron/CEF/WebUI/GDScript/gd_provider 等旧路线已放弃，见 git 历史，勿恢复；仓库内禁止新增 .gd 文件。

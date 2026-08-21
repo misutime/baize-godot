@@ -1,6 +1,0 @@
-packages:
-  - packages/*
-# pnpm 11：依赖构建权限用 allowBuilds（onlyBuiltDependencies 已废弃，占位字符串不生效）。
-allowBuilds:
-  electron: set this to true or false
-  esbuild: true
