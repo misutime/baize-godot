@@ -16,6 +16,7 @@
 
 - [x] **P2-1 关系掩码 int → BitSet（256 位）**：isOwner/isLinked（EntityNode）+ indexBit（AbstractComponentIndex）+ relationBit（AbstractEntityRelations）全面 BitSet 化——40+ 类型关系/索引验证通过
 - [x] **P2-2 Fliox 剥离**：删除 Friflo JSON 序列化层（Serialize/ 9 文件 + DataEntities/Unresolved/JsonUtils + StructHeap/ComponentType/ScriptType 的 Fliox 接口）——净删 2305 行；核心 ECS（存储/查询/关系/索引）不变；存档序列化由我们自己的 MemoryPack 层实现（§5.6）
-- [ ] **P2-3 AOT 自动注册源生成器**：`Base/NativeAOT`（Roslyn 生成器自动收集组件注册）
+- [x] **P2-3 AOT 自动注册源生成器**：新建 thirdparty/Friflo.Engine.ECS.Generator（Roslyn IIncrementalGenerator，netstandard2.0）——自动收集 IComponent/ITag/IRelation/ILinkRelation/IIndexedComponent/Script，生成 EcsAotRegistration.RegisterAll(NativeAOT)；消除 AOT 手动注册清单遗漏
+
 
 

@@ -58,6 +58,11 @@ class Program
 {
     static void Main()
     {
+        // P2-3：源生成器自动注册所有类型（替代手动 RegisterComponent/RegisterRelation）
+        var aot = new NativeAOT();
+        EcsAotRegistration.RegisterAll(aot);
+        aot.CreateSchema();
+
         var store = new EntityStore();
         int failures = 0;
 
@@ -99,4 +104,5 @@ class Program
         if (failures == 0) { Console.WriteLine("friflo-mask: 验证成功——40+ 类型关系/索引掩码已修复"); }
     }
 }
+
 
