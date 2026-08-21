@@ -19,6 +19,8 @@
 - **一步到位（宪法 7，总方案 v4.0）**：示例游戏反思定案——目标即 Unity 式 Object+Components（非 Godot node 树），不混合渐进；Node 是隐形后端（隔离契约）；五世界分域权威（W1 编辑期/W2 Gameplay/W3 物理求解/W4 只读投影/W5 服务）；Scene DB 提前到 P2.4（最小 W1 Core）。
 - **心智模型定案（总方案 v4.1）**：Object+Components ≈ ECS（Object≈Entity、Component≈Component、行为≈System）——业界验证过的最佳人类编辑外壳；W1/W2 两层表达同一模型 + 修正 7 个已知缺陷（隐式依赖/通信/膨胀/树滥用/Prefab/行为分散/生命周期）。
 - **命名定案（总方案 v4.2）**：框架层 `EcsWorld`（ECS Kernel 改名，贴近 Bevy/Unity World）+ 宿主 `EcsHost`（EcsWorldHost 改名，避免混淆）。
+- **P2.1 EcsWorld 框架实施（modules/ecs/）**：固定 Tick（TickIndex/FixedDelta）+ Step(InputFrame) + AddSystem(phase) + Reset；InputFrame（不可变输入帧）；EntityHandle（Id+Revision 安全句柄）；WorldCommandBuffer（链式创建 + Playback 归还池）；WorldEvents（事件总线）；ecsworld-smoke 冒烟测试 12 项断言全绿。
+- **借鉴 Bevy（P2.1）**：`EcsResource`（全局单例，Bevy Resource——GameState/Score 不再设计成组件挂实体）；`IEntityBundle`（组件组合，Bevy Bundle——支撑 W1 Object=组件组合心智模型）；`EventWriter/EventReader`（读写分离，Bevy Event）。
 - **slnx review 修复（PR #5）**：改用官方 SolutionPersistence（SolutionModel + SlnXml）生成 slnx（schema 合法 BuildType + XML 转义）；LegacySolutionPath 精确清理另一格式（自定义名/双向切换）；csproj BOM。
 - **CI 平台矩阵裁剪（PR #6）**：runner.yml 只保留 Linux+Windows+静态检查，移除 Android/iOS/macOS/Web 构建（平台文件保留可手动触发，符合宪法 6 先禁用后裁剪）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
