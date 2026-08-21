@@ -8,7 +8,9 @@
 
     <!-- To generate the .runtimeconfig.json file-->
     <EnableDynamicLoading>true</EnableDynamicLoading>
-    <RollForward>LatestMajor</RollForward>
+    <!-- FORK-CUSTOM：LatestMajor 会跳过 preview 版本（.NET 11 预览期），
+         改 latestPatch 精确匹配 preview 补丁（GA 后版本号更新即可） -->
+    <RollForward>latestPatch</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
