@@ -57,7 +57,7 @@ public class FireSystem : QuerySystem<Position, Weapon>
                 FireCount++;
                 cb.CreateEntity()
                   .Add(new Position { X = pos.X, Z = pos.Z })
-                  .Add(new Velocity { X = 0, Z = -weapon.BulletSpeed })   // 向前（-Z）
+                  .Add(new Velocity { X = 0, Z = weapon.BulletSpeed })    // 向前（+Z，迎面打敌人）
                   .Add(new Bullet { Damage = 1, Range = 50, Travelled = 0 })
                   .Add(new Radius { Value = 0.2f })
                   .AddTag<BulletTag>();
@@ -87,16 +87,9 @@ public class SpawnSystem : BaseSystem, IResettableSystem
 
         if (state.AliveEnemies >= config.MaxAlive) return;
 
-        // 从四边随机生成
-        var rand = new Random(TickIndexSeed());
-        float x = 0, z = 0;
-        switch (rand.Next(4))
-        {
-            case 0: x = -config.SpawnRadius; z = rand.Next(-20, 20); break;
-            case 1: x = config.SpawnRadius; z = rand.Next(-20, 20); break;
-            case 2: x = rand.Next(-20, 20); z = -config.SpawnRadius; break;
-            case 3: x = rand.Next(-20, 20); z = config.SpawnRadius; break;
-        }
+        // 简化：敌人从 +Z 方向生成（玩家射击 -Z 迎面命中——PoC 验证玩法闭环）
+        // 完整版：从四边生成 + 瞄准（P2.2 后）
+        float x = 0, z = config.SpawnRadius;
 
         _world.CommandBuffer.CreateEntity()
             .Add(new Position { X = x, Z = z })
@@ -161,8 +154,10 @@ public class SweptBulletHitSystem : QuerySystem<Position, Bullet>
 
     public SweptBulletHitSystem(EcsWorld world) { _world = world; Filter.AllTags(Tags.Get<BulletTag>()); }
 
+    public int CallCount;
     protected override void OnUpdate()
     {
+        CallCount++;
         float dt = Tick.deltaTime;
         var writer = _world.Events.Writer<DamageRequest>();
         var store = _world.Store;
@@ -231,6 +226,7 @@ public class DamageResolveSystem : BaseSystem
 {
     private readonly EcsWorld _world;
     private readonly System.Collections.Generic.HashSet<int> _hitTargets = new();
+    private readonly System.Collections.Generic.HashSet<int> _hitSources = new();   // 子弹去重（防重复删除）
 
     public DamageResolveSystem(EcsWorld world) { _world = world; }
 
@@ -240,17 +236,40 @@ public class DamageResolveSystem : BaseSystem
         var state = _world.Resources.Get<GameState>();
         if (state == null) return;
 
+        // 消费语义：读取并清空本 Tick 事件（避免跨 Tick 残留导致重复删除）
         var reader = _world.Events.Reader<DamageRequest>();
-        _hitTargets.Clear();   // 每 Tick 重置（同 Tick 多次命中同一敌人只记一次死亡）
+        _hitTargets.Clear();
+        _hitSources.Clear();
         foreach (DamageRequest req in reader.Read())
         {
-            if (_hitTargets.Add(req.TargetId))
+            // 防御式：删除前验证实体存在（事件延迟 + 跨 Tick 可能已删——防重复删除异常）
+            if (_hitTargets.Add(req.TargetId) && _hitSources.Add(req.SourceId)
+                && _world.Store.TryGetEntityById(req.TargetId, out _)
+                && _world.Store.TryGetEntityById(req.SourceId, out _))
             {
                 cb.DeleteEntity(req.TargetId);   // 消灭敌人（延迟）
                 cb.DeleteEntity(req.SourceId);   // 子弹消失（延迟）
                 state.Score += 1;
                 if (state.AliveEnemies > 0) state.AliveEnemies--;
             }
+        }
+    }
+}
+
+/// <summary>GameOver 处理：消费 GameOverEvent → 设 Phase=GameOver（Phase.Resolve）。</summary>
+public class GameOverHandlerSystem : BaseSystem
+{
+    private readonly EcsWorld _world;
+
+    public GameOverHandlerSystem(EcsWorld world) { _world = world; }
+
+    protected override void OnUpdateGroup()
+    {
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase == GamePhase.GameOver) return;
+        if (_world.Events.Reader<GameOverEvent>().Consume() > 0)
+        {
+            state.Phase = GamePhase.GameOver;
         }
     }
 }
@@ -285,6 +304,9 @@ public class CleanupSystem : QuerySystem<Position, Bullet>
         });
     }
 }
+
+
+
 
 
 

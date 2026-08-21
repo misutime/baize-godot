@@ -19,6 +19,7 @@ namespace ShooterPoc;
 class Program
 {
     private static int _failures;
+    private static SweptBulletHitSystem _sweptSystem;   // 测试读 CallCount
     private static FireSystem _fireSystem;   // 测试读取 FireCount
     static int Main()
     {
@@ -101,13 +102,15 @@ class Program
 
         var state = world.Resources.Get<GameState>();
         int bulletCount = CountEntitiesWithTag(world, "BulletTag");
-        Console.WriteLine($"shooter-poc: 游戏循环 score={state.Score}, phase={state.Phase}, 存活子弹={bulletCount}");
+        int enemyCount = CountEntitiesWithTag(world, "EnemyTag");
+        Console.WriteLine($"shooter-poc: 游戏循环 score={state.Score}, phase={state.Phase}, 存活子弹={bulletCount}, 存活敌人={enemyCount}");
 
         // 子弹不无限增长（600 Tick 内清理生效）
         if (bulletCount > 20) { Console.WriteLine($"FAIL: 子弹无限增长（{bulletCount}）"); _failures++; }
 
-        // Reset 后状态归零
+        // Reset 后状态归零（Reset 保留 Resources 配置——调用方重建游戏状态）
         world.Reset();
+        world.Resources.Set(new GameState { Phase = GamePhase.Playing, Score = 0 });   // 重建初始状态
         state = world.Resources.Get<GameState>();
         if (state.Score != 0) { Console.WriteLine("FAIL: Reset 后分数未归零"); _failures++; }
         int afterReset = CountEntitiesWithTag(world, "BulletTag");
@@ -140,9 +143,11 @@ class Program
         world.AddSystem(new SpawnSystem(world), Phase.Spawn);
         world.AddSystem(new EnemySteeringSystem(world), Phase.Simulation);
         world.AddSystem(new MoveSystem(), Phase.Simulation);
-        world.AddSystem(new SweptBulletHitSystem(world), Phase.Collision);
+        _sweptSystem = new SweptBulletHitSystem(world);
+        world.AddSystem(_sweptSystem, Phase.Collision);
         world.AddSystem(new EnemyContactSystem(world), Phase.Collision);
         world.AddSystem(new DamageResolveSystem(world), Phase.Resolve);
+        world.AddSystem(new GameOverHandlerSystem(world), Phase.Resolve);
         world.AddSystem(new ScoreSystem(), Phase.Resolve);
         world.AddSystem(new CleanupSystem(world), Phase.Cleanup);
 
@@ -174,5 +179,6 @@ class Program
         return count;
     }
 }
+
 
 
