@@ -115,4 +115,4 @@ Godot Core（C++ 引擎：渲染/物理/资源/平台管线）
 - **决策唯一权威**：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_All-in-CSharp_总方案.md`（All-in C# 路线：
   战略宪法/技术路线/架构模式/生态集成/实施路线——决策以总方案为准，改决策先改总方案）
 - **GDExtension 澄清**：`doc/plans/GDExtension机制澄清与选型-为什么能力层不用它.md`
-- 历史：Electron/CEF/WebUI/GDScript/gd_provider 等旧路线已放弃，见 git 历史，勿恢复；仓库内禁止新增 .gd 文件。
+- **排障记录**：`doc/troubleshooting/README.md`（故障排查积累——现象/排查/根因/修复/验证；新问题按模板追加）
