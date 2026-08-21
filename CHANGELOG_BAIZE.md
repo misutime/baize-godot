@@ -10,9 +10,10 @@
 
 ## 2026-08-21（起始日）
 - 新增 `CHANGELOG_BAIZE.md`：fork 定制流水账，从今日起记录与上游的差异。
-- 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.5）——战略宪法/技术路线/架构模式/生态集成/实施路线。
+- 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.6）——战略宪法/技术路线/架构模式/生态集成/实施路线。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
 - **产品聚焦：风格化 3D 光谱**（覆盖 Anime NPR 三渲二 → Stylized PBR 全段，不做 2D 游戏、不做高写实 3D——见总方案 §1.3）。
+- **宪法 6：先禁用后裁剪**（不用的功能不构建/不启用、源码保留，保上游合并亲和，深入定制后才物理删除）+ **风格化渲染架构 §1.4**（统一核心 + 风格化能力层 + Profile，shifu 审查定案）。
 - AGENTS.md 重写为 All-in C# 路线（架构总览 D1-D6：4.8-dev 基底 / .NET 11 / 仅 C# / 少自研多集成 / ECS-first + Scene DB / 三级 Reload）。
 - Taskfile.yml 精简（移除 verify-provider/TEST_PROJECT，dev-run 简化为 `--editor`）。
 - `core/string/ustring.cpp/.h`：FORK-CUSTOM UTF-8 智能解码在案（中文优先宪法根基，commit b175d92bd6 + 审查修复 e08c1ea0f8）。
