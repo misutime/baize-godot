@@ -37,7 +37,7 @@ ShooterGame.Install(world);
 `ShooterGame.Install(world)` 展开后仍只有三类作者动作：
 
 ```csharp
-world.InsertResource(...);        // 放入“这一局只有一份”的事实
+world.InsertState(...);        // 放入“这一局只有一份”的事实
 world.SpawnNow(PlayerBundle.Default); // 按配方生成初始对象
 world.AddFeature(new ShooterFeature()); // 启用会持续运行的规则
 ```
@@ -83,9 +83,9 @@ Shooter 示例：
 
 正确问法：“哪条规则需要哪一条独立事实？”
 
-### 2.3 Resource：整个世界只有一份的事实
+### 2.3 WorldState：整个世界只有一份的事实（借鉴 Bevy Resource）
 
-Resource 不挂在虚构的“全局实体”上，由 `EcsWorld` 持有。
+WorldState 不挂在虚构的“全局实体”上，由 `EcsWorld` 持有。
 
 Shooter 示例：
 
@@ -94,14 +94,30 @@ Shooter 示例：
 - `SpawnState`：当前生成倒计时；
 - `FireInputState`：上一 Tick 是否按住开火键。
 
-**什么时候用 Resource？**
-
+**什么时候用 WorldState？**
 当判断句是“这一局只有一份”，而不是“每个实体各有一份”时使用。
-注意：配置和状态都可以是 Resource，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
+注意：配置和状态都可以是 WorldState，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
 
-#### EcsState：有进入/退出生命周期的世界级 Resource
+#### store/state 心智模型（借前端 Redux/Pinia，理解更容易）
 
-普通计数仍用普通 Resource；只有“世界同时只能处于一个阶段，而且切换有统一副作用”时才用 `EcsState<T>`：
+`WorldState` 这个概念正好对应前端的 `store`/`state` 分离——不熟悉 ECS 的开发者可用这个类比：
+
+| 前端（Redux/Pinia） | 我们 | 含义 |
+|---|---|---|
+| **store**（全局状态容器） | `world.State`（`WorldState` 实例） | 装所有"这一局唯一"状态的容器 |
+| **state**（容器里的一块） | `MatchState`/`SpawnConfig`/`Score` | 具体的某个全局状态 |
+| **setState / getState** | `world.InsertState(...)` / `world.State.Get<T>()` | 读/写某个全局状态 |
+| **action / 纯函数更新** | System / `EcsState.TransitionTo` | 修改状态的方式（规则） |
+
+**一句话**：
+> `world.State` 像前端 `store`（容器），里面放 `MatchState`、`Score` 这些 `state`；
+> 系统像 `action`，用 `InsertState`/`State<T>()` 修改或读取——概念边界和前端一致，容易迁移心智。
+
+**注意区分**：`EcsWorld.Store`（Friflo `EntityStore`，**实体**存储）与 `world.State`（**状态**容器）是**两件事**——前者放实体+组件，后者放世界唯一状态。名字都带 Store/State，但一个管实体、一个管全局状态。
+
+#### EcsState：有进入/退出生命周期的世界级 WorldState
+
+普通计数仍用普通 WorldState；只有“世界同时只能处于一个阶段，而且切换有统一副作用”时才用 `EcsState<T>`：
 
 ```csharp
 public sealed class MatchState : EcsState<GamePhase>
@@ -116,7 +132,7 @@ public sealed class MatchState : EcsState<GamePhase>
 State<MatchState>().TransitionTo(GamePhase.GameOver);
 ```
 
-`InsertResource(new MatchState())` 会进入初始状态；以后每次 `TransitionTo` 都严格执行 `OnExit(旧) → OnEnter(新)`。Shooter 在离开 `Playing` 时丢弃未落地命令，进入 `GameOver` 时统一冻结速度，进入 `Playing` 时重置输入边沿和生成节拍。副作用只写一次，不再让每个 System 各自猜测状态切换意味着什么。
+`InsertState(new MatchState())` 会进入初始状态；以后每次 `TransitionTo` 都严格执行 `OnExit(旧) → OnEnter(新)`。Shooter 在离开 `Playing` 时丢弃未落地命令，进入 `GameOver` 时统一冻结速度，进入 `Playing` 时重置输入边沿和生成节拍。副作用只写一次，不再让每个 System 各自猜测状态切换意味着什么。
 
 ### 2.4 Event：已经发生、等待其他规则处理的瞬时事实
 
@@ -167,21 +183,43 @@ public sealed class FireWeaponSystem
     public FireWeaponSystem()
     {
         RunInState<MatchState>(GamePhase.Playing);
-        Filter.AllTags(Tags.Get<PlayerFaction>());
+        ForTag<PlayerFaction>();
     }
 
     protected override void Execute()
     {
         FireInputState edge = Res<FireInputState>();
         bool pressed = Input.FirePressed;
-        // Query.ForEachEntity(...)
+        ForEach((ref Position position, ref WeaponConfig weapon,
+            ref Cooldown cooldown, Entity player) => { /* 原地更新 */ });
     }
 }
 ```
 
 一眼可见的依赖是：查询组件泛型、`MatchState` 运行条件、Tag 过滤、`FireInputState` Resource 和当前输入。`World`、`Input`、`Res<T>()`、`State<T>()`、`ReadEvents<T>()`、`WriteEvents<T>()` 由基类提供，不再为每个系统保存 `_world`、写构造器注入和手工判空。
 
-`EcsSystem<T...>` 底层仍继承 Friflo `QuerySystem<T...>`；原有 `BaseSystem`、`QuerySystem<T...>` 与 `EcsWorld.AddSystem` 完全保留。新基类是作者层捷径，不是对 Friflo 的替换。
+作者层查询按“是否改写组件”分成两条明确路径：
+
+```csharp
+ForTag<EnemyFaction>(); // 构造器：给本 System 的主查询加 Tag 条件
+
+ForEach((ref Position position, ref Velocity velocity, Entity enemy) =>
+{
+    velocity.X = 0;     // 写路径：ref 原地更新，不复制组件
+});
+
+foreach (var (position, player) in Read<Position>().WithTag<PlayerFaction>())
+{
+    // 读路径：position 是按值快照，不能误改世界中的 Position
+}
+```
+
+- `ForEach(...)` 只转发到 Friflo `Query.ForEachEntity(...)`；组件仍由 `ref` 原地访问。C# 对值类型原地改写必须显式写出 `ref`，封装不隐藏这一语义，只去掉重复的 `Query.ForEachEntity` 机制噪音。
+- `ForTag<T>()` 只在构造器配置继承来的 `QueryFilter`，等价于原来的 `Filter.AllTags(Tags.Get<T>())`；查询创建时机、AOT 注册、Feature 生成器与诊断都不变。
+- `Read<T...>().WithTag<T>()` 使用 Friflo `Chunks` 的结构体枚举器，逐项把组件复制为只读意图明确的值。它适合寻敌、接触检测等次级读取；大组件或需要写回的热循环继续用 `ForEach(ref ...)`。
+- 一次 `Read<T...>()` 会创建一个 Friflo 查询对象；嵌套热循环应像命中系统一样先保存为局部变量再复用。该层不承诺查询对象零分配，但逐项枚举不走 `IEnumerable` 装箱，也不额外建立实体列表。
+
+`EcsSystem<T...>` 底层仍继承 Friflo `QuerySystem<T...>`；原有 `Query.ForEachEntity`、`Filter`、`BaseSystem`、`QuerySystem<T...>` 与 `EcsWorld.AddSystem` 完全保留。新 API 是向后兼容的作者层捷径，不是对 Friflo 的替换。
 
 #### System 纯函数约束
 
@@ -190,7 +228,7 @@ public sealed class FireWeaponSystem
 - 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入 Component 或 Resource；
 - 倒计时、输入边沿、随机种子、累计分数不能藏在 System 字段；
 - 允许保存安装期不变配置，以及每次 `Execute` 开头清空的临时工作区；
-- `ResolveDamageSystem` 的两个 `HashSet<EntityHandle>` 只做同 Tick 去重，并在每次执行开头 `Clear()`，因此是可接受的 scratch state；
+- `ResolveDamageSystem` 的两个 `HashSet<Entity>` 只做同 Tick 去重，并在每次执行开头 `Clear()`，因此是可接受的 scratch state；
 - 如果删掉 System 再重建会改变下一 Tick 玩法结果，说明它藏了状态，应把那份数据搬回 Resource/Component。
 
 ---
@@ -334,10 +372,10 @@ Shooter 的明确顺序：
 public static void Install(EcsWorld world)
 {
     world
-        .InsertResource(new SpawnConfig())
-        .InsertResource(new SpawnState())
-        .InsertResource(new FireInputState())
-        .InsertResource(new MatchState());
+        .InsertState(new SpawnConfig())
+        .InsertState(new SpawnState())
+        .InsertState(new FireInputState())
+        .InsertState(new MatchState());
 
     world.SpawnNow(PlayerBundle.Default);
     world.AddFeature(new ShooterFeature());
@@ -382,21 +420,39 @@ Events.cs
 
 ## 6. 作者层与底层实现层的边界
 
+**分层定位（Baize.Ecs 是日常主入口，但 IComponent/Entity 仍直接来自 Friflo）**：
+
+```text
+Baize.Ecs        —— 游戏开发者日常入口（using Baize.Ecs）
+    EcsSystem / EcsState / EcsWorld / ForEach / ForTag / Read /
+    InsertState / WorldState / EntityBundle / EventWriter-Reader / Phase
+Friflo.Engine.ECS —— 底层高性能内核（IComponent/ITag/Entity 等核心类型仍需引用它）
+    IComponent / ITag / Entity / ref 组件 / 高级查询 / chunk 写入
+```
+
+- **日常写游戏**：`using Baize.Ecs`，用 `EcsSystem`/`ForEach`/`ForTag`/`InsertState`/`EcsState` 表达玩法。
+- **组件声明**（`struct Position : IComponent`）：`IComponent` 是 Friflo 的（性能内核，无法改为 Baize 的），
+  所以组件文件需 `using Friflo.Engine.ECS`——这是**有意**的（保留 Friflo 数据布局与泛型特化），不是缺隔离。
+- **了解 Friflo 的用户**：可直接用 Friflo 高级 API（`Query`/`Filter`/`Tags.Get<T>()`/`Store.Query`）——
+  Baize.Ecs 不封死底层，而是**默认走作者层**（更简洁），高级需求在局部显式下沉。
+
+**核心原则**：**默认代码先表达"处理谁、读什么、写什么"；只有确有高级需求时，底层查询机制才在局部显式出现。**
+不是把所有 Friflo 能力包一层藏起来，而是让日常写法最简、高级能力可及。
 ### 作者层优先使用
 
-- `EcsWorld.InsertResource`：装配全局事实；
+- `EcsWorld.InsertState`：装配全局事实；
 - `EcsWorld.SpawnNow`：Composition Root、关卡装载、测试安排中的立即生成；
 - `WorldCommandBuffer.Spawn`：System 查询期间的延迟生成；
 - `EcsWorld.AddFeature`：按功能安装系统；`Install` 内可继续 `AddFeature` 组合子功能；
 - `EcsSystem` / `EcsSystem<T...>`：显式获取世界依赖并声明 State 运行条件；
 - `EcsState<T>`：集中执行世界阶段的 `OnExit/OnEnter`；
-- `EntityHandle`：跨 Tick 引用实体，校验 Id + Revision。
+- Friflo `Entity`：唯一实体安全引用，自带 Store + Id + Revision；跨 Tick 直接用 `IsNull` 判断是否仍有效。
 
 ### 何时仍会看到 Friflo
 
-系统实现需要高效类型化查询，因此 `QuerySystem<...>`、`Entity`、`Tags.Get<T>()` 和 `world.Store.Query<...>()` 仍属于实现层工具。Human-first 不等于隐藏所有底层能力，而是：
+系统的常见写路径优先使用 `ForEach(ref ...)`，常见次级只读查询优先使用 `Read<T...>().WithTag<T>()`。只有需要 Friflo 的高级过滤、索引、并行 Job 或直接 chunk 写入时，才下沉到 `Query`、`Filter`、`Tags.Get<T>()` 与 `world.Store.Query<...>()`。Human-first 不等于封死底层能力，而是：
 
-> **装配游戏不需要底层 API；实现一条批处理规则时，底层查询在局部、直接、可见。**
+> **默认代码先表达“处理谁、读什么、写什么”；只有确有高级需求时，底层查询机制才在局部显式出现。**
 
 测试中的 `Store` 查询只用于白盒断言和稳定状态哈希，不是游戏 Composition Root 的示范写法。
 

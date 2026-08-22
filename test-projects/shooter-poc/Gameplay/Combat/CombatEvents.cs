@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 // CombatEvents.cs —— 战斗系统之间的瞬时事实
 
-using Baize.Ecs;
+using Friflo.Engine.ECS;
 
 namespace ShooterPoc;
 
-/// <summary>这一 Tick 发生了“投射物请求伤害目标”；句柄代际防止 Id 复用误伤。</summary>
+/// <summary>这一 Tick 发生了“投射物请求伤害目标”；Friflo Entity 自带 Store + Revision，可防止 Id 复用误伤。</summary>
 public readonly struct DamageRequested(
-	EntityHandle source,
-	EntityHandle target,
+	Entity source,
+	Entity target,
 	int amount)
 {
-	public readonly EntityHandle Source = source;
-	public readonly EntityHandle Target = target;
+	public readonly Entity Source = source;
+	public readonly Entity Target = target;
 	public readonly int Amount = amount;
 }

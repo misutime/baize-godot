@@ -13,7 +13,7 @@ public sealed class MoveSystem : EcsSystem<Position, PreviousPosition, Velocity>
 	protected override void Execute()
 	{
 		float delta = Tick.deltaTime;
-		Query.ForEachEntity((ref Position position, ref PreviousPosition previous,
+		ForEach((ref Position position, ref PreviousPosition previous,
 			ref Velocity velocity, Entity entity) =>
 		{
 			previous.X = position.X;

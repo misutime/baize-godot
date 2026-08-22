@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // EcsWorld.cs —— baize-godot EcsWorld 框架核心（P2.1）
 //
 // 面向游戏开发者的 ECS 框架层：封装世界生命周期与作者层入口，
 // 提供固定 Tick / 输入 / Command / 实体安全 / 系统调度（按 Phase）/ 重置。
-// 游戏装配优先使用 InsertResource / SpawnNow / AddFeature；
+// 游戏装配优先使用 InsertState / SpawnNow / AddFeature；
 // 系统热循环仍可通过 Store 使用 Friflo 的类型化查询。
 
 using System;
@@ -24,7 +24,7 @@ public sealed class EcsWorld : IDisposable
 	private readonly Dictionary<Phase, SystemGroup> _phaseGroups;
 	private readonly WorldCommandBuffer _commandBuffer;
 	private readonly WorldEvents _events;
-	private readonly EcsResource _resources;
+	private readonly WorldState _worldState;
 
 	private ulong _tickIndex;
 	private bool _disposed;
@@ -41,66 +41,53 @@ public sealed class EcsWorld : IDisposable
 	/// <summary>事件总线（系统间纯数据通信，EventWriter/EventReader）。</summary>
 	public WorldEvents Events => _events;
 
-	/// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
-	public EcsResource Resources => _resources;
+	/// <summary>全局状态（GameState/Score/配置，借鉴 Bevy WorldState）。</summary>
+	public WorldState State => _worldState;
 
 	/// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
-	public EcsWorld InsertResource<T>(T resource) where T : class
+	public EcsWorld InsertState<T>(T state) where T : class
 	{
 		// P2-1：事务性插入——绑定失败时恢复旧值/移除新值（避免污染世界）。
-		var previous = _resources.Has<T>() ? _resources.Get<T>() : null;
-		_resources.Set(resource);   // 先放入（若绑定失败再回滚）
+		var previous = _worldState.Has<T>() ? _worldState.Get<T>() : null;
+		_worldState.Set(state);   // 先放入（若绑定失败再回滚）
 		try
 		{
-			if (resource is IEcsStateBinding state)
+			if (state is IEcsStateBinding stateBinding)
 			{
-				state.Bind(this);
+				stateBinding.Bind(this);
 			}
 		}
 		catch
 		{
-			if (previous is not null) _resources.Set(previous);
-			else _resources.Remove<T>();
+			if (previous is not null) _worldState.Set(previous);
+			else _worldState.Remove<T>();
 			throw;
 		}
 		return this;
 	}
 
 	/// <summary>作者层：获取必需资源；未安装时抛出清晰错误。</summary>
-	public T GetResource<T>() where T : class => _resources.GetOrThrow<T>();
+	public T GetState<T>() where T : class => _worldState.GetOrThrow<T>();
 
 	/// <summary>
 	/// 作者层：立刻用 Bundle 创建实体。仅用于 Composition Root、关卡装载和测试安排；
 	/// 系统查询期间的结构变更必须继续使用 CommandBuffer.Spawn。
 	/// </summary>
-	public EntityHandle SpawnNow(IEntityBundle bundle)
+	public Entity SpawnNow(IEntityBundle bundle)
 	{
 		var entity = _store.CreateEntity();
 		_commandBuffer.ApplyTo(entity.Id, bundle);
 		_commandBuffer.Playback();
-		return GetHandle(entity);
+		return entity;
 	}
 
 	/// <summary>测试/反序列化入口：用指定 Id 立刻创建 Bundle 实体。</summary>
-	public EntityHandle SpawnNow(int entityId, IEntityBundle bundle)
+	public Entity SpawnNow(int entityId, IEntityBundle bundle)
 	{
 		var entity = _store.CreateEntity(entityId);
 		_commandBuffer.ApplyTo(entity.Id, bundle);
 		_commandBuffer.Playback();
-		return GetHandle(entity);
-	}
-
-	/// <summary>从 Friflo Entity 构造 EntityHandle（Id+Revision）。</summary>
-	public EntityHandle GetHandle(Entity entity) => new(entity.Id, entity.Revision);
-
-	/// <summary>解析 EntityHandle 为活实体（验证 Revision），不匹配返回 null（防 ID 复用错指）。</summary>
-	public Entity ResolveHandle(EntityHandle handle)
-	{
-		if (_store.TryGetEntityById(handle.Id, out var entity) && entity.Revision == handle.Revision)
-		{
-			return entity;
-		}
-		return default;   // IsNull
+		return entity;
 	}
 
 	// Friflo EntitySchema 是进程级单例——AOT 注册 + CreateSchema 只执行一次
@@ -121,7 +108,7 @@ public sealed class EcsWorld : IDisposable
 		_phaseGroups = CreatePhaseGroups(_root);
 		_commandBuffer = new WorldCommandBuffer(_store);
 		_events = new WorldEvents();
-		_resources = new EcsResource();
+		_worldState = new WorldState();
 	}
 
 	/// <summary>进程级 EntitySchema 初始化（线程安全：锁内二次检查）。</summary>
