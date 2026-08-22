@@ -271,12 +271,17 @@ public sealed partial class AuthoringWorld
 	};
 
 	/// <summary>
-	/// 枚举按底层类型取原始位模式。装箱枚举不能直接拆箱为 ulong（装箱类型不匹配会抛
-	/// InvalidCastException），统一走 IConvertible：负值有符号枚举保留补码位模式，
-	/// ulong 底层高位值也不会经 Int64 溢出。
+	/// 枚举按底层类型取原始位模式（装箱枚举不能直接拆箱）：
+	/// - ulong 底层走 IConvertible.ToUInt64（高位值不经 Int64 中转，不溢出）；
+	/// - 其余（含负值有符号枚举）先 ToInt64 再 unchecked 转换，保留补码位模式。
 	/// </summary>
-	private static ulong MixEnumRaw(object raw) =>
-		Convert.ToUInt64(raw, System.Globalization.CultureInfo.InvariantCulture);
+	private static ulong MixEnumRaw(object raw)
+	{
+		var underlying = Enum.GetUnderlyingType(raw.GetType());
+		return underlying == typeof(ulong)
+			? Convert.ToUInt64(raw, System.Globalization.CultureInfo.InvariantCulture)
+			: unchecked((ulong)Convert.ToInt64(raw));
+	}
 
 	internal static ulong Mix(ulong hash, ulong value)
 	{

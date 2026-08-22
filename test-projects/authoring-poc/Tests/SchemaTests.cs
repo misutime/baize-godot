@@ -119,6 +119,74 @@ internal static class SchemaTests
 		var maskValue = (BigMask)schema.Get(typeof(BigMaskHolder)).GetFieldRaw(boxed, 0);
 		check(maskValue == BigMask.Low, $"JSON 往返后枚举应为 Low，实际 {maskValue}");
 
-		Console.WriteLine("authoring-poc: ulong 枚举 hash/往返验证通过");
+	Console.WriteLine("authoring-poc: ulong 枚举 hash/往返验证通过");
+
+		RunNegativeEnumHash(check);
+	}
+
+	// 负值有符号枚举：hash 混入路径的另一个边界（补码位模式）
+	private enum SignedState : int
+	{
+		Unknown = -1,
+		Active = 1,
+	}
+
+	private struct SignedStateHolder
+	{
+		public SignedState State;
+	}
+
+	private sealed class SignedStateHolderSchema : Baize.Authoring.ComponentSchemaBase
+	{
+		public SignedStateHolderSchema() : base(
+			typeof(SignedStateHolder),
+			new[] { new Baize.Authoring.SchemaField("State", typeof(SignedState), 0) })
+		{
+		}
+
+		public override object CreateDefault() => default(SignedStateHolder);
+
+		public override object GetFieldRaw(object component, int index) => index switch
+		{
+			0 => ((SignedStateHolder)component).State,
+			_ => throw new ArgumentOutOfRangeException(nameof(index)),
+		};
+
+		public override void SetFieldRaw(ref object component, int index, object value)
+		{
+			if (index != 0) throw new ArgumentOutOfRangeException(nameof(index));
+			var typed = (SignedStateHolder)component;
+			typed.State = (SignedState)value;
+			component = typed;
+		}
+	}
+
+	/// <summary>P2 验证：负值有符号枚举（Unknown=-1）参与 ArtifactHash 不抛溢出。</summary>
+	private static void RunNegativeEnumHash(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+		schema.Register(new SignedStateHolderSchema());
+
+		var world = new AuthoringWorld(schema);
+		var id = world.AllocateId();
+		var tx = new AuthoringTransaction();
+		tx.Create(id, "SignedObj");
+		world.Apply(tx);
+
+		var setTx = new AuthoringTransaction();
+		setTx.Add(new SetComponentOp(id, typeof(SignedStateHolder).FullName!,
+			System.Text.Json.JsonDocument.Parse("{\"State\":\"Unknown\"}").RootElement.Clone()));
+		world.Apply(setTx);
+
+		ulong negativeHash = world.ComputeArtifactHash();   // 回归点：-1 经 unchecked 补码混入，不抛 OverflowException
+		check(negativeHash != 0, "负值有符号枚举应能参与 ArtifactHash");
+
+		var flipTx = new AuthoringTransaction();
+		flipTx.Add(new SetComponentOp(id, typeof(SignedStateHolder).FullName!,
+			System.Text.Json.JsonDocument.Parse("{\"State\":\"Active\"}").RootElement.Clone()));
+		world.Apply(flipTx);
+		check(world.ComputeArtifactHash() != negativeHash, "不同枚举值应产生不同 hash");
+
+		Console.WriteLine("authoring-poc: 负值有符号枚举 hash 验证通过");
 	}
 }
