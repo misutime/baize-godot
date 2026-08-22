@@ -13,7 +13,7 @@
 - `EcsWorld` 保存一局 ECS 世界并执行固定 Tick；
 - 将来由 `EcsHost` 负责引擎生命周期、输入与一个或多个 `EcsWorld` 的驱动；
 - Friflo 是底层存储与查询实现，不在本示例中修改；
-- `Resource`、`Bundle`、`EventWriter/EventReader` 的作者体验借鉴 Bevy，但保持 C# 语义。
+- `Resource`、`Bundle`、`EventWriter/EventReader` 是三点 Bevy 作者体验借鉴，但保持 C# 语义；`EcsState` 是框架层对世界状态生命周期的明确表达。
 
 ---
 
@@ -23,7 +23,7 @@
 
 1. `Gameplay/ShooterGame.cs`：这一局装了什么全局事实、初始对象和玩法功能；
 2. `Gameplay/Actors/PlayerBundle.cs`：玩家出生时有哪些事实；
-3. `Gameplay/ShooterFeature.cs`：规则按什么因果顺序运行；
+3. `Gameplay/ShooterFeature.cs`：大 Feature 如何嵌套小 Feature，以及规则按什么因果顺序运行；
 4. 再进入某个功能目录，例如 `Gameplay/Combat/` 看局部数据变换；
 5. 最后才看 `Tests/ShooterPocTests.cs` 的测试安排和底层状态哈希。
 
@@ -89,7 +89,7 @@ Resource 不挂在虚构的“全局实体”上，由 `EcsWorld` 持有。
 
 Shooter 示例：
 
-- `MatchState`：本局阶段、分数、存活敌人数；
+- `MatchState`：本局互斥阶段（`EcsState`）、分数、存活敌人数；
 - `SpawnConfig`：全局生成间隔、上限、生成半径；
 - `SpawnState`：当前生成倒计时；
 - `FireInputState`：上一 Tick 是否按住开火键。
@@ -97,8 +97,26 @@ Shooter 示例：
 **什么时候用 Resource？**
 
 当判断句是“这一局只有一份”，而不是“每个实体各有一份”时使用。
-
 注意：配置和状态都可以是 Resource，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
+
+#### EcsState：有进入/退出生命周期的世界级 Resource
+
+普通计数仍用普通 Resource；只有“世界同时只能处于一个阶段，而且切换有统一副作用”时才用 `EcsState<T>`：
+
+```csharp
+public sealed class MatchState : EcsState<GamePhase>
+{
+    public MatchState() : base(GamePhase.Playing) { }
+    public int Score;
+
+    protected override void OnExit(EcsWorld world, GamePhase state) { ... }
+    protected override void OnEnter(EcsWorld world, GamePhase state) { ... }
+}
+
+State<MatchState>().TransitionTo(GamePhase.GameOver);
+```
+
+`InsertResource(new MatchState())` 会进入初始状态；以后每次 `TransitionTo` 都严格执行 `OnExit(旧) → OnEnter(新)`。Shooter 在离开 `Playing` 时丢弃未落地命令，进入 `GameOver` 时统一冻结速度，进入 `Playing` 时重置输入边沿和生成节拍。副作用只写一次，不再让每个 System 各自猜测状态切换意味着什么。
 
 ### 2.4 Event：已经发生、等待其他规则处理的瞬时事实
 
@@ -131,22 +149,49 @@ Shooter 示例：
 
 Bundle 允许重复：玩家和敌人都可以添加 `Position`、`Velocity`、`CollisionRadius`。这种重复恰好说明组件是可组合事实，不是实体类型字段表。
 
-### 2.6 System：把一组数据变成另一组数据的规则
+### 2.6 System：依赖可见的数据变换规则
 
-System 不拥有玩家、敌人或分数。它查询需要的事实，读取输入/资源/事件，然后改写明确的数据。
-
-Shooter 示例：
+System 不拥有玩家、敌人或分数。它查询需要的事实，读取输入/资源/事件，然后改写明确的数据。Shooter 示例：
 
 - `ApplyPlayerInputSystem`：`InputFrame + MoveSpeed → Velocity`；
 - `SeekPlayerSystem`：玩家 `Position + MoveSpeed →` 敌人 `Velocity`；
 - `MoveSystem`：`Position + Velocity + delta → Position`；
 - `ResolveDamageSystem`：`DamageRequested + Health → Health/删除/Score`。
 
-**什么时候用 System？**
+作者层可选用 `EcsSystem` 家族，让依赖集中在类头、构造器声明和 `Execute` 开头：
 
-当你能把规则写成“读取 A，更新 B”，并且它需要每 Tick 或某个阶段批量运行时使用。
+```csharp
+public sealed class FireWeaponSystem
+    : EcsSystem<Position, WeaponConfig, Cooldown>
+{
+    public FireWeaponSystem()
+    {
+        RunInState<MatchState>(GamePhase.Playing);
+        Filter.AllTags(Tags.Get<PlayerFaction>());
+    }
 
-System 可以保留临时工作集合，例如同 Tick 去重用的 `HashSet`；但会影响玩法、回放或重置的长期状态，应优先放进 Component 或 Resource。
+    protected override void Execute()
+    {
+        FireInputState edge = Res<FireInputState>();
+        bool pressed = Input.FirePressed;
+        // Query.ForEachEntity(...)
+    }
+}
+```
+
+一眼可见的依赖是：查询组件泛型、`MatchState` 运行条件、Tag 过滤、`FireInputState` Resource 和当前输入。`World`、`Input`、`Res<T>()`、`State<T>()`、`ReadEvents<T>()`、`WriteEvents<T>()` 由基类提供，不再为每个系统保存 `_world`、写构造器注入和手工判空。
+
+`EcsSystem<T...>` 底层仍继承 Friflo `QuerySystem<T...>`；原有 `BaseSystem`、`QuerySystem<T...>` 与 `EcsWorld.AddSystem` 完全保留。新基类是作者层捷径，不是对 Friflo 的替换。
+
+#### System 纯函数约束
+
+这里的“纯”不是说 System 不修改世界，而是说：**相同输入事实应产生相同输出事实，System 实例本身不暗藏跨 Tick 的玩法状态。**
+
+- 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入 Component 或 Resource；
+- 倒计时、输入边沿、随机种子、累计分数不能藏在 System 字段；
+- 允许保存安装期不变配置，以及每次 `Execute` 开头清空的临时工作区；
+- `ResolveDamageSystem` 的两个 `HashSet<EntityHandle>` 只做同 Tick 去重，并在每次执行开头 `Clear()`，因此是可接受的 scratch state；
+- 如果删掉 System 再重建会改变下一 Tick 玩法结果，说明它藏了状态，应把那份数据搬回 Resource/Component。
 
 ---
 
@@ -233,7 +278,7 @@ System 可以保留临时工作集合，例如同 Tick 去重用的 `HashSet`；
 
 1. 每实体还是全世界一份？决定 Component 或 Resource；
 2. 长期事实还是瞬时发生？决定 State 或 Event；
-3. 对每实体事实再问：能力、运行状态、参数、标签关系中的哪一种？
+2. 长期事实还是瞬时发生？决定 Component/Resource 或 Event；若世界阶段互斥且切换有生命周期，再把该 Resource 表达为 `EcsState<T>`；
 
 例如：
 
@@ -278,7 +323,7 @@ Shooter 的明确顺序：
 5. 先结束对局，再结算伤害；
 6. 清理超射程投射物。
 
-顺序不是性能细节，而是游戏语义。`ShooterFeature` 集中展示这条因果链。
+顺序不是性能细节，而是游戏语义。`ShooterFeature` 通过嵌套 `MatchFeature/CombatFeature/...` 集中展示这条因果链。
 
 ### 第六步：提取 Bundle 与 Composition Root
 
@@ -290,10 +335,10 @@ Shooter 的明确顺序：
 public static void Install(EcsWorld world)
 {
     world
-        .InsertResource(new MatchState())
         .InsertResource(new SpawnConfig())
         .InsertResource(new SpawnState())
-        .InsertResource(new FireInputState());
+        .InsertResource(new FireInputState())
+        .InsertResource(new MatchState());
 
     world.SpawnNow(PlayerBundle.Default);
     world.AddFeature(new ShooterFeature());
@@ -312,7 +357,7 @@ public static void Install(EcsWorld world)
 shooter-poc/
 ├─ Gameplay/
 │  ├─ ShooterGame.cs          # 唯一 Composition Root
-│  ├─ ShooterFeature.cs       # 系统因果顺序
+│  ├─ ShooterFeature.cs       # 大 Feature 嵌套小 Feature，集中表达系统因果顺序
 │  ├─ Actors/                 # 玩家、敌人的能力/关系/配方/规则
 │  ├─ Combat/                 # 武器、投射物、伤害事件与规则
 │  ├─ Match/                  # 对局状态、结束事件与规则
@@ -343,7 +388,9 @@ Events.cs
 - `EcsWorld.InsertResource`：装配全局事实；
 - `EcsWorld.SpawnNow`：Composition Root、关卡装载、测试安排中的立即生成；
 - `WorldCommandBuffer.Spawn`：System 查询期间的延迟生成；
-- `EcsWorld.AddFeature`：按功能安装系统；
+- `EcsWorld.AddFeature`：按功能安装系统；`Install` 内可继续 `AddFeature` 组合子功能；
+- `EcsSystem` / `EcsSystem<T...>`：显式获取世界依赖并声明 State 运行条件；
+- `EcsState<T>`：集中执行世界阶段的 `OnExit/OnEnter`；
 - `EntityHandle`：跨 Tick 引用实体，校验 Id + Revision。
 
 ### 何时仍会看到 Friflo
@@ -393,9 +440,11 @@ Events.cs
 - [ ] 每份数据的拥有者是实体还是世界？
 - [ ] 每个组件只属于能力、状态、参数、标签关系中的一个主要类别吗？
 - [ ] 配置里是否偷偷混入倒计时、当前位置、累计值？
-- [ ] System 能否写成“读取 A，更新 B”？
+- [ ] System 能否写成“读取 A，更新 B”，且类字段没有藏跨 Tick 玩法状态？
+- [ ] System 的组件、Resource、Event、输入与 State 条件是否一眼可见？
+- [ ] 互斥世界阶段是否用 `EcsState<T>` 集中处理 `OnExit/OnEnter`？
 - [ ] 瞬时跨系统因果是否应该使用 Event？
-- [ ] 创建长链是否已经提取为 Bundle？
+- [ ] 创建长链是否已经提取为 Bundle？大功能是否通过嵌套 Feature 组合小功能？
 - [ ] 世界装配是否只从一个 Composition Root 进入？
 - [ ] 测试安排是否和游戏装配分开？
 - [ ] 新开发者能否先读 `ShooterGame.Install`，再按功能逐层深入？

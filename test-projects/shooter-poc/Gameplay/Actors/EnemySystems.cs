@@ -4,29 +4,24 @@
 using System;
 using Baize.Ecs;
 using Friflo.Engine.ECS;
-using Friflo.Engine.ECS.Systems;
 
 namespace ShooterPoc;
 
-public sealed class SeekPlayerSystem : QuerySystem<Position, Velocity, SeekTarget, MoveSpeed>
+public sealed class SeekPlayerSystem : EcsSystem<Position, Velocity, SeekTarget, MoveSpeed>
 {
-	private readonly EcsWorld _world;
-
-	public SeekPlayerSystem(EcsWorld world)
+	public SeekPlayerSystem()
 	{
-		_world = world;
+		RunInState<MatchState>(GamePhase.Playing);
 		Filter.AllTags(Tags.Get<EnemyFaction>());
 	}
 
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		var match = _world.GetResource<MatchState>();
 		bool foundPlayer = TryGetPlayerPosition(out Position playerPosition);
-
 		Query.ForEachEntity((ref Position position, ref Velocity velocity,
 			ref SeekTarget _, ref MoveSpeed speed, Entity entity) =>
 		{
-			if (match.Phase != GamePhase.Playing || !foundPlayer)
+			if (!foundPlayer)
 			{
 				velocity.X = 0;
 				velocity.Z = 0;
@@ -50,7 +45,7 @@ public sealed class SeekPlayerSystem : QuerySystem<Position, Velocity, SeekTarge
 
 	private bool TryGetPlayerPosition(out Position position)
 	{
-		foreach (var player in _world.Store.Query<Position>()
+		foreach (var player in World.Store.Query<Position>()
 					 .AllTags(Tags.Get<PlayerFaction>()).Entities)
 		{
 			position = player.GetComponent<Position>();
@@ -62,21 +57,18 @@ public sealed class SeekPlayerSystem : QuerySystem<Position, Velocity, SeekTarge
 	}
 }
 
-public sealed class EnemyContactSystem : QuerySystem<Position, CollisionRadius>
+public sealed class EnemyContactSystem : EcsSystem<Position, CollisionRadius>
 {
-	private readonly EcsWorld _world;
-
-	public EnemyContactSystem(EcsWorld world)
+	public EnemyContactSystem()
 	{
-		_world = world;
+		RunInState<MatchState>(GamePhase.Playing);
 		Filter.AllTags(Tags.Get<EnemyFaction>());
 	}
 
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		if (_world.GetResource<MatchState>().Phase != GamePhase.Playing) return;
-
-		foreach (var player in _world.Store.Query<Position, CollisionRadius>()
+		EventWriter<GameOverRequested> writer = WriteEvents<GameOverRequested>();
+		foreach (var player in World.Store.Query<Position, CollisionRadius>()
 					 .AllTags(Tags.Get<PlayerFaction>()).Entities)
 		{
 			Position playerPosition = player.GetComponent<Position>();
@@ -89,7 +81,7 @@ public sealed class EnemyContactSystem : QuerySystem<Position, CollisionRadius>
 				float contactDistance = playerRadius.Value + radius.Value;
 				if (MathF.Sqrt(dx * dx + dz * dz) <= contactDistance)
 				{
-					_world.Events.Writer<GameOverRequested>().Send(default);
+					writer.Send(default);
 				}
 			});
 		}

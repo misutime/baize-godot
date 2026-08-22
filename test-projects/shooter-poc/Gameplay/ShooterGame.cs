@@ -14,10 +14,10 @@ public static class ShooterGame
 	public static void Install(EcsWorld world)
 	{
 		world
-			.InsertResource(new MatchState())
 			.InsertResource(new SpawnConfig())
 			.InsertResource(new SpawnState())
-			.InsertResource(new FireInputState());
+			.InsertResource(new FireInputState())
+			.InsertResource(new MatchState());
 
 		world.SpawnNow(PlayerBundle.Default);
 		world.AddFeature(new ShooterFeature());

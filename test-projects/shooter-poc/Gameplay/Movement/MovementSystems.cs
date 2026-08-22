@@ -3,20 +3,15 @@
 
 using Baize.Ecs;
 using Friflo.Engine.ECS;
-using Friflo.Engine.ECS.Systems;
 
 namespace ShooterPoc;
 
-public sealed class MoveSystem : QuerySystem<Position, PreviousPosition, Velocity>
+public sealed class MoveSystem : EcsSystem<Position, PreviousPosition, Velocity>
 {
-	private readonly EcsWorld _world;
+	public MoveSystem() => RunInState<MatchState>(GamePhase.Playing);
 
-	public MoveSystem(EcsWorld world) => _world = world;
-
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		if (_world.GetResource<MatchState>().Phase != GamePhase.Playing) return;
-
 		float delta = Tick.deltaTime;
 		Query.ForEachEntity((ref Position position, ref PreviousPosition previous,
 			ref Velocity velocity, Entity entity) =>

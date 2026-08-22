@@ -48,6 +48,10 @@ public sealed class EcsWorld : IDisposable
     public EcsWorld InsertResource<T>(T resource) where T : class
     {
         _resources.Set(resource);
+        if (resource is IEcsStateBinding state)
+        {
+            state.Bind(this);
+        }
         return this;
     }
 
@@ -162,10 +166,17 @@ public sealed class EcsWorld : IDisposable
     /// <summary>注册一个系统到指定阶段（底层能力；游戏装配优先通过 AddFeature 分组）。</summary>
     public void AddSystem(BaseSystem system, Phase phase = Phase.Simulation)
     {
+        if (system is IEcsSystemBinding ecsSystem)
+        {
+            ecsSystem.Bind(this);
+        }
         _phaseGroups[phase].Add(system);
     }
 
-    /// <summary>作者层：安装一个功能切片，并返回世界以便连续装配。</summary>
+    /// <summary>
+    /// 作者层：安装一个功能切片，并返回世界以便连续装配。
+    /// Feature.Install 内可继续 AddFeature，把小功能组合为更大的功能。
+    /// </summary>
     public EcsWorld AddFeature(IEcsFeature feature)
     {
         feature.Install(this);

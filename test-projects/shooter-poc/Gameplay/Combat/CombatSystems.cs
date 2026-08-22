@@ -5,27 +5,21 @@ using System;
 using System.Collections.Generic;
 using Baize.Ecs;
 using Friflo.Engine.ECS;
-using Friflo.Engine.ECS.Systems;
 
 namespace ShooterPoc;
 
-public sealed class FireWeaponSystem : QuerySystem<Position, WeaponConfig, Cooldown>
+public sealed class FireWeaponSystem : EcsSystem<Position, WeaponConfig, Cooldown>
 {
-	private readonly EcsWorld _world;
-
-	public FireWeaponSystem(EcsWorld world)
+	public FireWeaponSystem()
 	{
-		_world = world;
+		RunInState<MatchState>(GamePhase.Playing);
 		Filter.AllTags(Tags.Get<PlayerFaction>());
 	}
 
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		var match = _world.GetResource<MatchState>();
-		if (match.Phase != GamePhase.Playing) return;
-
-		var edgeState = _world.GetResource<FireInputState>();
-		bool firePressed = _world.CurrentInput.FirePressed;
+		FireInputState edgeState = Res<FireInputState>();
+		bool firePressed = Input.FirePressed;
 		bool fireEdge = firePressed && !edgeState.WasPressed;
 		float delta = Tick.deltaTime;
 
@@ -36,7 +30,7 @@ public sealed class FireWeaponSystem : QuerySystem<Position, WeaponConfig, Coold
 			if (!fireEdge || cooldown.Remaining > 0) return;
 
 			cooldown.Remaining = weapon.CooldownSeconds;
-			_world.CommandBuffer.Spawn(new ProjectileBundle(
+			World.CommandBuffer.Spawn(new ProjectileBundle(
 				position.X, position.Z, 0, weapon.ProjectileSpeed));
 		});
 
@@ -45,25 +39,21 @@ public sealed class FireWeaponSystem : QuerySystem<Position, WeaponConfig, Coold
 }
 
 public sealed class SweptProjectileHitSystem
-	: QuerySystem<Position, PreviousPosition, ProjectileConfig, CollisionRadius>
+	: EcsSystem<Position, PreviousPosition, ProjectileConfig, CollisionRadius>
 {
-	private readonly EcsWorld _world;
-
-	public SweptProjectileHitSystem(EcsWorld world)
+	public SweptProjectileHitSystem()
 	{
-		_world = world;
+		RunInState<MatchState>(GamePhase.Playing);
 		Filter.AllTags(Tags.Get<ProjectileTag>());
 	}
 
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		if (_world.GetResource<MatchState>().Phase != GamePhase.Playing) return;
-
-		EventWriter<DamageRequested> writer = _world.Events.Writer<DamageRequested>();
+		EventWriter<DamageRequested> writer = WriteEvents<DamageRequested>();
 		Query.ForEachEntity((ref Position position, ref PreviousPosition previous,
 			ref ProjectileConfig projectile, ref CollisionRadius projectileRadius, Entity source) =>
 		{
-			foreach (var target in _world.Store.Query<Position, Health, CollisionRadius>()
+			foreach (var target in World.Store.Query<Position, Health, CollisionRadius>()
 						 .AllTags(Tags.Get<EnemyFaction>()).Entities)
 			{
 				ref Position targetPosition = ref target.GetComponent<Position>();
@@ -75,7 +65,7 @@ public sealed class SweptProjectileHitSystem
 				if (distance > combinedRadius) continue;
 
 				writer.Send(new DamageRequested(
-					_world.GetHandle(source), _world.GetHandle(target), projectile.Damage));
+					World.GetHandle(source), World.GetHandle(target), projectile.Damage));
 				break;
 			}
 		});
@@ -104,30 +94,24 @@ public sealed class SweptProjectileHitSystem
 	}
 }
 
-public sealed class ResolveDamageSystem : BaseSystem
+public sealed class ResolveDamageSystem : EcsSystem
 {
-	private readonly EcsWorld _world;
+	// 每次 Execute 开头清空：仅是本 Tick 去重工作区，不是玩法状态。
 	private readonly HashSet<EntityHandle> _hitTargets = new();
 	private readonly HashSet<EntityHandle> _hitSources = new();
 
-	public ResolveDamageSystem(EcsWorld world) => _world = world;
+	public ResolveDamageSystem() => RunInState<MatchState>(GamePhase.Playing);
 
-	protected override void OnUpdateGroup()
+	protected override void Execute()
 	{
-		EventReader<DamageRequested> reader = _world.Events.Reader<DamageRequested>();
-		var match = _world.GetResource<MatchState>();
-		if (match.Phase != GamePhase.Playing)
-		{
-			reader.Consume();
-			return;
-		}
-
+		EventReader<DamageRequested> reader = ReadEvents<DamageRequested>();
+		MatchState match = State<MatchState>();
 		_hitTargets.Clear();
 		_hitSources.Clear();
 		foreach (DamageRequested request in reader.Read())
 		{
-			Entity source = _world.ResolveHandle(request.Source);
-			Entity target = _world.ResolveHandle(request.Target);
+			Entity source = World.ResolveHandle(request.Source);
+			Entity target = World.ResolveHandle(request.Target);
 			if (source.IsNull || target.IsNull
 				|| !source.Tags.Has<ProjectileTag>()
 				|| !target.Tags.Has<EnemyFaction>()
@@ -137,7 +121,7 @@ public sealed class ResolveDamageSystem : BaseSystem
 			}
 
 			if (!_hitSources.Add(request.Source)) continue;
-			_world.CommandBuffer.DeleteEntity(source.Id);
+			World.CommandBuffer.DeleteEntity(source.Id);
 
 			// 同 Tick 同一目标只结算一次，避免多个投射物重复消费同一次死亡。
 			if (!_hitTargets.Add(request.Target)) continue;
@@ -146,7 +130,7 @@ public sealed class ResolveDamageSystem : BaseSystem
 			health.Current -= request.Amount;
 			if (health.Current > 0) continue;
 
-			_world.CommandBuffer.DeleteEntity(target.Id);
+			World.CommandBuffer.DeleteEntity(target.Id);
 			match.Score++;
 			if (match.AliveEnemies > 0) match.AliveEnemies--;
 		}
@@ -156,20 +140,16 @@ public sealed class ResolveDamageSystem : BaseSystem
 }
 
 public sealed class CleanupProjectilesSystem
-	: QuerySystem<Velocity, TravelDistance, ProjectileConfig>
+	: EcsSystem<Velocity, TravelDistance, ProjectileConfig>
 {
-	private readonly EcsWorld _world;
-
-	public CleanupProjectilesSystem(EcsWorld world)
+	public CleanupProjectilesSystem()
 	{
-		_world = world;
+		RunInState<MatchState>(GamePhase.Playing);
 		Filter.AllTags(Tags.Get<ProjectileTag>());
 	}
 
-	protected override void OnUpdate()
+	protected override void Execute()
 	{
-		if (_world.GetResource<MatchState>().Phase != GamePhase.Playing) return;
-
 		float delta = Tick.deltaTime;
 		Query.ForEachEntity((ref Velocity velocity, ref TravelDistance travelled,
 			ref ProjectileConfig config, Entity entity) =>
@@ -178,7 +158,7 @@ public sealed class CleanupProjectilesSystem
 				velocity.X * velocity.X + velocity.Z * velocity.Z) * delta;
 			if (travelled.Value > config.MaxRange)
 			{
-				_world.CommandBuffer.DeleteEntity(entity.Id);
+				World.CommandBuffer.DeleteEntity(entity.Id);
 			}
 		});
 	}
