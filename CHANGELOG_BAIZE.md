@@ -22,6 +22,7 @@
 - **P2.1 EcsWorld 框架实施（modules/ecs/）**：固定 Tick（TickIndex/FixedDelta）+ Step(InputFrame) + AddSystem(phase) + Reset；InputFrame（不可变输入帧）；EntityHandle（Id+Revision 安全句柄）；WorldCommandBuffer（链式创建 + Playback 归还池）；WorldEvents（事件总线）；ecsworld-smoke 冒烟测试 12 项断言全绿。
 - **借鉴 Bevy（P2.1）**：`EcsResource`（全局单例，Bevy Resource——GameState/Score 不再设计成组件挂实体）；`IEntityBundle`（组件组合，Bevy Bundle——支撑 W1 Object=组件组合心智模型）；`EventWriter/EventReader`（读写分离，Bevy Event）。
 - **同事协同论证（总方案 v4.4）**：独立确认 All-in C# 不荒谬——真正必须 C++ 只有 5%~15% 代码但占 50%~90% CPU 预算；分界原则"人在编辑器操作的东西优先 C#，每帧对海量数据/GPU 底层处理保留 native"；Godot Native Core 准确定位（Renderer/平台/生态接口保留，非性能敏感 C++ 上层迁移 C#）；3D Viewport 是 World 的一个 View（编辑器工具逻辑 C#，Renderer 保留 native）；性能优化次序（默认 C#→profile→hotspot→数据结构/算法→SIMD→才下沉）。同步到 §1.2.1 + §4.2 + §3.1。
+- **社区调研佐证（总方案 v4.5）**：各引擎/语言"易用 vs 性能平衡"调研——混合架构(ECS 大规模模拟+对象表现)是主流(Unity DOTS 三层 Stratkit/Unreal Mass/Bevy 宏)；Bridge 层隔离(对应 EcsHost)；Archetypal ECS 非万能；Sparse-set vs Archetype 权衡(CommandBuffer 延迟变更)；先简单按需加复杂度。§3.1.1。结论：与社区共识一致，唯一长期方向是源生成器系统。
 - **slnx review 修复（PR #5）**：改用官方 SolutionPersistence（SolutionModel + SlnXml）生成 slnx（schema 合法 BuildType + XML 转义）；LegacySolutionPath 精确清理另一格式（自定义名/双向切换）；csproj BOM。
 - **CI 平台矩阵裁剪（PR #6）**：runner.yml 只保留 Linux+Windows+静态检查，移除 Android/iOS/macOS/Web 构建（平台文件保留可手动触发，符合宪法 6 先禁用后裁剪）。
 - **基底定案：4.8-dev**（不切 4.7.2——4.8-dev 是 4.7 直系后代含全量功能 + mono 更新 + 零迁移，见总方案 §2.2）。
