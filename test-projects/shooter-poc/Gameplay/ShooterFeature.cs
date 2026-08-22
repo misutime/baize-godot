@@ -5,58 +5,37 @@ using Baize.Ecs;
 
 namespace ShooterPoc;
 
-/// <summary>大 Feature 只组合小 Feature；因果顺序由各 Phase 内的安装顺序表达。</summary>
-public sealed class ShooterFeature : IEcsFeature
-{
-	public void Install(EcsWorld world)
-	{
-		world
-			.AddFeature(new MatchFeature())
-			.AddFeature(new CombatFeature())
-			.AddFeature(new SpawningFeature())
-			.AddFeature(new ActorsFeature())
-			.AddFeature(new MovementFeature());
-	}
-}
+/// <summary>大 Feature 只组合小 Feature；跨 Feature 因果顺序由 manifest 词法顺序表达。</summary>
+[EcsFeature]
+[AddFeature<MatchFeature>]
+[AddFeature<CombatFeature>]
+[AddFeature<SpawningFeature>]
+[AddFeature<ActorsFeature>]
+[AddFeature<MovementFeature>]
+public sealed partial class ShooterFeature : IEcsFeature { }
 
-internal sealed class MatchFeature : IEcsFeature
-{
-	public void Install(EcsWorld world)
-	{
-		// Resolve 内先结束对局，随后 CombatFeature 才会尝试结算伤害。
-		world.AddSystem(new EndMatchSystem(), Phase.Resolve);
-	}
-}
+/// <summary>Resolve 内先结束对局，随后 CombatFeature 才会尝试结算伤害。</summary>
+[EcsFeature]
+[AddSystem<EndMatchSystem>(Phase.Resolve)]
+internal sealed partial class MatchFeature : IEcsFeature { }
 
-internal sealed class CombatFeature : IEcsFeature
-{
-	public void Install(EcsWorld world)
-	{
-		world.AddSystem(new FireWeaponSystem(), Phase.Spawn);
-		world.AddSystem(new SweptProjectileHitSystem(), Phase.Collision);
-		world.AddSystem(new ResolveDamageSystem(), Phase.Resolve);
-		world.AddSystem(new CleanupProjectilesSystem(), Phase.Cleanup);
-	}
-}
+[EcsFeature]
+[AddSystem<FireWeaponSystem>(Phase.Spawn)]
+[AddSystem<SweptProjectileHitSystem>(Phase.Collision)]
+[AddSystem<ResolveDamageSystem>(Phase.Resolve)]
+[AddSystem<CleanupProjectilesSystem>(Phase.Cleanup)]
+internal sealed partial class CombatFeature : IEcsFeature { }
 
-internal sealed class SpawningFeature : IEcsFeature
-{
-	public void Install(EcsWorld world) =>
-		world.AddSystem(new SpawnEnemiesSystem(), Phase.Spawn);
-}
+[EcsFeature]
+[AddSystem<SpawnEnemiesSystem>(Phase.Spawn)]
+internal sealed partial class SpawningFeature : IEcsFeature { }
 
-internal sealed class ActorsFeature : IEcsFeature
-{
-	public void Install(EcsWorld world)
-	{
-		world.AddSystem(new ApplyPlayerInputSystem(), Phase.Input);
-		world.AddSystem(new SeekPlayerSystem(), Phase.Simulation);
-		world.AddSystem(new EnemyContactSystem(), Phase.Collision);
-	}
-}
+[EcsFeature]
+[AddSystem<ApplyPlayerInputSystem>(Phase.Input)]
+[AddSystem<SeekPlayerSystem>(Phase.Simulation)]
+[AddSystem<EnemyContactSystem>(Phase.Collision)]
+internal sealed partial class ActorsFeature : IEcsFeature { }
 
-internal sealed class MovementFeature : IEcsFeature
-{
-	public void Install(EcsWorld world) =>
-		world.AddSystem(new MoveSystem(), Phase.Simulation);
-}
+[EcsFeature]
+[AddSystem<MoveSystem>(Phase.Simulation)]
+internal sealed partial class MovementFeature : IEcsFeature { }
