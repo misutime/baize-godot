@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MIT -->
+﻿<!-- SPDX-License-Identifier: MIT -->
 <Project Sdk="Godot.NET.Sdk/4.8.0-dev">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
