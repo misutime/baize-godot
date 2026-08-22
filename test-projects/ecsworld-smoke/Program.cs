@@ -123,8 +123,8 @@ class Program
 		if (Math.Abs(p1.X) < 0.001f && Math.Abs(p1.Z) < 0.001f) { Console.WriteLine("FAIL: 确定性测试未实际运行系统"); failures++; }
 
 		// 10. Resource（全局单例，借鉴 Bevy）
-		world.Resources.Set(new Score(100));
-		var score = world.Resources.Get<Score>();
+		world.WorldState.Set(new Score(100));
+		var score = world.WorldState.Get<Score>();
 		Console.WriteLine($"ecsworld-smoke: Resource Score = {score.Value}");
 		if (score == null || score.Value != 100) { Console.WriteLine("FAIL: Resource"); failures++; }
 
@@ -182,3 +182,4 @@ class Program
 		else { Environment.Exit(1); }
 	}
 }
+

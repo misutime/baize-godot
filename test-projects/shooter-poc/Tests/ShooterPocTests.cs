@@ -59,7 +59,7 @@ internal static class ShooterPocTests
 			Mix(ref hash, ComputeStateHash(world));
 		}
 
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		return new RunResult(unchecked((long)hash), match.Score, match.Phase,
 			CountEntitiesWithTag<ProjectileTag>(world));
 	}
@@ -93,7 +93,7 @@ internal static class ShooterPocTests
 		AddProjectile(world, 0.1f, 0, 0, 120);
 
 		StepEmpty(world, 3);
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		int enemies = CountEntitiesWithTag<EnemyFaction>(world);
 		Console.WriteLine($"shooter-poc: 多命中 score={match.Score}, 敌人={enemies}");
 
@@ -109,17 +109,17 @@ internal static class ShooterPocTests
 		AddEnemy(futureWorld, 0, 1.8f, moveSpeed: 0);
 		AddProjectile(futureWorld, 0, 0, 0, 60);
 		StepEmpty(futureWorld, 2);
-		Check(futureWorld.GetResource<MatchState>().Score == 0,
+		Check(futureWorld.GetState<MatchState>().Score == 0,
 			"swept 错把 current→future 当作本 Tick 轨迹");
 		futureWorld.Tick(InputFrame.Empty);
-		Check(futureWorld.GetResource<MatchState>().Score == 1,
+		Check(futureWorld.GetState<MatchState>().Score == 1,
 			"swept previous→current 未在真实穿越 Tick 命中");
 
 		EcsWorld radiusWorld = CreateWorld(maxAlive: 0);
 		AddEnemy(radiusWorld, 0.65f, 1, moveSpeed: 0, radius: 0.5f);
 		AddProjectile(radiusWorld, 0, 0, 0, 60, radius: 0.2f);
 		StepEmpty(radiusWorld, 2);
-		int radiusScore = radiusWorld.GetResource<MatchState>().Score;
+		int radiusScore = radiusWorld.GetState<MatchState>().Score;
 		Console.WriteLine($"shooter-poc: swept previous→current + 半径和 score={radiusScore}");
 		Check(radiusScore == 1, "swept 未使用敌人半径 + 投射物半径");
 	}
@@ -131,7 +131,7 @@ internal static class ShooterPocTests
 
 		world.Tick(InputFrame.Empty);
 		world.Tick(new InputFrame(1, 0, true));
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		Check(match.Phase == GamePhase.GameOver,
 			$"接触敌人后应 GameOver，实际 {match.Phase}");
 
@@ -166,14 +166,14 @@ internal static class ShooterPocTests
 		Entity oldTarget = AddEnemy(world, 10, 0, moveSpeed: 0);
 
 		oldTarget.DeleteEntity();
-		world.GetResource<MatchState>().AliveEnemies = 0;
+		world.GetState<MatchState>().AliveEnemies = 0;
 
 		Entity newTarget = AddEnemy(world, 10, 0, moveSpeed: 0, entityId: oldTarget.Id);
 		world.Events.Writer<DamageRequested>()
 			.Send(new DamageRequested(source, oldTarget, 1));
 		world.Tick(InputFrame.Empty);
 
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		bool reused = oldTarget.Id == newTarget.Id && oldTarget.Revision != newTarget.Revision;
 		bool replacementsAlive = !source.IsNull && !newTarget.IsNull;
 		Console.WriteLine($"shooter-poc: ID 复用 source={source}, " +
@@ -196,21 +196,21 @@ internal static class ShooterPocTests
 
 		world.Reset();
 		world
-			.InsertResource(new MatchState())
-			.InsertResource(new SpawnState())
-			.InsertResource(new FireInputState());
+			.InsertState(new MatchState())
+			.InsertState(new SpawnState())
+			.InsertState(new FireInputState());
 
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		int entityCount = CountAllEntities(world);
 		Console.WriteLine($"shooter-poc: Reset 后 score={match.Score}, 实体={entityCount}, " +
-						  $"Tick={world.TickIndex}, FireWasPressed={world.GetResource<FireInputState>().WasPressed}");
+						  $"Tick={world.TickIndex}, FireWasPressed={world.GetState<FireInputState>().WasPressed}");
 
 		Check(match.Score == 0 && match.AliveEnemies == 0
 							   && match.Phase == GamePhase.Playing,
 			"Reset 后 MatchState 未归零");
 		Check(entityCount == 0, $"Reset 后全部实体应为 0，实际 {entityCount}");
 		Check(world.TickIndex == 0, $"Reset 后 Tick 应为 0，实际 {world.TickIndex}");
-		Check(!world.GetResource<FireInputState>().WasPressed,
+		Check(!world.GetState<FireInputState>().WasPressed,
 			"Reset 后 FireInputState 未归零");
 	}
 
@@ -220,7 +220,7 @@ internal static class ShooterPocTests
 		var world = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
 		ShooterGame.Install(world);
 
-		SpawnConfig config = world.GetResource<SpawnConfig>();
+		SpawnConfig config = world.GetState<SpawnConfig>();
 		config.Interval = spawnInterval;
 		config.MaxAlive = maxAlive;
 		config.SpawnRadius = spawnRadius;
@@ -234,7 +234,7 @@ internal static class ShooterPocTests
 		Entity entity = entityId.HasValue
 			? world.SpawnNow(entityId.Value, bundle)
 			: world.SpawnNow(bundle);
-		world.GetResource<MatchState>().AliveEnemies++;
+		world.GetState<MatchState>().AliveEnemies++;
 		return entity;
 	}
 
@@ -286,18 +286,18 @@ internal static class ShooterPocTests
 	private static ulong ComputeStateHash(EcsWorld world)
 	{
 		ulong hash = 1469598103934665603UL;
-		MatchState match = world.GetResource<MatchState>();
+		MatchState match = world.GetState<MatchState>();
 		Mix(ref hash, (long)world.TickIndex);
 		Mix(ref hash, (int)match.Phase);
 		Mix(ref hash, match.Score);
 		Mix(ref hash, match.AliveEnemies);
 
-		SpawnConfig config = world.GetResource<SpawnConfig>();
+		SpawnConfig config = world.GetState<SpawnConfig>();
 		Mix(ref hash, config.Interval);
 		Mix(ref hash, config.MaxAlive);
 		Mix(ref hash, config.SpawnRadius);
-		Mix(ref hash, world.GetResource<SpawnState>().Remaining);
-		Mix(ref hash, world.GetResource<FireInputState>().WasPressed ? 1 : 0);
+		Mix(ref hash, world.GetState<SpawnState>().Remaining);
+		Mix(ref hash, world.GetState<FireInputState>().WasPressed ? 1 : 0);
 
 		var entities = new List<Entity>();
 		foreach (Entity entity in world.Store.Entities) entities.Add(entity);
@@ -419,3 +419,4 @@ internal static class ShooterPocTests
 		public int ProjectileCount { get; } = projectileCount;
 	}
 }
+

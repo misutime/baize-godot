@@ -37,7 +37,7 @@ ShooterGame.Install(world);
 `ShooterGame.Install(world)` 展开后仍只有三类作者动作：
 
 ```csharp
-world.InsertResource(...);        // 放入“这一局只有一份”的事实
+world.InsertState(...);        // 放入“这一局只有一份”的事实
 world.SpawnNow(PlayerBundle.Default); // 按配方生成初始对象
 world.AddFeature(new ShooterFeature()); // 启用会持续运行的规则
 ```
@@ -116,7 +116,7 @@ public sealed class MatchState : EcsState<GamePhase>
 State<MatchState>().TransitionTo(GamePhase.GameOver);
 ```
 
-`InsertResource(new MatchState())` 会进入初始状态；以后每次 `TransitionTo` 都严格执行 `OnExit(旧) → OnEnter(新)`。Shooter 在离开 `Playing` 时丢弃未落地命令，进入 `GameOver` 时统一冻结速度，进入 `Playing` 时重置输入边沿和生成节拍。副作用只写一次，不再让每个 System 各自猜测状态切换意味着什么。
+`InsertState(new MatchState())` 会进入初始状态；以后每次 `TransitionTo` 都严格执行 `OnExit(旧) → OnEnter(新)`。Shooter 在离开 `Playing` 时丢弃未落地命令，进入 `GameOver` 时统一冻结速度，进入 `Playing` 时重置输入边沿和生成节拍。副作用只写一次，不再让每个 System 各自猜测状态切换意味着什么。
 
 ### 2.4 Event：已经发生、等待其他规则处理的瞬时事实
 
@@ -356,10 +356,10 @@ Shooter 的明确顺序：
 public static void Install(EcsWorld world)
 {
     world
-        .InsertResource(new SpawnConfig())
-        .InsertResource(new SpawnState())
-        .InsertResource(new FireInputState())
-        .InsertResource(new MatchState());
+        .InsertState(new SpawnConfig())
+        .InsertState(new SpawnState())
+        .InsertState(new FireInputState())
+        .InsertState(new MatchState());
 
     world.SpawnNow(PlayerBundle.Default);
     world.AddFeature(new ShooterFeature());
@@ -406,7 +406,7 @@ Events.cs
 
 ### 作者层优先使用
 
-- `EcsWorld.InsertResource`：装配全局事实；
+- `EcsWorld.InsertState`：装配全局事实；
 - `EcsWorld.SpawnNow`：Composition Root、关卡装载、测试安排中的立即生成；
 - `WorldCommandBuffer.Spawn`：System 查询期间的延迟生成；
 - `EcsWorld.AddFeature`：按功能安装系统；`Install` 内可继续 `AddFeature` 组合子功能；
@@ -471,3 +471,4 @@ Events.cs
 - [ ] 新开发者能否先读 `ShooterGame.Install`，再按功能逐层深入？
 
 如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，事实先于类型，因果先于样板。
+

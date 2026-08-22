@@ -24,7 +24,7 @@ public sealed class EcsWorld : IDisposable
 	private readonly Dictionary<Phase, SystemGroup> _phaseGroups;
 	private readonly WorldCommandBuffer _commandBuffer;
 	private readonly WorldEvents _events;
-	private readonly EcsResource _resources;
+	private readonly WorldState _worldState;
 
 	private ulong _tickIndex;
 	private bool _disposed;
@@ -42,14 +42,14 @@ public sealed class EcsWorld : IDisposable
 	public WorldEvents Events => _events;
 
 	/// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
-	public EcsResource Resources => _resources;
+	public WorldState WorldState => _worldState;
 
 	/// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
-	public EcsWorld InsertResource<T>(T resource) where T : class
+	public EcsWorld InsertState<T>(T resource) where T : class
 	{
 		// P2-1：事务性插入——绑定失败时恢复旧值/移除新值（避免污染世界）。
-		var previous = _resources.Has<T>() ? _resources.Get<T>() : null;
-		_resources.Set(resource);   // 先放入（若绑定失败再回滚）
+		var previous = _worldState.Has<T>() ? _worldState.Get<T>() : null;
+		_worldState.Set(resource);   // 先放入（若绑定失败再回滚）
 		try
 		{
 			if (resource is IEcsStateBinding state)
@@ -59,15 +59,15 @@ public sealed class EcsWorld : IDisposable
 		}
 		catch
 		{
-			if (previous is not null) _resources.Set(previous);
-			else _resources.Remove<T>();
+			if (previous is not null) _worldState.Set(previous);
+			else _worldState.Remove<T>();
 			throw;
 		}
 		return this;
 	}
 
 	/// <summary>作者层：获取必需资源；未安装时抛出清晰错误。</summary>
-	public T GetResource<T>() where T : class => _resources.GetOrThrow<T>();
+	public T GetState<T>() where T : class => _worldState.GetOrThrow<T>();
 
 	/// <summary>
 	/// 作者层：立刻用 Bundle 创建实体。仅用于 Composition Root、关卡装载和测试安排；
@@ -108,7 +108,7 @@ public sealed class EcsWorld : IDisposable
 		_phaseGroups = CreatePhaseGroups(_root);
 		_commandBuffer = new WorldCommandBuffer(_store);
 		_events = new WorldEvents();
-		_resources = new EcsResource();
+		_worldState = new WorldState();
 	}
 
 	/// <summary>进程级 EntitySchema 初始化（线程安全：锁内二次检查）。</summary>
@@ -268,3 +268,4 @@ public enum Phase
 	Cleanup,
 	RenderExtract,
 }
+

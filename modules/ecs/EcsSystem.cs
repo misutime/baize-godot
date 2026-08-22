@@ -37,7 +37,7 @@ internal sealed class EcsStateCondition<TState> : IEcsSystemCondition
 
 	public bool Matches(EcsWorld world)
 	{
-		TState state = world.GetResource<TState>();
+		TState state = world.GetState<TState>();
 		// P1-1：校验 required 的枚举类型与状态 CurrentValue 类型一致，否则抛异常——
 		// 避免传错枚举（如 MatchState.SomeOtherEnum）时 Is(object) 静默返回 false 停用规则。
 		object current = state.CurrentValue;
@@ -107,8 +107,8 @@ public abstract class EcsSystem : BaseSystem, IEcsSystemBinding
 
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected EcsReadQuery<T1> Read<T1>() where T1 : struct, IComponent => _context.Read<T1>();
@@ -144,8 +144,8 @@ public abstract class EcsSystem<T1> : QuerySystem<T1>, IEcsSystemBinding
 	private readonly EcsSystemContext _context = new();
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
@@ -177,8 +177,8 @@ public abstract class EcsSystem<T1, T2> : QuerySystem<T1, T2>, IEcsSystemBinding
 	private readonly EcsSystemContext _context = new();
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
@@ -211,8 +211,8 @@ public abstract class EcsSystem<T1, T2, T3> : QuerySystem<T1, T2, T3>, IEcsSyste
 	private readonly EcsSystemContext _context = new();
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
@@ -246,8 +246,8 @@ public abstract class EcsSystem<T1, T2, T3, T4> : QuerySystem<T1, T2, T3, T4>, I
 	private readonly EcsSystemContext _context = new();
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
@@ -282,8 +282,8 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	private readonly EcsSystemContext _context = new();
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
-	protected T Res<T>() where T : class => World.GetResource<T>();
-	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
+	protected T Res<T>() where T : class => World.GetState<T>();
+	protected T State<T>() where T : class, IEcsState => World.GetState<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
@@ -306,3 +306,4 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
 }
+
