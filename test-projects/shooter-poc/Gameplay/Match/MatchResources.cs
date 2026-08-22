@@ -30,8 +30,8 @@ public sealed class MatchState : EcsState<GamePhase>
 		if (state == GamePhase.Playing)
 		{
 			// 新一局从干净的输入边沿与生成节拍开始。
-			if (world.WorldState.Get<FireInputState>() is { } fire) fire.WasPressed = false;
-			if (world.WorldState.Get<SpawnState>() is { } spawn) spawn.Remaining = 0;
+			if (world.State.Get<FireInputState>() is { } fire) fire.WasPressed = false;
+			if (world.State.Get<SpawnState>() is { } spawn) spawn.Remaining = 0;
 			return;
 		}
 
@@ -48,4 +48,5 @@ public sealed class MatchState : EcsState<GamePhase>
 		}
 	}
 }
+
 

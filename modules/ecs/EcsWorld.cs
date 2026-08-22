@@ -42,7 +42,7 @@ public sealed class EcsWorld : IDisposable
 	public WorldEvents Events => _events;
 
 	/// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
-	public WorldState WorldState => _worldState;
+	public WorldState State => _worldState;
 
 	/// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
 	public EcsWorld InsertState<T>(T resource) where T : class
@@ -268,4 +268,5 @@ public enum Phase
 	Cleanup,
 	RenderExtract,
 }
+
 
