@@ -18,6 +18,24 @@ internal static class HeadlessE2e
 		SpawnConfig spawn = world.GetState<SpawnConfig>();
 		spawn.MaxAlive = 0;
 
+		// GetVector 的 negative_y（W）输出 Vector2.Up=(0,-1)；屏幕前方是远离 +Z 相机的 -Z。
+		Position beforeForward = GetPlayerPosition(world);
+		InputFrame forwardInput = InputAdapter.TranslateMovement(Vector2.Up, false);
+		host.Step(forwardInput);
+		Position afterForward = GetPlayerPosition(world);
+		InputFrame backInput = InputAdapter.TranslateMovement(Vector2.Down, false);
+		host.Step(backInput);
+		Position afterBack = GetPlayerPosition(world);
+		int directionFailures = 0;
+		directionFailures += Check(forwardInput.MoveZ < 0, $"W 应翻译为 MoveZ<0，实际 {forwardInput.MoveZ}");
+		directionFailures += Check(afterForward.Z < beforeForward.Z,
+			$"W 后玩家应远离相机向 -Z，实际 {beforeForward.Z}->{afterForward.Z}");
+		directionFailures += Check(backInput.MoveZ > 0, $"S 应翻译为 MoveZ>0，实际 {backInput.MoveZ}");
+		directionFailures += Check(afterBack.Z > afterForward.Z,
+			$"S 后玩家应靠近相机向 +Z，实际 {afterForward.Z}->{afterBack.Z}");
+		failures += directionFailures;
+		if (directionFailures == 0) GD.Print("godot-slice: W/S 世界方向通过 [P23_DIRECTION_PASS]");
+
 		foreach (Entity entity in world.Store.Query<WeaponConfig>()
 			.AllTags(Tags.Get<PlayerFaction>()).Entities)
 		{

@@ -58,6 +58,7 @@ try {
 
     $output = Get-Content $outLog -Raw -Encoding UTF8
     $markers = @(
+        "[P23_DIRECTION_PASS]",
         "[P23_FIRE_PASS]",
         "[P23_SCORE_PASS]",
         "[P23_DEATH_PASS]",

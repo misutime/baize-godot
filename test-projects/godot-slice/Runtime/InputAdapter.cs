@@ -17,11 +17,13 @@ public partial class InputAdapter : Node
 	public InputFrame Capture()
 	{
 		Vector2 movement = Input.GetVector(MoveLeft, MoveRight, MoveForward, MoveBack);
-		return new InputFrame(
-			movement.X,
-			-movement.Y,
-			Input.IsActionPressed(Fire),
-			0,
-			1);
+		return TranslateMovement(movement, Input.IsActionPressed(Fire));
 	}
+
+	internal static InputFrame TranslateMovement(Vector2 movement, bool firePressed) => new(
+		movement.X,
+		movement.Y,
+		firePressed,
+		0,
+		1);
 }
