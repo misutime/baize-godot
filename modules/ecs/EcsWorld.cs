@@ -43,6 +43,19 @@ public sealed class EcsWorld : IDisposable
     /// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
     public EcsResource Resources => _resources;
 
+    /// <summary>从 Friflo Entity 构造 EntityHandle（Id+Revision）。</summary>
+    public EntityHandle GetHandle(Entity entity) => new(entity.Id, entity.Revision);
+
+    /// <summary>解析 EntityHandle 为活实体（验证 Revision），不匹配返回 null（防 ID 复用错指）。</summary>
+    public Entity ResolveHandle(EntityHandle handle)
+    {
+        if (_store.TryGetEntityById(handle.Id, out var entity) && entity.Revision == handle.Revision)
+        {
+            return entity;
+        }
+        return default;   // IsNull
+    }
+
     // Friflo EntitySchema 是进程级单例——AOT 注册 + CreateSchema 只执行一次
     // （P1-2 修复：静态锁内二次检查，防并发竞态）
     private static readonly object _schemaLock = new();
@@ -123,7 +136,7 @@ public sealed class EcsWorld : IDisposable
     /// <summary>获取 CommandBuffer（延迟结构变更：创建/删除/添加组件）。</summary>
     public WorldCommandBuffer CommandBuffer => _commandBuffer;
 
-    /// <summary>重置世界：清空实体、Tick、命令、事件、资源、系统状态（P1-3 修复）。</summary>
+    /// <summary>重置世界：清空实体、Tick、命令、事件、系统状态（保留 Resources 配置——由调用方重建游戏状态）。</summary>
     public void Reset()
     {
         // 删除所有实体
@@ -134,7 +147,6 @@ public sealed class EcsWorld : IDisposable
         _tickIndex = 0;
         _commandBuffer.Reset();
         _events.Reset();
-        _resources.Clear();
 
         // P1-3：重置有状态的系统（实现 IResettableSystem 的）
         foreach (var group in _phaseGroups.Values)
