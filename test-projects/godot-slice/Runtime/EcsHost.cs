@@ -22,12 +22,33 @@ public partial class EcsHost : Node
 	public override void _Ready()
 	{
 		_inputAdapter = GetNodeOrNull<InputAdapter>(InputAdapterPath);
+		InitializeWorld();
+	}
+
+	private void InitializeWorld()
+	{
 		World = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
 		ShooterGame.Install(World);
 
 		ShooterFrameSnapshot initial = World.GetState<ShooterSnapshotState>().Current;
 		PreviousSnapshot = initial;
 		CurrentSnapshot = initial;
+	}
+
+	public void Reset()
+	{
+		World?.Dispose();
+		InitializeWorld();
+	}
+
+	public override void _UnhandledInput(InputEvent @event)
+	{
+		if (@event is not InputEventKey keyEvent || !keyEvent.Pressed || keyEvent.Echo) return;
+		if (keyEvent.PhysicalKeycode != Key.R && keyEvent.Keycode != Key.R) return;
+		if (CurrentSnapshot.Hud.Phase != GamePhase.GameOver) return;
+
+		Reset();
+		GetViewport().SetInputAsHandled();
 	}
 
 	public override void _PhysicsProcess(double delta)

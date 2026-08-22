@@ -32,6 +32,8 @@ public partial class HudPresenter : Control
 		_presentedTick = snapshot.TickIndex;
 
 		_score.Text = $"分数：{snapshot.Score}　敌人：{snapshot.AliveEnemies}";
-		_status.Text = snapshot.Phase == GamePhase.Playing ? "状态：游戏中" : "状态：游戏结束";
+		_status.Text = snapshot.Phase == GamePhase.Playing
+			? "状态：游戏中"
+			: "状态：游戏结束，按 R 重新开始";
 	}
 }

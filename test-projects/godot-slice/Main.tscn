@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: MIT
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://Main.cs" id="1_main"]
 [ext_resource type="Script" path="res://Runtime/EcsHost.cs" id="2_host"]
@@ -7,6 +7,16 @@
 [ext_resource type="Script" path="res://Presentation/RenderAdapter.cs" id="4_render"]
 [ext_resource type="Script" path="res://Presentation/CameraPresenter.cs" id="5_camera"]
 [ext_resource type="Script" path="res://Presentation/HudPresenter.cs" id="6_hud"]
+
+[sub_resource type="Shader" id="Shader_grid_ground"]
+code = "shader_type spatial;\nrender_mode unshaded, cull_disabled;\n\nvoid fragment() {\n\tvec2 minor_cell = UV * 50.0;\n\tvec2 minor_distance = abs(fract(minor_cell - 0.5) - 0.5) / fwidth(minor_cell);\n\tfloat minor_line = 1.0 - min(min(minor_distance.x, minor_distance.y), 1.0);\n\n\tvec2 major_cell = UV * 10.0;\n\tvec2 major_distance = abs(fract(major_cell - 0.5) - 0.5) / fwidth(major_cell);\n\tfloat major_line = 1.0 - min(min(major_distance.x, major_distance.y), 1.0);\n\n\tvec3 color = mix(vec3(0.025, 0.04, 0.055), vec3(0.09, 0.19, 0.23), minor_line);\n\tcolor = mix(color, vec3(0.22, 0.52, 0.58), major_line);\n\tALBEDO = color;\n\tROUGHNESS = 0.92;\n}\n"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_grid_ground"]
+shader = SubResource("Shader_grid_ground")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_grid_ground"]
+material = SubResource("ShaderMaterial_grid_ground")
+size = Vector2(100, 100)
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -18,6 +28,9 @@ input_adapter_path = NodePath("InputAdapter")
 
 [node name="InputAdapter" type="Node" parent="EcsHost"]
 script = ExtResource("3_input")
+
+[node name="GridGround" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_grid_ground")
 
 [node name="Presentation" type="Node3D" parent="."]
 

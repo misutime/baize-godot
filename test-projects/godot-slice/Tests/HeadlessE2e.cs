@@ -64,6 +64,22 @@ internal static class HeadlessE2e
 		failures += isolationFailures;
 		if (isolationFailures == 0) GD.Print("godot-slice: 表现节点删除后模拟独立通过 [P23_ISOLATION_PASS]");
 
+		EcsWorld previousWorld = host.World;
+		host.Reset();
+		EcsWorld restartedWorld = host.World;
+		MatchState restartedMatch = restartedWorld.GetState<MatchState>();
+		int restartFailures = 0;
+		restartFailures += Check(!ReferenceEquals(previousWorld, restartedWorld), "重启后应使用全新的 ECS World");
+		restartFailures += Check(restartedMatch.Phase == GamePhase.Playing, "重启后应恢复 Playing");
+		restartFailures += Check(restartedMatch.Score == 0 && restartedMatch.AliveEnemies == 0,
+			"重启后分数与敌人数应归零");
+		restartFailures += Check(restartedWorld.TickIndex == 0, "重启后 Tick 应归零");
+		restartFailures += Check(CountWithTag<PlayerFaction>(restartedWorld) == 1, "重启后应重建唯一玩家");
+		restartFailures += Check(host.CurrentSnapshot.Hud.Phase == GamePhase.Playing,
+			"重启后宿主快照应立即恢复 Playing");
+		failures += restartFailures;
+		if (restartFailures == 0) GD.Print("godot-slice: 游戏重启通过 [P23_RESTART_PASS]");
+
 		if (failures == 0)
 		{
 			GD.Print("godot-slice: P2.3 vertical slice 验证成功 [P23_SLICE_PASS]");

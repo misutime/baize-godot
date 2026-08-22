@@ -62,6 +62,7 @@ try {
         "[P23_SCORE_PASS]",
         "[P23_DEATH_PASS]",
         "[P23_ISOLATION_PASS]",
+        "[P23_RESTART_PASS]",
         "[P23_SLICE_PASS]"
     )
     foreach ($marker in $markers) {
