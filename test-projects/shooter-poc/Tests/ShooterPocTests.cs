@@ -11,13 +11,15 @@ namespace ShooterPoc;
 
 internal static class ShooterPocTests
 {
-	private const int ExpectedScriptScore = 3;
+	// 回放脚本仍固定向 +Z 射击；全向生成后不保证命中，计分规则由专用命中测试覆盖。
+	private const int ExpectedScriptScore = 0;
 	private static int _failures;
 
 	public static int RunAll()
 	{
 		_failures = 0;
 		RunDeterministicTest();
+		RunSpawnCoverageTest();
 		RunFireEdgeTest();
 		RunScoreAndDuplicateHitTest();
 		RunSweptTrajectoryTest();
@@ -48,6 +50,43 @@ internal static class ShooterPocTests
 			$"脚本场景预期 GameOver，实际 {first.Phase}");
 		Check(first.ProjectileCount <= 20,
 			$"投射物无限增长（{first.ProjectileCount}）");
+	}
+
+	private static void RunSpawnCoverageTest()
+	{
+		EcsWorld world = CreateWorld(spawnInterval: 0, maxAlive: 64);
+		var seen = new HashSet<int>();
+		bool positiveX = false;
+		bool negativeX = false;
+		bool positiveZ = false;
+		bool negativeZ = false;
+
+		for (int tick = 0; tick < 66; tick++)
+		{
+			world.Tick(InputFrame.Empty);
+			foreach (Entity entity in world.Store.Query<Position>()
+				.AllTags(Tags.Get<EnemyFaction>()).Entities)
+			{
+				if (!seen.Add(entity.Id)) continue;
+				ref Position position = ref entity.GetComponent<Position>();
+				if (MathF.Abs(position.X) >= MathF.Abs(position.Z))
+				{
+					if (position.X >= 0) positiveX = true;
+					else negativeX = true;
+				}
+				else
+				{
+					if (position.Z >= 0) positiveZ = true;
+					else negativeZ = true;
+				}
+			}
+		}
+
+		Console.WriteLine($"shooter-poc: 生成方向 +X={positiveX}, -X={negativeX}, " +
+			$"+Z={positiveZ}, -Z={negativeZ}, 敌人={seen.Count}");
+		Check(seen.Count == 64, $"期望生成 64 个敌人，实际 {seen.Count}");
+		Check(positiveX && negativeX && positiveZ && negativeZ,
+			"确定性生成序列未覆盖四个方向");
 	}
 
 	private static RunResult RunOnce()

@@ -20,8 +20,29 @@ public sealed class SpawnEnemiesSystem : EcsSystem
 
 		if (match.AliveEnemies >= config.MaxAlive) return;
 
-		// 教学场景固定从 +Z 生成，让“输入→射击→命中→得分”容易观察。
-		World.CommandBuffer.Spawn(new EnemyBundle(0, config.SpawnRadius));
+		// TickIndex 是回放状态的一部分；同 Tick 会得到同一条边与同一偏移，不依赖进程随机源。
+		ulong random = HashTick(World.TickIndex);
+		float edgeOffset = (((random >> 8) & 0x00FF_FFFFUL) / 16_777_215.0f * 2.0f - 1.0f)
+			* config.SpawnRadius;
+		(float x, float z) = (random & 3UL) switch
+		{
+			0 => (config.SpawnRadius, edgeOffset),
+			1 => (-config.SpawnRadius, edgeOffset),
+			2 => (edgeOffset, config.SpawnRadius),
+			_ => (edgeOffset, -config.SpawnRadius),
+		};
+		World.CommandBuffer.Spawn(new EnemyBundle(x, z));
 		match.AliveEnemies++;
+	}
+
+	private static ulong HashTick(ulong tickIndex)
+	{
+		unchecked
+		{
+			ulong value = tickIndex + 0x9E37_79B9_7F4A_7C15UL;
+			value = (value ^ (value >> 30)) * 0xBF58_476D_1CE4_E5B9UL;
+			value = (value ^ (value >> 27)) * 0x94D0_49BB_1331_11EBUL;
+			return value ^ (value >> 31);
+		}
 	}
 }
