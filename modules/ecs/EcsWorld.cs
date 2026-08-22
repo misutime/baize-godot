@@ -15,7 +15,7 @@ namespace Baize.Ecs;
 
 /// <summary>
 /// EcsWorld —— 游戏世界的框架层容器。
-/// 持有 EntityStore + SystemRoot，提供统一的 Step(InputFrame) 入口。
+/// 持有 EntityStore + SystemRoot，提供统一的 Tick(InputFrame) 固定步推进入口。
 /// </summary>
 public sealed class EcsWorld : IDisposable
 {
@@ -140,7 +140,7 @@ public sealed class EcsWorld : IDisposable
     }
 
     /// <summary>推进一个固定 Tick：按 Phase 顺序跑系统（Input → ... → RenderExtract）。</summary>
-    public void Step(in InputFrame input)
+    public void Tick(in InputFrame input)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(EcsWorld));
 
@@ -249,3 +249,4 @@ public enum Phase
     Cleanup,
     RenderExtract,
 }
+

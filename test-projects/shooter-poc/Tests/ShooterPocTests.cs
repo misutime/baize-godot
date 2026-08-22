@@ -55,7 +55,7 @@ internal static class ShooterPocTests
 		ulong hash = 1469598103934665603UL;
 		foreach (InputFrame frame in BuildScriptFrames())
 		{
-			world.Step(frame);
+			world.Tick(frame);
 			Mix(ref hash, ComputeStateHash(world));
 		}
 
@@ -77,7 +77,7 @@ internal static class ShooterPocTests
 			new(0, 0, true),
 			new(0, 0, false), // 播放上一 Tick 的第二个生成命令
         };
-		foreach (InputFrame frame in frames) world.Step(frame);
+		foreach (InputFrame frame in frames) world.Tick(frame);
 
 		int projectileCount = CountEntitiesWithTag<ProjectileTag>(world);
 		Console.WriteLine($"shooter-poc: Fire 边沿 投射物={projectileCount}");
@@ -111,7 +111,7 @@ internal static class ShooterPocTests
 		StepEmpty(futureWorld, 2);
 		Check(futureWorld.GetResource<MatchState>().Score == 0,
 			"swept 错把 current→future 当作本 Tick 轨迹");
-		futureWorld.Step(InputFrame.Empty);
+		futureWorld.Tick(InputFrame.Empty);
 		Check(futureWorld.GetResource<MatchState>().Score == 1,
 			"swept previous→current 未在真实穿越 Tick 命中");
 
@@ -129,8 +129,8 @@ internal static class ShooterPocTests
 		EcsWorld world = CreateWorld(spawnInterval: 0, maxAlive: 10);
 		AddEnemy(world, 0, 0, moveSpeed: 0);
 
-		world.Step(InputFrame.Empty);
-		world.Step(new InputFrame(1, 0, true));
+		world.Tick(InputFrame.Empty);
+		world.Tick(new InputFrame(1, 0, true));
 		MatchState match = world.GetResource<MatchState>();
 		Check(match.Phase == GamePhase.GameOver,
 			$"接触敌人后应 GameOver，实际 {match.Phase}");
@@ -141,7 +141,7 @@ internal static class ShooterPocTests
 
 		for (int i = 0; i < 8; i++)
 		{
-			world.Step(new InputFrame(1, 1, i % 2 == 0));
+			world.Tick(new InputFrame(1, 1, i % 2 == 0));
 		}
 
 		Position finalPosition = GetPlayerPosition(world);
@@ -171,7 +171,7 @@ internal static class ShooterPocTests
 		EntityHandle newTarget = AddEnemy(world, 10, 0, moveSpeed: 0, entityId: oldTarget.Id);
 		world.Events.Writer<DamageRequested>()
 			.Send(new DamageRequested(source, oldTarget, 1));
-		world.Step(InputFrame.Empty);
+		world.Tick(InputFrame.Empty);
 
 		MatchState match = world.GetResource<MatchState>();
 		bool reused = oldTarget.Id == newTarget.Id && oldTarget.Revision != newTarget.Revision;
@@ -189,9 +189,9 @@ internal static class ShooterPocTests
 	{
 		EcsWorld world = CreateWorld(maxAlive: 0);
 		SetPlayerCooldown(world, 0);
-		world.Step(InputFrame.Empty);
-		world.Step(new InputFrame(0, 0, true));
-		world.Step(new InputFrame(0, 0, false));
+		world.Tick(InputFrame.Empty);
+		world.Tick(new InputFrame(0, 0, true));
+		world.Tick(new InputFrame(0, 0, false));
 		Check(CountEntitiesWithTag<ProjectileTag>(world) == 1,
 			"Reset 前未建立输入边沿运行状态");
 
@@ -269,7 +269,7 @@ internal static class ShooterPocTests
 
 	private static void StepEmpty(EcsWorld world, int count)
 	{
-		for (int i = 0; i < count; i++) world.Step(InputFrame.Empty);
+		for (int i = 0; i < count; i++) world.Tick(InputFrame.Empty);
 	}
 
 	private static InputFrame[] BuildScriptFrames()
@@ -427,3 +427,4 @@ internal static class ShooterPocTests
 		}
 	}
 }
+

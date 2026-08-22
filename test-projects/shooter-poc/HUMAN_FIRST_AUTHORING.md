@@ -10,8 +10,8 @@
 
 本项目沿用既定命名：
 
-- `EcsWorld` 保存一局 ECS 世界并执行固定 Tick；
-- 将来由 `EcsHost` 负责引擎生命周期、输入与一个或多个 `EcsWorld` 的驱动；
+- `EcsWorld` 保存一局 ECS 世界（事实 + 规则）；**现阶段暂由它执行固定 Tick**；
+- **将来由 `EcsHost` 接管引擎生命周期、输入采集与 Tick 驱动**（Bevy 的 App 跑循环、World 存数据的分工），`EcsWorld` 回归纯容器——所以 `Tick` 是作者层入口，但"谁来驱动 Tick"最终归 `EcsHost`；
 - Friflo 是底层存储与查询实现，不在本示例中修改；
 - `Resource`、`Bundle`、`EventWriter/EventReader` 是三点 Bevy 作者体验借鉴，但保持 C# 语义；`EcsState` 是框架层对世界状态生命周期的明确表达。
 
@@ -277,7 +277,6 @@ public sealed class FireWeaponSystem
 逐条问：
 
 1. 每实体还是全世界一份？决定 Component 或 Resource；
-2. 长期事实还是瞬时发生？决定 State 或 Event；
 2. 长期事实还是瞬时发生？决定 Component/Resource 或 Event；若世界阶段互斥且切换有生命周期，再把该 Resource 表达为 `EcsState<T>`；
 
 例如：

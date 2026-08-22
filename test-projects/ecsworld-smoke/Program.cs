@@ -66,7 +66,7 @@ class Program
         // 3. Step 60 Tick（固定步长）
         for (int i = 0; i < 60; i++)
         {
-            world.Step(InputFrame.Empty);
+            world.Tick(InputFrame.Empty);
         }
 
         // 4. 验证位置更新（1m/s × 1s = X=1, Z=2）
@@ -92,13 +92,13 @@ class Program
           .Add(new Position { X = 5, Z = 0 })
           .Add(new Velocity { X = 0, Z = 1 })
           .AddTag<PlayerTag>();
-        world.Step(InputFrame.Empty);   // Playback 执行创建
+        world.Tick(InputFrame.Empty);   // Playback 执行创建
         Console.WriteLine($"ecsworld-smoke: CommandBuffer 创建后实体数 = {world.Store.Entities.Count}");
         if (world.Store.Entities.Count != 1) { Console.WriteLine("FAIL: CommandBuffer 创建"); failures++; }
 
         // 8. 事件系统（纯数据通信）
         world.Events.Writer<DamageRequest>().Send(new DamageRequest(1, 10));
-        world.Step(InputFrame.Empty);   // Flush 后事件可读
+        world.Tick(InputFrame.Empty);   // Flush 后事件可读
         int events = world.Events.Reader<DamageRequest>().Consume();
         Console.WriteLine($"ecsworld-smoke: 消费 DamageRequest 事件 = {events}");
         if (events != 1) { Console.WriteLine("FAIL: 事件"); failures++; }
@@ -113,8 +113,8 @@ class Program
         e1.Add(new Position { X = 0, Z = 0 }); e1.Add(new Velocity { X = 2, Z = 3 });
         e2.Add(new Position { X = 0, Z = 0 }); e2.Add(new Velocity { X = 2, Z = 3 });
         var frames = new[] { new InputFrame(1, 0, false), new InputFrame(0, 1, true), new InputFrame(-1, 0, false) };
-        foreach (var f in frames) w1.Step(f);
-        foreach (var f in frames) w2.Step(f);
+        foreach (var f in frames) w1.Tick(f);
+        foreach (var f in frames) w2.Tick(f);
         var p1 = e1.GetComponent<Position>();
         var p2 = e2.GetComponent<Position>();
         Console.WriteLine($"ecsworld-smoke: 确定性回放 w1=({p1.X:F2},{p1.Z:F2}) w2=({p2.X:F2},{p2.Z:F2})");
@@ -130,15 +130,15 @@ class Program
 
         // 11. Bundle（组件组合，借鉴 Bevy）
         var bundleWorld = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
-        bundleWorld.Step(InputFrame.Empty);   // schema 已建，正常
+        bundleWorld.Tick(InputFrame.Empty);   // schema 已建，正常
         bundleWorld.CommandBuffer.Spawn(new PlayerBundle { Pos = new Position { X = 1, Z = 2 }, Vel = new Velocity { X = 1, Z = 1 } });
-        bundleWorld.Step(InputFrame.Empty);   // Playback 创建
+        bundleWorld.Tick(InputFrame.Empty);   // Playback 创建
         Console.WriteLine($"ecsworld-smoke: Bundle 创建后实体数 = {bundleWorld.Store.Entities.Count}");
         if (bundleWorld.Store.Entities.Count != 1) { Console.WriteLine("FAIL: Bundle"); failures++; }
 
         // 12. EventWriter/EventReader（读写分离）
         world.Events.Writer<DeathEvent>().Send(new DeathEvent(42));
-        world.Step(InputFrame.Empty);
+        world.Tick(InputFrame.Empty);
         int deathEvents = world.Events.Reader<DeathEvent>().Consume();
         Console.WriteLine($"ecsworld-smoke: EventReader 消费 DeathEvent = {deathEvents}");
         if (deathEvents != 1) { Console.WriteLine("FAIL: EventReader"); failures++; }
@@ -149,7 +149,7 @@ class Program
         phaseWorld.AddSystem(new LogSystem("Cleanup", orderLog), Phase.Cleanup);
         phaseWorld.AddSystem(new LogSystem("Input", orderLog), Phase.Input);
         phaseWorld.AddSystem(new LogSystem("Simulation", orderLog), Phase.Simulation);
-        phaseWorld.Step(InputFrame.Empty);
+        phaseWorld.Tick(InputFrame.Empty);
         var order = string.Join(">", orderLog);
         Console.WriteLine($"ecsworld-smoke: Phase 顺序 = {order}");
         if (order != "Input>Simulation>Cleanup") { Console.WriteLine($"FAIL: Phase 顺序（实际 {order}）"); failures++; }
@@ -158,7 +158,7 @@ class Program
         var evWorldA = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
         var evWorldB = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
         evWorldA.Events.Writer<DeathEvent>().Send(new DeathEvent(1));
-        evWorldA.Step(InputFrame.Empty);   // A 的 Flush
+        evWorldA.Tick(InputFrame.Empty);   // A 的 Flush
         // 先 Read 断言（非破坏性——防旧实现 A.Consume 清空共享缓冲导致假通过）
         int aRead = evWorldA.Events.Reader<DeathEvent>().Read().Count;
         int bRead = evWorldB.Events.Reader<DeathEvent>().Read().Count;
@@ -182,3 +182,4 @@ class Program
         else { Environment.Exit(1); }
     }
 }
+
