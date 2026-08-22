@@ -44,16 +44,33 @@ public readonly struct EcsReadQuery<T1>
 	where T1 : struct, IComponent
 {
 	private readonly ArchetypeQuery<T1> _query;
+	private readonly Tags _tags;
 
-	internal EcsReadQuery(EntityStore store) => _query = store.Query<T1>();
+	internal EcsReadQuery(EntityStore store)
+	{
+		_query = store.Query<T1>();
+		_tags = default;
+	}
+
+	private EcsReadQuery(EntityStore store, in Tags tags)
+	{
+		_query = store.Query<T1>();
+		_tags = tags;
+	}
 
 	public EcsReadQuery<T1> WithTag<TTag>() where TTag : struct, ITag
 	{
-		_query.AllTags(Tags.Get<TTag>());
-		return this;
+		// Friflo AllTags 是覆盖语义；先在值类型 Tags 中合并，再返回独立查询。
+		Tags tags = _tags;
+		tags.Add(Tags.Get<TTag>());
+		return new(_query.Store, tags);
 	}
 
-	public Enumerator GetEnumerator() => new(_query.Chunks.GetEnumerator());
+	public Enumerator GetEnumerator()
+	{
+		if (_tags.Count > 0) _query.AllTags(_tags);
+		return new(_query.Chunks.GetEnumerator());
+	}
 
 	public struct Enumerator : IDisposable
 	{
@@ -100,16 +117,32 @@ public readonly struct EcsReadQuery<T1, T2>
 	where T2 : struct, IComponent
 {
 	private readonly ArchetypeQuery<T1, T2> _query;
+	private readonly Tags _tags;
 
-	internal EcsReadQuery(EntityStore store) => _query = store.Query<T1, T2>();
+	internal EcsReadQuery(EntityStore store)
+	{
+		_query = store.Query<T1, T2>();
+		_tags = default;
+	}
+
+	private EcsReadQuery(EntityStore store, in Tags tags)
+	{
+		_query = store.Query<T1, T2>();
+		_tags = tags;
+	}
 
 	public EcsReadQuery<T1, T2> WithTag<TTag>() where TTag : struct, ITag
 	{
-		_query.AllTags(Tags.Get<TTag>());
-		return this;
+		Tags tags = _tags;
+		tags.Add(Tags.Get<TTag>());
+		return new(_query.Store, tags);
 	}
 
-	public Enumerator GetEnumerator() => new(_query.Chunks.GetEnumerator());
+	public Enumerator GetEnumerator()
+	{
+		if (_tags.Count > 0) _query.AllTags(_tags);
+		return new(_query.Chunks.GetEnumerator());
+	}
 
 	public struct Enumerator : IDisposable
 	{
@@ -158,16 +191,32 @@ public readonly struct EcsReadQuery<T1, T2, T3>
 	where T3 : struct, IComponent
 {
 	private readonly ArchetypeQuery<T1, T2, T3> _query;
+	private readonly Tags _tags;
 
-	internal EcsReadQuery(EntityStore store) => _query = store.Query<T1, T2, T3>();
+	internal EcsReadQuery(EntityStore store)
+	{
+		_query = store.Query<T1, T2, T3>();
+		_tags = default;
+	}
+
+	private EcsReadQuery(EntityStore store, in Tags tags)
+	{
+		_query = store.Query<T1, T2, T3>();
+		_tags = tags;
+	}
 
 	public EcsReadQuery<T1, T2, T3> WithTag<TTag>() where TTag : struct, ITag
 	{
-		_query.AllTags(Tags.Get<TTag>());
-		return this;
+		Tags tags = _tags;
+		tags.Add(Tags.Get<TTag>());
+		return new(_query.Store, tags);
 	}
 
-	public Enumerator GetEnumerator() => new(_query.Chunks.GetEnumerator());
+	public Enumerator GetEnumerator()
+	{
+		if (_tags.Count > 0) _query.AllTags(_tags);
+		return new(_query.Chunks.GetEnumerator());
+	}
 
 	public struct Enumerator : IDisposable
 	{
@@ -217,16 +266,32 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4>
 	where T4 : struct, IComponent
 {
 	private readonly ArchetypeQuery<T1, T2, T3, T4> _query;
+	private readonly Tags _tags;
 
-	internal EcsReadQuery(EntityStore store) => _query = store.Query<T1, T2, T3, T4>();
+	internal EcsReadQuery(EntityStore store)
+	{
+		_query = store.Query<T1, T2, T3, T4>();
+		_tags = default;
+	}
+
+	private EcsReadQuery(EntityStore store, in Tags tags)
+	{
+		_query = store.Query<T1, T2, T3, T4>();
+		_tags = tags;
+	}
 
 	public EcsReadQuery<T1, T2, T3, T4> WithTag<TTag>() where TTag : struct, ITag
 	{
-		_query.AllTags(Tags.Get<TTag>());
-		return this;
+		Tags tags = _tags;
+		tags.Add(Tags.Get<TTag>());
+		return new(_query.Store, tags);
 	}
 
-	public Enumerator GetEnumerator() => new(_query.Chunks.GetEnumerator());
+	public Enumerator GetEnumerator()
+	{
+		if (_tags.Count > 0) _query.AllTags(_tags);
+		return new(_query.Chunks.GetEnumerator());
+	}
 
 	public struct Enumerator : IDisposable
 	{
@@ -278,16 +343,32 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4, T5>
 	where T5 : struct, IComponent
 {
 	private readonly ArchetypeQuery<T1, T2, T3, T4, T5> _query;
+	private readonly Tags _tags;
 
-	internal EcsReadQuery(EntityStore store) => _query = store.Query<T1, T2, T3, T4, T5>();
+	internal EcsReadQuery(EntityStore store)
+	{
+		_query = store.Query<T1, T2, T3, T4, T5>();
+		_tags = default;
+	}
+
+	private EcsReadQuery(EntityStore store, in Tags tags)
+	{
+		_query = store.Query<T1, T2, T3, T4, T5>();
+		_tags = tags;
+	}
 
 	public EcsReadQuery<T1, T2, T3, T4, T5> WithTag<TTag>() where TTag : struct, ITag
 	{
-		_query.AllTags(Tags.Get<TTag>());
-		return this;
+		Tags tags = _tags;
+		tags.Add(Tags.Get<TTag>());
+		return new(_query.Store, tags);
 	}
 
-	public Enumerator GetEnumerator() => new(_query.Chunks.GetEnumerator());
+	public Enumerator GetEnumerator()
+	{
+		if (_tags.Count > 0) _query.AllTags(_tags);
+		return new(_query.Chunks.GetEnumerator());
+	}
 
 	public struct Enumerator : IDisposable
 	{

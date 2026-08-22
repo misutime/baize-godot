@@ -420,13 +420,13 @@ Events.cs
 
 ## 6. 作者层与底层实现层的边界
 
-**分层定位（日常只用 Baize.Ecs）**：
+**分层定位（Baize.Ecs 是日常主入口，但 IComponent/Entity 仍直接来自 Friflo）**：
 
 ```text
-Baize.Ecs        —— 游戏开发者日常入口（引用 using Baize.Ecs）
+Baize.Ecs        —— 游戏开发者日常入口（using Baize.Ecs）
     EcsSystem / EcsState / EcsWorld / ForEach / ForTag / Read /
     InsertState / WorldState / EntityBundle / EventWriter-Reader / Phase
-Friflo.Engine.ECS —— 底层高性能内核（无需主动 using 也会用到）
+Friflo.Engine.ECS —— 底层高性能内核（IComponent/ITag/Entity 等核心类型仍需引用它）
     IComponent / ITag / Entity / ref 组件 / 高级查询 / chunk 写入
 ```
 

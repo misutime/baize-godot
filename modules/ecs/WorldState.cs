@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // WorldState.cs —— baize-godot EcsWorld 世界状态单例（P2.1，借鉴 Bevy Resource）
 //
 // 全局单例数据（GameState/Score/配置）——不挂实体，EcsWorld 持有。
@@ -29,7 +29,7 @@ public sealed class WorldState
     public T GetOrThrow<T>() where T : class
     {
         if (_resources.TryGetValue(typeof(T), out var v)) return (T)v;
-        throw new InvalidOperationException($"Resource not found: {typeof(T).Name}");
+        throw new InvalidOperationException($"State not found: {typeof(T).Name}");
     }
 
     /// <summary>移除全局状态。</summary>
@@ -44,5 +44,3 @@ public sealed class WorldState
     /// <summary>清空所有状态（Reset 用）。</summary>
     public void Clear() => _resources.Clear();
 }
-
-

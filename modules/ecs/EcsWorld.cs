@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // EcsWorld.cs —— baize-godot EcsWorld 框架核心（P2.1）
 //
 // 面向游戏开发者的 ECS 框架层：封装世界生命周期与作者层入口，
 // 提供固定 Tick / 输入 / Command / 实体安全 / 系统调度（按 Phase）/ 重置。
-// 游戏装配优先使用 InsertResource / SpawnNow / AddFeature；
+// 游戏装配优先使用 InsertState / SpawnNow / AddFeature；
 // 系统热循环仍可通过 Store 使用 Friflo 的类型化查询。
 
 using System;
@@ -41,20 +41,20 @@ public sealed class EcsWorld : IDisposable
 	/// <summary>事件总线（系统间纯数据通信，EventWriter/EventReader）。</summary>
 	public WorldEvents Events => _events;
 
-	/// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
+	/// <summary>全局状态（GameState/Score/配置，借鉴 Bevy WorldState）。</summary>
 	public WorldState State => _worldState;
 
 	/// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
-	public EcsWorld InsertState<T>(T resource) where T : class
+	public EcsWorld InsertState<T>(T state) where T : class
 	{
 		// P2-1：事务性插入——绑定失败时恢复旧值/移除新值（避免污染世界）。
 		var previous = _worldState.Has<T>() ? _worldState.Get<T>() : null;
-		_worldState.Set(resource);   // 先放入（若绑定失败再回滚）
+		_worldState.Set(state);   // 先放入（若绑定失败再回滚）
 		try
 		{
-			if (resource is IEcsStateBinding state)
+			if (state is IEcsStateBinding stateBinding)
 			{
-				state.Bind(this);
+				stateBinding.Bind(this);
 			}
 		}
 		catch
@@ -268,5 +268,3 @@ public enum Phase
 	Cleanup,
 	RenderExtract,
 }
-
-

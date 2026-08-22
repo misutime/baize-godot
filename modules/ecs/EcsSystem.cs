@@ -142,6 +142,7 @@ public abstract class EcsSystem<T1> : QuerySystem<T1>, IEcsSystemBinding
 	where T1 : struct, IComponent
 {
 	private readonly EcsSystemContext _context = new();
+	private Tags _tags;
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
 	protected T Res<T>() where T : class => World.GetState<T>();
@@ -149,7 +150,12 @@ public abstract class EcsSystem<T1> : QuerySystem<T1>, IEcsSystemBinding
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
-	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForTag<TTag>() where TTag : struct, ITag
+	{
+		// QueryFilter.AllTags 会覆盖旧值，先在本系统的 Tags 中做并集。
+		_tags.Add(Tags.Get<TTag>());
+		Filter.AllTags(_tags);
+	}
 	protected void ForEach(ForEachEntity<T1> action) => Query.ForEachEntity(action);
 	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
 	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
@@ -175,6 +181,7 @@ public abstract class EcsSystem<T1, T2> : QuerySystem<T1, T2>, IEcsSystemBinding
 	where T2 : struct, IComponent
 {
 	private readonly EcsSystemContext _context = new();
+	private Tags _tags;
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
 	protected T Res<T>() where T : class => World.GetState<T>();
@@ -182,7 +189,11 @@ public abstract class EcsSystem<T1, T2> : QuerySystem<T1, T2>, IEcsSystemBinding
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
-	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForTag<TTag>() where TTag : struct, ITag
+	{
+		_tags.Add(Tags.Get<TTag>());
+		Filter.AllTags(_tags);
+	}
 	protected void ForEach(ForEachEntity<T1, T2> action) => Query.ForEachEntity(action);
 	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
 	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
@@ -209,6 +220,7 @@ public abstract class EcsSystem<T1, T2, T3> : QuerySystem<T1, T2, T3>, IEcsSyste
 	where T3 : struct, IComponent
 {
 	private readonly EcsSystemContext _context = new();
+	private Tags _tags;
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
 	protected T Res<T>() where T : class => World.GetState<T>();
@@ -216,7 +228,11 @@ public abstract class EcsSystem<T1, T2, T3> : QuerySystem<T1, T2, T3>, IEcsSyste
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
-	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForTag<TTag>() where TTag : struct, ITag
+	{
+		_tags.Add(Tags.Get<TTag>());
+		Filter.AllTags(_tags);
+	}
 	protected void ForEach(ForEachEntity<T1, T2, T3> action) => Query.ForEachEntity(action);
 	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
 	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
@@ -244,6 +260,7 @@ public abstract class EcsSystem<T1, T2, T3, T4> : QuerySystem<T1, T2, T3, T4>, I
 	where T4 : struct, IComponent
 {
 	private readonly EcsSystemContext _context = new();
+	private Tags _tags;
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
 	protected T Res<T>() where T : class => World.GetState<T>();
@@ -251,7 +268,11 @@ public abstract class EcsSystem<T1, T2, T3, T4> : QuerySystem<T1, T2, T3, T4>, I
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
-	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForTag<TTag>() where TTag : struct, ITag
+	{
+		_tags.Add(Tags.Get<TTag>());
+		Filter.AllTags(_tags);
+	}
 	protected void ForEach(ForEachEntity<T1, T2, T3, T4> action) => Query.ForEachEntity(action);
 	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
 	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
@@ -280,6 +301,7 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	where T5 : struct, IComponent
 {
 	private readonly EcsSystemContext _context = new();
+	private Tags _tags;
 	protected EcsWorld World => _context.World;
 	protected InputFrame Input => World.CurrentInput;
 	protected T Res<T>() where T : class => World.GetState<T>();
@@ -287,7 +309,11 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
-	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForTag<TTag>() where TTag : struct, ITag
+	{
+		_tags.Add(Tags.Get<TTag>());
+		Filter.AllTags(_tags);
+	}
 	protected void ForEach(ForEachEntity<T1, T2, T3, T4, T5> action) => Query.ForEachEntity(action);
 	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
 	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()

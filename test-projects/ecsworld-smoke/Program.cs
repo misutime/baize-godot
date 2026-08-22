@@ -12,6 +12,12 @@ using Friflo.Engine.ECS.Systems;
 public struct Position : IComponent { public float X, Z; }
 public struct Velocity : IComponent { public float X, Z; }
 public struct PlayerTag : ITag { }
+// 多标签累积回归测试用组件与标签。
+public struct QueryComponent3 : IComponent { public int Value; }
+public struct QueryComponent4 : IComponent { public int Value; }
+public struct QueryComponent5 : IComponent { public int Value; }
+public struct QueryTagA : ITag { }
+public struct QueryTagB : ITag { }
 // Phase 顺序测试用（P1-1：BaseSystem 用 OnUpdateGroup）
 public class LogSystem : BaseSystem
 {
@@ -19,6 +25,123 @@ public class LogSystem : BaseSystem
 	private readonly System.Collections.Generic.List<string> _log;
 	public LogSystem(string name, System.Collections.Generic.List<string> log) { _name = name; _log = log; }
 	protected override void OnUpdateGroup() { _log.Add(_name); }
+}
+
+// 验证 Read<T1..T5>() 的链式标签累积与结构体复制隔离。
+public sealed class ReadTagFilterSystem : EcsSystem
+{
+	public int OriginalCount { get; private set; }
+	public int TagACount { get; private set; }
+	public int BothAliasCount { get; private set; }
+	public int[] ChainedCounts { get; } = new int[5];
+
+	protected override void Execute()
+	{
+		var original = Read<Position>();
+		var tagA = original.WithTag<QueryTagA>();
+		var both = tagA.WithTag<QueryTagB>();
+
+		OriginalCount = Count(original);
+		TagACount = Count(tagA);
+		BothAliasCount = Count(both);
+		ChainedCounts[0] = BothAliasCount;
+		ChainedCounts[1] = Count(Read<Position, Velocity>().WithTag<QueryTagA>().WithTag<QueryTagB>());
+		ChainedCounts[2] = Count(Read<Position, Velocity, QueryComponent3>().WithTag<QueryTagA>().WithTag<QueryTagB>());
+		ChainedCounts[3] = Count(Read<Position, Velocity, QueryComponent3, QueryComponent4>().WithTag<QueryTagA>().WithTag<QueryTagB>());
+		ChainedCounts[4] = Count(Read<Position, Velocity, QueryComponent3, QueryComponent4, QueryComponent5>().WithTag<QueryTagA>().WithTag<QueryTagB>());
+	}
+
+	private static int Count(EcsReadQuery<Position> query)
+	{
+		int count = 0;
+		foreach (var _ in query) count++;
+		return count;
+	}
+
+	private static int Count(EcsReadQuery<Position, Velocity> query)
+	{
+		int count = 0;
+		foreach (var _ in query) count++;
+		return count;
+	}
+
+	private static int Count(EcsReadQuery<Position, Velocity, QueryComponent3> query)
+	{
+		int count = 0;
+		foreach (var _ in query) count++;
+		return count;
+	}
+
+	private static int Count(EcsReadQuery<Position, Velocity, QueryComponent3, QueryComponent4> query)
+	{
+		int count = 0;
+		foreach (var _ in query) count++;
+		return count;
+	}
+
+	private static int Count(EcsReadQuery<Position, Velocity, QueryComponent3, QueryComponent4, QueryComponent5> query)
+	{
+		int count = 0;
+		foreach (var _ in query) count++;
+		return count;
+	}
+}
+
+public sealed class ForTagSystem1 : EcsSystem<Position>
+{
+	public int Matches { get; private set; }
+	public ForTagSystem1() { ForTag<QueryTagA>(); ForTag<QueryTagB>(); }
+	protected override void Execute()
+	{
+		Matches = 0;
+		ForEach((ref Position position, Entity entity) => Matches++);
+	}
+}
+
+public sealed class ForTagSystem2 : EcsSystem<Position, Velocity>
+{
+	public int Matches { get; private set; }
+	public ForTagSystem2() { ForTag<QueryTagA>(); ForTag<QueryTagB>(); }
+	protected override void Execute()
+	{
+		Matches = 0;
+		ForEach((ref Position position, ref Velocity velocity, Entity entity) => Matches++);
+	}
+}
+
+public sealed class ForTagSystem3 : EcsSystem<Position, Velocity, QueryComponent3>
+{
+	public int Matches { get; private set; }
+	public ForTagSystem3() { ForTag<QueryTagA>(); ForTag<QueryTagB>(); }
+	protected override void Execute()
+	{
+		Matches = 0;
+		ForEach((ref Position position, ref Velocity velocity, ref QueryComponent3 component3, Entity entity) => Matches++);
+	}
+}
+
+public sealed class ForTagSystem4 : EcsSystem<Position, Velocity, QueryComponent3, QueryComponent4>
+{
+	public int Matches { get; private set; }
+	public ForTagSystem4() { ForTag<QueryTagA>(); ForTag<QueryTagB>(); }
+	protected override void Execute()
+	{
+		Matches = 0;
+		ForEach((ref Position position, ref Velocity velocity, ref QueryComponent3 component3,
+			ref QueryComponent4 component4, Entity entity) => Matches++);
+	}
+}
+
+public sealed class ForTagSystem5 : EcsSystem<Position, Velocity, QueryComponent3, QueryComponent4, QueryComponent5>
+{
+	public int Matches { get; private set; }
+	public ForTagSystem5() { ForTag<QueryTagA>(); ForTag<QueryTagB>(); }
+	protected override void Execute()
+	{
+		Matches = 0;
+		ForEach((ref Position position, ref Velocity velocity, ref QueryComponent3 component3,
+			ref QueryComponent4 component4, ref QueryComponent5 component5, Entity entity) => Matches++);
+	}
 }
 // Resource（全局单例，借鉴 Bevy）
 public class Score { public int Value; public Score(int v) { Value = v; } }
@@ -174,6 +297,48 @@ class Program
 		int cEvents = evWorldC.Events.Reader<DeathEvent>().Consume();
 		Console.WriteLine($"ecsworld-smoke: Reset 清空 pending 后事件 = {cEvents}");
 		if (cEvents != 0) { Console.WriteLine("FAIL: Reset 清空 pending"); failures++; }
+
+		// 16. 多标签累积：Read<T1..T5>() 链式调用、复制别名与 ForTag<T>() 1–5 泛型版本。
+		var tagWorld = new EcsWorld(aot => EcsAotRegistration.RegisterAll(aot));
+		var readTagSystem = new ReadTagFilterSystem();
+		var forTagSystem1 = new ForTagSystem1();
+		var forTagSystem2 = new ForTagSystem2();
+		var forTagSystem3 = new ForTagSystem3();
+		var forTagSystem4 = new ForTagSystem4();
+		var forTagSystem5 = new ForTagSystem5();
+		tagWorld.AddSystem(readTagSystem, Phase.Simulation);
+		tagWorld.AddSystem(forTagSystem1, Phase.Simulation);
+		tagWorld.AddSystem(forTagSystem2, Phase.Simulation);
+		tagWorld.AddSystem(forTagSystem3, Phase.Simulation);
+		tagWorld.AddSystem(forTagSystem4, Phase.Simulation);
+		tagWorld.AddSystem(forTagSystem5, Phase.Simulation);
+		for (int mask = 0; mask < 4; mask++)
+		{
+			var entity = tagWorld.Store.CreateEntity();
+			entity.Add(new Position());
+			entity.Add(new Velocity());
+			entity.Add(new QueryComponent3());
+			entity.Add(new QueryComponent4());
+			entity.Add(new QueryComponent5());
+			if ((mask & 1) != 0) entity.AddTag<QueryTagA>();
+			if ((mask & 2) != 0) entity.AddTag<QueryTagB>();
+		}
+		tagWorld.Tick(InputFrame.Empty);
+		string readCounts = string.Join(",", readTagSystem.ChainedCounts);
+		string forTagCounts = $"{forTagSystem1.Matches},{forTagSystem2.Matches},{forTagSystem3.Matches}," +
+			$"{forTagSystem4.Matches},{forTagSystem5.Matches}";
+		Console.WriteLine($"ecsworld-smoke: Read 标签 original/A/AB={readTagSystem.OriginalCount}/{readTagSystem.TagACount}/{readTagSystem.BothAliasCount}, arity={readCounts}");
+		Console.WriteLine($"ecsworld-smoke: ForTag 标签 arity={forTagCounts}");
+		if (readTagSystem.OriginalCount != 4 || readTagSystem.TagACount != 2 || readTagSystem.BothAliasCount != 1 ||
+			Array.Exists(readTagSystem.ChainedCounts, count => count != 1))
+		{
+			Console.WriteLine("FAIL: Read 多标签累积或复制隔离"); failures++;
+		}
+		if (forTagSystem1.Matches != 1 || forTagSystem2.Matches != 1 || forTagSystem3.Matches != 1 ||
+			forTagSystem4.Matches != 1 || forTagSystem5.Matches != 1)
+		{
+			Console.WriteLine("FAIL: ForTag 多标签累积"); failures++;
+		}
 
 		Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
 
