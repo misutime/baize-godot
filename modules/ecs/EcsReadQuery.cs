@@ -40,37 +40,47 @@ public readonly record struct EcsReadEntity<T1, T2, T3, T4, T5>(
 	where T5 : struct, IComponent;
 
 /// <summary>一个组件的作者层只读查询；foreach 直接按值解构组件与实体。</summary>
-public readonly struct EcsReadQuery<T1>
+public struct EcsReadQuery<T1>
 	where T1 : struct, IComponent
 {
-	private readonly ArchetypeQuery<T1> _query;
+	private readonly EntityStore _store;
 	private readonly Tags _tags;
+	private ArchetypeQuery<T1>? _query;
 
 	internal EcsReadQuery(EntityStore store)
 	{
-		_query = store.Query<T1>();
+		_store = store;
 		_tags = default;
+		_query = null;
 	}
 
-	private EcsReadQuery(ArchetypeQuery<T1> query, in Tags tags)
+	private EcsReadQuery(EntityStore store, in Tags tags)
 	{
-		_query = query;
+		_store = store;
 		_tags = tags;
+		_query = null;
 	}
 
-	public EcsReadQuery<T1> WithTag<TTag>() where TTag : struct, ITag
+	public readonly EcsReadQuery<T1> WithTag<TTag>() where TTag : struct, ITag
 	{
-		// Friflo AllTags 是覆盖语义；先在值类型 Tags 中合并，再返回带新 _tags 的副本。
-		// 复用同一个 _query 引用，不重复 store.Query<T1>()，避免额外分配查询对象。
+		// Friflo AllTags 是覆盖语义；先在值类型 Tags 中合并，再返回独立副本。
+		// 这里只积累标签，不创建查询；首次枚举才一次性创建并配置最终查询。
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query, tags);
+		return new(_store, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		_query.AllTags(_tags);
-		return new(_query.Chunks.GetEnumerator());
+		ArchetypeQuery<T1>? query = _query;
+		if (query is null)
+		{
+			query = _store.Query<T1>();
+			if (_tags.Count != 0) query.AllTags(_tags);
+			query.FreezeFilter();
+			_query = query;
+		}
+		return new(query.Chunks.GetEnumerator());
 	}
 
 	public struct Enumerator : IDisposable
@@ -113,36 +123,46 @@ public readonly struct EcsReadQuery<T1>
 }
 
 /// <summary>两个组件的作者层只读查询；foreach 直接按值解构组件与实体。</summary>
-public readonly struct EcsReadQuery<T1, T2>
+public struct EcsReadQuery<T1, T2>
 	where T1 : struct, IComponent
 	where T2 : struct, IComponent
 {
-	private readonly ArchetypeQuery<T1, T2> _query;
+	private readonly EntityStore _store;
 	private readonly Tags _tags;
+	private ArchetypeQuery<T1, T2>? _query;
 
 	internal EcsReadQuery(EntityStore store)
 	{
-		_query = store.Query<T1, T2>();
+		_store = store;
 		_tags = default;
+		_query = null;
 	}
 
-	private EcsReadQuery(ArchetypeQuery<T1, T2> query, in Tags tags)
+	private EcsReadQuery(EntityStore store, in Tags tags)
 	{
-		_query = query;
+		_store = store;
 		_tags = tags;
+		_query = null;
 	}
 
-	public EcsReadQuery<T1, T2> WithTag<TTag>() where TTag : struct, ITag
+	public readonly EcsReadQuery<T1, T2> WithTag<TTag>() where TTag : struct, ITag
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query, tags);
+		return new(_store, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		_query.AllTags(_tags);
-		return new(_query.Chunks.GetEnumerator());
+		ArchetypeQuery<T1, T2>? query = _query;
+		if (query is null)
+		{
+			query = _store.Query<T1, T2>();
+			if (_tags.Count != 0) query.AllTags(_tags);
+			query.FreezeFilter();
+			_query = query;
+		}
+		return new(query.Chunks.GetEnumerator());
 	}
 
 	public struct Enumerator : IDisposable
@@ -186,37 +206,47 @@ public readonly struct EcsReadQuery<T1, T2>
 }
 
 /// <summary>三个组件的作者层只读查询；foreach 直接按值解构组件与实体。</summary>
-public readonly struct EcsReadQuery<T1, T2, T3>
+public struct EcsReadQuery<T1, T2, T3>
 	where T1 : struct, IComponent
 	where T2 : struct, IComponent
 	where T3 : struct, IComponent
 {
-	private readonly ArchetypeQuery<T1, T2, T3> _query;
+	private readonly EntityStore _store;
 	private readonly Tags _tags;
+	private ArchetypeQuery<T1, T2, T3>? _query;
 
 	internal EcsReadQuery(EntityStore store)
 	{
-		_query = store.Query<T1, T2, T3>();
+		_store = store;
 		_tags = default;
+		_query = null;
 	}
 
-	private EcsReadQuery(ArchetypeQuery<T1, T2, T3> query, in Tags tags)
+	private EcsReadQuery(EntityStore store, in Tags tags)
 	{
-		_query = query;
+		_store = store;
 		_tags = tags;
+		_query = null;
 	}
 
-	public EcsReadQuery<T1, T2, T3> WithTag<TTag>() where TTag : struct, ITag
+	public readonly EcsReadQuery<T1, T2, T3> WithTag<TTag>() where TTag : struct, ITag
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query, tags);
+		return new(_store, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		_query.AllTags(_tags);
-		return new(_query.Chunks.GetEnumerator());
+		ArchetypeQuery<T1, T2, T3>? query = _query;
+		if (query is null)
+		{
+			query = _store.Query<T1, T2, T3>();
+			if (_tags.Count != 0) query.AllTags(_tags);
+			query.FreezeFilter();
+			_query = query;
+		}
+		return new(query.Chunks.GetEnumerator());
 	}
 
 	public struct Enumerator : IDisposable
@@ -260,38 +290,48 @@ public readonly struct EcsReadQuery<T1, T2, T3>
 }
 
 /// <summary>四个组件的作者层只读查询；foreach 直接按值解构组件与实体。</summary>
-public readonly struct EcsReadQuery<T1, T2, T3, T4>
+public struct EcsReadQuery<T1, T2, T3, T4>
 	where T1 : struct, IComponent
 	where T2 : struct, IComponent
 	where T3 : struct, IComponent
 	where T4 : struct, IComponent
 {
-	private readonly ArchetypeQuery<T1, T2, T3, T4> _query;
+	private readonly EntityStore _store;
 	private readonly Tags _tags;
+	private ArchetypeQuery<T1, T2, T3, T4>? _query;
 
 	internal EcsReadQuery(EntityStore store)
 	{
-		_query = store.Query<T1, T2, T3, T4>();
+		_store = store;
 		_tags = default;
+		_query = null;
 	}
 
-	private EcsReadQuery(ArchetypeQuery<T1, T2, T3, T4> query, in Tags tags)
+	private EcsReadQuery(EntityStore store, in Tags tags)
 	{
-		_query = query;
+		_store = store;
 		_tags = tags;
+		_query = null;
 	}
 
-	public EcsReadQuery<T1, T2, T3, T4> WithTag<TTag>() where TTag : struct, ITag
+	public readonly EcsReadQuery<T1, T2, T3, T4> WithTag<TTag>() where TTag : struct, ITag
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query, tags);
+		return new(_store, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		_query.AllTags(_tags);
-		return new(_query.Chunks.GetEnumerator());
+		ArchetypeQuery<T1, T2, T3, T4>? query = _query;
+		if (query is null)
+		{
+			query = _store.Query<T1, T2, T3, T4>();
+			if (_tags.Count != 0) query.AllTags(_tags);
+			query.FreezeFilter();
+			_query = query;
+		}
+		return new(query.Chunks.GetEnumerator());
 	}
 
 	public struct Enumerator : IDisposable
@@ -336,39 +376,49 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4>
 }
 
 /// <summary>五个组件的作者层只读查询；foreach 直接按值解构组件与实体。</summary>
-public readonly struct EcsReadQuery<T1, T2, T3, T4, T5>
+public struct EcsReadQuery<T1, T2, T3, T4, T5>
 	where T1 : struct, IComponent
 	where T2 : struct, IComponent
 	where T3 : struct, IComponent
 	where T4 : struct, IComponent
 	where T5 : struct, IComponent
 {
-	private readonly ArchetypeQuery<T1, T2, T3, T4, T5> _query;
+	private readonly EntityStore _store;
 	private readonly Tags _tags;
+	private ArchetypeQuery<T1, T2, T3, T4, T5>? _query;
 
 	internal EcsReadQuery(EntityStore store)
 	{
-		_query = store.Query<T1, T2, T3, T4, T5>();
+		_store = store;
 		_tags = default;
+		_query = null;
 	}
 
-	private EcsReadQuery(ArchetypeQuery<T1, T2, T3, T4, T5> query, in Tags tags)
+	private EcsReadQuery(EntityStore store, in Tags tags)
 	{
-		_query = query;
+		_store = store;
 		_tags = tags;
+		_query = null;
 	}
 
-	public EcsReadQuery<T1, T2, T3, T4, T5> WithTag<TTag>() where TTag : struct, ITag
+	public readonly EcsReadQuery<T1, T2, T3, T4, T5> WithTag<TTag>() where TTag : struct, ITag
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query, tags);
+		return new(_store, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		_query.AllTags(_tags);
-		return new(_query.Chunks.GetEnumerator());
+		ArchetypeQuery<T1, T2, T3, T4, T5>? query = _query;
+		if (query is null)
+		{
+			query = _store.Query<T1, T2, T3, T4, T5>();
+			if (_tags.Count != 0) query.AllTags(_tags);
+			query.FreezeFilter();
+			_query = query;
+		}
+		return new(query.Chunks.GetEnumerator());
 	}
 
 	public struct Enumerator : IDisposable

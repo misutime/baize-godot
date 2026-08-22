@@ -34,6 +34,8 @@ public sealed class ReadTagFilterSystem : EcsSystem
 	public int TagACount { get; private set; }
 	public int BothAliasCount { get; private set; }
 	public int[] ChainedCounts { get; } = new int[5];
+	public long RepeatedEnumerationAllocatedBytes { get; private set; }
+	public int RepeatedEnumerationCount { get; private set; }
 
 	protected override void Execute()
 	{
@@ -49,6 +51,16 @@ public sealed class ReadTagFilterSystem : EcsSystem
 		ChainedCounts[2] = Count(Read<Position, Velocity, QueryComponent3>().WithTag<QueryTagA>().WithTag<QueryTagB>());
 		ChainedCounts[3] = Count(Read<Position, Velocity, QueryComponent3, QueryComponent4>().WithTag<QueryTagA>().WithTag<QueryTagB>());
 		ChainedCounts[4] = Count(Read<Position, Velocity, QueryComponent3, QueryComponent4, QueryComponent5>().WithTag<QueryTagA>().WithTag<QueryTagB>());
+
+		int repeatedCount = 0;
+		foreach (var _ in both) repeatedCount++; // 预热首次 archetype 缓存构建。
+		long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+		for (int i = 0; i < 128; i++)
+		{
+			foreach (var _ in both) repeatedCount++;
+		}
+		RepeatedEnumerationAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+		RepeatedEnumerationCount = repeatedCount;
 	}
 
 	private static int Count(EcsReadQuery<Position> query)
@@ -329,6 +341,7 @@ class Program
 			$"{forTagSystem4.Matches},{forTagSystem5.Matches}";
 		Console.WriteLine($"ecsworld-smoke: Read 标签 original/A/AB={readTagSystem.OriginalCount}/{readTagSystem.TagACount}/{readTagSystem.BothAliasCount}, arity={readCounts}");
 		Console.WriteLine($"ecsworld-smoke: ForTag 标签 arity={forTagCounts}");
+		Console.WriteLine($"ecsworld-smoke: Read 同实例重复枚举 allocated={readTagSystem.RepeatedEnumerationAllocatedBytes} bytes");
 		if (readTagSystem.OriginalCount != 4 || readTagSystem.TagACount != 2 || readTagSystem.BothAliasCount != 1 ||
 			Array.Exists(readTagSystem.ChainedCounts, count => count != 1))
 		{
@@ -338,6 +351,10 @@ class Program
 			forTagSystem4.Matches != 1 || forTagSystem5.Matches != 1)
 		{
 			Console.WriteLine("FAIL: ForTag 多标签累积"); failures++;
+		}
+		if (readTagSystem.RepeatedEnumerationCount != 129 || readTagSystem.RepeatedEnumerationAllocatedBytes != 0)
+		{
+			Console.WriteLine("FAIL: Read 同一查询重复枚举发生托管分配"); failures++;
 		}
 
 		Console.WriteLine($"ecsworld-smoke: 测试完成, failures={failures}");
