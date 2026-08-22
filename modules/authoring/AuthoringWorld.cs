@@ -82,6 +82,7 @@ public sealed partial class AuthoringWorld
 	/// <summary>分配一个稳定 Id（纯计数器递增；放弃使用只是留空洞，不影响一致性）。</summary>
 	public StableId AllocateId()
 	{
+		if (_nextId >= ulong.MaxValue) throw new InvalidOperationException("StableId 空间已耗尽，无法再分配新 Id");
 		var id = new StableId(_nextId);
 		_nextId++;
 		return id;
@@ -91,14 +92,21 @@ public sealed partial class AuthoringWorld
 	public StableId AllocateIds(int count)
 	{
 		if (count < 1) throw new ArgumentOutOfRangeException(nameof(count));
+		if (_nextId > ulong.MaxValue - (ulong)count) throw new InvalidOperationException("StableId 空间不足以分配连续段");
 		var first = new StableId(_nextId);
 		_nextId += (ulong)count;
 		return first;
 	}
 
-	/// <summary>加载场景后直接设定计数器（调用方负责校验大于全部已加载 Id）。</summary>
+	/// <summary>加载场景后直接设定计数器（调用方负责校验大于全部已加载 Id 且可继续分配）。</summary>
 	internal void SetNextId(ulong value) => _nextId = value;
 
+	/// <summary>清空 undo/redo 历史（装载场景后建立干净基线——历史不持久化契约）。</summary>
+	internal void ClearHistory()
+	{
+		_undoStack.Clear();
+		_redoStack.Clear();
+	}
 	internal ulong CurrentNextId => _nextId;
 
 	// —— Prefab（原型）语义 ——
@@ -257,10 +265,19 @@ public sealed partial class AuthoringWorld
 		SchemaFieldKind.Float => unchecked((ulong)BitConverter.DoubleToInt64Bits((double)(float)raw)),
 		SchemaFieldKind.Double => unchecked((ulong)BitConverter.DoubleToInt64Bits((double)raw)),
 		SchemaFieldKind.Bool => (bool)raw ? 1UL : 0UL,
-		SchemaFieldKind.Enum => unchecked((ulong)Convert.ToInt64(raw)),
+		SchemaFieldKind.Enum => MixEnumRaw(raw),   // ulong 底层枚举可能超 long.MaxValue，保留位模式
 		SchemaFieldKind.String => 0UL,   // 字符串由 MixString 另行混入
 		_ => 0UL,
 	};
+
+	/// <summary>枚举按底层类型取原始位模式（ulong 底层且高位为 1 时 Convert.ToInt64 会溢出）。</summary>
+	private static ulong MixEnumRaw(object raw)
+	{
+		var underlying = Enum.GetUnderlyingType(raw.GetType());
+		return underlying == typeof(ulong)
+			? (ulong)raw
+			: unchecked((ulong)Convert.ToInt64(raw));
+	}
 
 	internal static ulong Mix(ulong hash, ulong value)
 	{

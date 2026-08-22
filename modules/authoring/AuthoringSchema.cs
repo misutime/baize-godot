@@ -175,7 +175,11 @@ public abstract class ComponentSchemaBase : IComponentSchema
 	public object ReadJson(JsonElement element)
 	{
 		object component = CreateDefault();
-		if (element.ValueKind != JsonValueKind.Object) return component;
+		if (element.ValueKind != JsonValueKind.Object)
+		{
+			// 非对象形态（数字/字符串/null/数组）是数据错误，静默重置为默认值会无提示丢数据
+			throw new FormatException($"组件 JSON 必须是对象形态，实际为 {element.ValueKind}：{element.GetRawText()}");
+		}
 		foreach (var field in _fields)
 		{
 			if (!element.TryGetProperty(field.Name, out var json)) continue;
@@ -216,12 +220,14 @@ public abstract class ComponentSchemaBase : IComponentSchema
 	{
 		if (json.ValueKind == JsonValueKind.Number)
 		{
-			return Enum.ToObject(field.FieldType, json.GetInt64());
+			// 数字路径按底层类型读取：ulong 底层的枚举可能超出 Int64 范围
+			return Enum.ToObject(field.FieldType,
+				Enum.GetUnderlyingType(field.FieldType) == typeof(ulong) ? json.GetUInt64() : json.GetInt64());
 		}
 		string? name = json.GetString();
-		if (name is not null && TryParseEnumName(field.FieldType, name, out object? parsed))
+		if (name is not null && TryParseEnumName(field.FieldType, name, out var parsed))
 		{
-			return parsed;
+			return parsed!;   // TryParse 成功时 parsed 非空
 		}
 		throw new FormatException($"枚举字段 '{field.Name}' 无法解析值 '{json.GetRawText()}'（类型 {field.FieldType}）");
 	}

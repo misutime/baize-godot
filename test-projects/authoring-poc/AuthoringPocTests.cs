@@ -38,6 +38,8 @@ internal static class AuthoringPocTests
 		TransactionTests.RunCanonicalizeMergesEquivalentJson(Check);
 		TransactionTests.RunDeleteRejectsExternalReferences(Check);
 		TransactionTests.RunPrototypeCycleRejected(Check);
+		PersistenceTests.RunLoadBaselineAndEdgeCases(Check);
+		PersistenceTests.RunQueryJsonDeserialization(Check);
 		Console.WriteLine($"authoring-poc: 测试完成, failures={_failures}");
 		if (_failures != 0) return 1;
 

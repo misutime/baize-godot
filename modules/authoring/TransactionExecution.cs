@@ -73,6 +73,7 @@ public sealed partial class AuthoringWorld
 		}
 
 		foreach (StableId id in touched) TouchObject(id);
+		applied.NextIdAfter = _nextId;   // 提交时记录水位：Undo 仅在未被外部推进时回退
 		var diff = new AuthoringDiff(diffs);
 		applied.Diff = diff;
 		_undoStack.Add(applied);
@@ -105,7 +106,12 @@ public sealed partial class AuthoringWorld
 		}
 
 		foreach (StableId id in touched) TouchObject(id);
-		_nextId = applied.NextIdBefore;   // Undo 连计数器一起回退（hash 完全恢复的必要条件）
+		// 计数器回退仅在未被外部推进时执行：AllocateIds 是公开 API，事务外预留的空洞
+		// 不能被 Undo 回收（否则会再次发出同一 Id 造成重复）
+		if (_nextId == applied.NextIdAfter)
+		{
+			_nextId = applied.NextIdBefore;
+		}
 		_redoStack.Add(applied);
 		return new AuthoringDiff(diffs);
 	}
@@ -412,8 +418,13 @@ public sealed partial class AuthoringWorld
 							$"不能把 {prototypeId} 设为 {obj.Id} 的原型：沿原型链会回到自身（形成环）");
 					}
 				}
-				undos.Add(new PrototypeEntry(obj.Id, obj.PrototypeId));
+				undos.Add(new PrototypeEntry(obj.Id, obj.PrototypeId, obj._overrides));
 				obj.PrototypeId = newPrototype;
+				if (newPrototype is null)
+				{
+					// 清除原型 = 退化为普通对象：override 记录失去参照系，事务化清空（Undo 可还原）
+					obj._overrides.Clear();
+				}
 				touched.Add(obj.Id);
 				diffs.Add(new AuthoringDiffEntry(AuthoringDiffKind.PrototypeChanged, obj.Id, null,
 					newPrototype is null
@@ -683,17 +694,32 @@ public sealed partial class AuthoringWorld
 					: $"撤销：恢复关系 [{relation.RelationType}]→ {relation.TargetId}")];
 	}
 
-	internal sealed class PrototypeEntry(StableId id, StableId? oldPrototype) : UndoEntry
+	/// <summary>逆"设置原型"：恢复旧原型引用与当时的 override 集合（清除原型会事务化清空 overrides）。</summary>
+	private sealed class PrototypeEntry : UndoEntry
 	{
+		private readonly StableId _id;
+		private readonly StableId? _oldPrototype;
+		private readonly List<string> _oldOverrides;
+
+		public PrototypeEntry(StableId id, StableId? oldPrototype, IReadOnlyCollection<string> oldOverrides)
+		{
+			_id = id;
+			_oldPrototype = oldPrototype;
+			_oldOverrides = new List<string>(oldOverrides);
+		}
+
 		public override void Restore(AuthoringWorld world, HashSet<StableId> touched)
 		{
-			world.Require(id).PrototypeId = oldPrototype;
-			touched.Add(id);
+			var obj = world.Require(_id);
+			obj.PrototypeId = _oldPrototype;
+			obj._overrides.Clear();
+			obj._overrides.UnionWith(_oldOverrides);
+			touched.Add(_id);
 		}
 
 		public override IEnumerable<AuthoringDiffEntry> Describe(AuthoringWorld world) =>
-			[new AuthoringDiffEntry(AuthoringDiffKind.PrototypeChanged, id, null,
-				oldPrototype is null ? $"撤销：清除原型" : $"撤销：原型恢复为 {oldPrototype}")];
+			[new AuthoringDiffEntry(AuthoringDiffKind.PrototypeChanged, _id, null,
+				_oldPrototype is null ? "撤销：清除原型（含覆盖记录还原）" : $"撤销：原型恢复为 {_oldPrototype}")];
 	}
 
 	/// <summary>一次已提交事务的完整历史（规范化 ops + 逆数据 + 当时 diff）。</summary>
@@ -701,6 +727,7 @@ public sealed partial class AuthoringWorld
 	{
 		/// <summary>事务开始时的 Id 计数器快照：失败回滚与 Undo 都要恢复它（hash 含计数器）。</summary>
 		public ulong NextIdBefore { get; set; }
+		public ulong NextIdAfter { get; set; }
 
 		/// <summary>规范化 ops：自动分配的 Id 已落实为显式 Id——Redo 重放完全确定。</summary>
 		public List<AuthoringOp> NormalizedOps { get; } = new();

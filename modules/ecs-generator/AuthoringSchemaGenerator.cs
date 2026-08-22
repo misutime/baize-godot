@@ -71,6 +71,13 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	private static readonly DiagnosticDescriptor NestedContainerNotSupported = new(
+		"BAIZEECSGEN026",
+		"嵌套容器不受支持",
+		"[Component] '{0}' 不能声明在泛型或不可见（private/protected）的嵌套类型内——生成代码无法引用该类型",
+		Category,
+		DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
 		var candidates = context.SyntaxProvider
@@ -181,7 +188,7 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 		foreach (var field in component.Fields)
 		{
 			builder.Append("\t\t\t").Append(field.Index).Append(" => ((")
-				.Append(componentType).Append(")component).").Append(field.Name);
+				.Append(componentType).Append(")component).").Append(field.EscapedName);
 			if (field.IsString)
 			{
 				// string 字段读出口统一归一：default(T) 的 null 不外泄（hash/序列化安全）
@@ -201,7 +208,7 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 		foreach (var field in component.Fields)
 		{
 			builder.Append("\t\t\t\tcase ").Append(field.Index).Append(": { var __typed = (")
-				.Append(componentType).Append(")component; __typed.").Append(field.Name)
+				.Append(componentType).Append(")component; __typed.").Append(field.EscapedName)
 				.Append(" = (").Append(field.TypeFullName).AppendLine(")value; component = __typed; break; }");
 		}
 		builder.AppendLine("\t\t\t\tdefault: throw new global::System.ArgumentOutOfRangeException(nameof(index), index, \"字段索引越界\");");
@@ -222,9 +229,17 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 
 		public static ComponentCandidate? Create(INamedTypeSymbol symbol)
 		{
-			if (symbol.TypeKind != TypeKind.Struct || symbol.Arity > 0 || symbol.IsRefLikeType)
+			if (symbol.TypeKind != TypeKind.Struct || symbol.IsRefLikeType)
 			{
 				return Invalid(symbol, InvalidComponentDeclaration);
+			}
+			// 嵌套容器检查：任一层 generic 或不可见（private/protected）都会让全局生成类无法访问组件类型
+			for (INamedTypeSymbol? containing = symbol.ContainingType; containing is not null; containing = containing.ContainingType)
+			{
+				if (containing.Arity > 0 || containing.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Internal))
+				{
+					return Invalid(symbol, NestedContainerNotSupported);
+				}
 			}
 			if (symbol.IsReadOnly)
 			{
@@ -272,6 +287,7 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 
 				candidate.Fields.Add(new SchemaFieldInfo(
 					field.Name,
+					EscapeIdentifier(field.Name),
 					field.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 					index,
 					isString: field.Type.SpecialType == SpecialType.System_String));
@@ -345,19 +361,29 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 			}
 			return safe.ToString();
 		}
+
+		/// <summary>C# 关键字标识符转义（@event 等）；与 Roslyn SyntaxFacts 规则一致。</summary>
+		private static string EscapeIdentifier(string name)
+		{
+			var keyword = Microsoft.CodeAnalysis.CSharp.SyntaxFacts.GetKeywordKind(name);
+			return keyword != Microsoft.CodeAnalysis.CSharp.SyntaxKind.None ? "@" + name : name;
+		}
 	}
 
 	private sealed class SchemaFieldInfo
 	{
-		public SchemaFieldInfo(string name, string typeFullName, int index, bool isString)
+		public SchemaFieldInfo(string name, string escapedName, string typeFullName, int index, bool isString)
 		{
 			Name = name;
+			EscapedName = escapedName;
 			TypeFullName = typeFullName;
 			Index = index;
-			IsString = isString;
 		}
 
 		public string Name { get; }
+
+		/// <summary>生成代码中的字段访问名（C# 关键字字段加 @ 前缀；逻辑名仍是 Name）。</summary>
+		public string EscapedName { get; }
 		public string TypeFullName { get; }
 		public int Index { get; }
 		public bool IsString { get; }

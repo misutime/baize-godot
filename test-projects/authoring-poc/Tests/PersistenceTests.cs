@@ -84,7 +84,93 @@ internal static class PersistenceTests
 			File.Delete(pathA);
 			File.Delete(pathB);
 		}
-
 		Console.WriteLine("authoring-poc: 确定性持久化验证通过（字节稳定 + hash 保持 + 继续可编辑）");
+	}
+
+	/// <summary>P2.4 review 第2轮验证：空场景、装载基线、预留 Id、清原型 override 的往返语义。</summary>
+	public static void RunLoadBaselineAndEdgeCases(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+		string dir = ".tmp";
+		Directory.CreateDirectory(dir);
+		string path = Path.Combine(dir, "authoring-edge.bscene");
+
+		try
+		{
+			// —— 空场景往返 ——
+			var empty = new AuthoringWorld(schema);
+			AuthoringSceneFile.Save(empty, path);
+			var loadedEmpty = AuthoringSceneFile.Load(path, schema);
+			check(loadedEmpty.ObjectCount == 0, "空场景应能往返（objects=[]）");
+			check(loadedEmpty.ComputeArtifactHash() == empty.ComputeArtifactHash(), "空场景往返 hash 一致");
+
+			// —— 装载后是干净基线：无历史、nextId 保持文件值 ——
+			check(!loadedEmpty.CanUndo && !loadedEmpty.CanRedo, "装载后的世界不应有历史");
+
+			// —— 清除原型后的 override 往返：SetPrototype(None) 事务化清空，Save 不再携带 ——
+			var world = new AuthoringWorld(schema);
+			StableId first = world.AllocateIds(2);
+			var protoId = new StableId(first.Value);
+			var instanceId = new StableId(first.Value + 1);
+			var setup = new AuthoringTransaction();
+			setup.Create(protoId, "Proto");
+			setup.AddComponent(protoId, new Shooter.Gameplay.Health { Current = 10, Max = 10 }, schema);
+			setup.Create(instanceId, "Instance");
+			setup.SetPrototype(instanceId, protoId);
+			setup.SetComponent(instanceId, new Shooter.Gameplay.Health { Current = 5, Max = 10 }, schema);
+			world.Apply(setup);
+			check(world.Require(instanceId).OverriddenComponents.Count == 1, "覆盖应已记录");
+
+			var clearTx = new AuthoringTransaction();
+			clearTx.SetPrototype(instanceId, StableId.None);
+			world.Apply(clearTx);
+			check(world.Require(instanceId).OverriddenComponents.Count == 0,
+				"清除原型应事务化清空 override 记录");
+			ulong hashAfterClear = world.ComputeArtifactHash();
+
+			AuthoringSceneFile.Save(world, path);
+			var loaded = AuthoringSceneFile.Load(path, schema);
+			check(loaded.ComputeArtifactHash() == hashAfterClear,
+				"清除原型后的世界往返 hash 应一致（override 不复活）");
+
+			// —— Undo 不回收事务外预留的 Id ——
+			var renameTx = new AuthoringTransaction();
+			renameTx.Rename(protoId, "ProtoRenamed");
+			world.Apply(renameTx);
+			StableId reserved = world.AllocateId();   // 事务外预留
+			world.Undo();   // 撤销改名——预留必须保留
+			check(world.AllocateId().Value > reserved.Value,
+				"Undo 不得回收事务外预留的 Id（避免重复发出）");
+			check(world.FindByName("Proto") is not null, "改名撤销本身应生效");
+		}
+		finally
+		{
+			File.Delete(path);
+		}
+
+		Console.WriteLine("authoring-poc: 装载基线/空场景/预留 Id/清原型 override 验证通过");
+	}
+
+	/// <summary>P2.4 review 第2轮验证：完整查询 JSON（MCP 路径）反序列化后条件完整。</summary>
+	public static void RunQueryJsonDeserialization(Action<bool, string> check)
+	{
+		const string json = """
+			{
+			  "RequiredComponents": ["Shooter.Gameplay.EnemyFaction", "Shooter.Gameplay.Health"],
+			  "Conditions": [
+			    { "ComponentType": "Shooter.Gameplay.Health", "FieldName": "Current", "Operator": "LessThan", "Value": 50 }
+			  ],
+			  "NameContains": "Enemy"
+			}
+			""";
+		var query = System.Text.Json.JsonSerializer.Deserialize<AuthoringQuery>(json);
+		check(query is not null, "查询 JSON 应可反序列化");
+		check(query!.RequiredComponents.Count == 2, $"反序列化应恢复 2 个 Require，实际 {query.RequiredComponents.Count}");
+		check(query.Conditions.Count == 1, $"反序列化应恢复 1 个条件，实际 {query.Conditions.Count}");
+
+		var (world, ids) = TestSupport.BuildScene();
+		var hits = world.Execute(query);
+		check(hits.Count == 1 && hits[0].Id == ids.Enemy1,
+			$"反序列化查询应命中 Enemy1，实际 {hits.Count} 个");
 	}
 }

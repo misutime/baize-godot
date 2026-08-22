@@ -183,7 +183,7 @@ public static class AuthoringSceneFile
 			// overrides 是落盘的权威数据（派生记录）：以文件内容整体覆盖恢复
 			var restored = world.Require(item.Id);
 			restored._overrides.Clear();
-			if (item.PrototypeId is not null && OverridesOf(root, item.Id) is { } overrides)
+			if (OverridesOf(root, item.Id) is { } overrides)   // 无条件恢复（含清除原型后的残留记录）
 			{
 				foreach (var overrideElement in overrides.EnumerateArray())
 				{
@@ -196,8 +196,8 @@ public static class AuthoringSceneFile
 		if (root.TryGetProperty("nextId", out var nextIdElement))
 		{
 			ulong savedNextId = nextIdElement.GetUInt64();
-			ulong maxObjectId = pending.Max(p => p.Id.Value);
-			if (savedNextId == 0 || savedNextId <= maxObjectId)
+			ulong maxObjectId = pending.Count == 0 ? 0 : pending.Max(p => p.Id.Value);   // 空场景合法
+			if (savedNextId == 0 || savedNextId >= ulong.MaxValue || savedNextId <= maxObjectId)
 			{
 				throw new InvalidDataException(
 					$"nextId 非法：{savedNextId}（必须大于最大对象 Id {maxObjectId} 且非零）");
@@ -208,6 +208,7 @@ public static class AuthoringSceneFile
 		{
 			throw new InvalidDataException("场景文件缺少 nextId 字段");
 		}
+		world.ClearHistory();   // 装载建立干净基线：历史不持久化，且防止 Undo 破坏恢复的计数器
 		return world;
 	}
 

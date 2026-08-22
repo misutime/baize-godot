@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Baize.Authoring;
 
@@ -24,7 +25,13 @@ public enum QueryOperator
 }
 
 /// <summary>单条字段条件：组件类型 + 字段名 + 比较符 + 期望值。</summary>
-public readonly record struct QueryCondition(string ComponentType, string FieldName, QueryOperator Operator, object Value);
+/// <summary>单条字段条件：组件类型 + 字段名 + 比较符 + 期望值。Operator 序列化为字符串名（MCP 友好）。</summary>
+public readonly record struct QueryCondition(
+	string ComponentType,
+	string FieldName,
+	[property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+	QueryOperator Operator,
+	object Value);
 
 /// <summary>
 /// 结构化查询（纯数据，人/AI 共用）：必须组件集 + 字段条件 + 名字包含。
@@ -34,6 +41,17 @@ public sealed class AuthoringQuery
 	private readonly List<string> _requiredComponents = new();
 	private readonly List<QueryCondition> _conditions = new();
 
+	/// <summary>反序列化构造（MCP 从完整 JSON 恢复查询；字段名与属性一致，默认区分大小写）。</summary>
+	[JsonConstructor]
+	public AuthoringQuery(
+		IReadOnlyList<string>? requiredComponents = null,
+		IReadOnlyList<QueryCondition>? conditions = null,
+		string? nameContains = null)
+	{
+		if (requiredComponents is not null) _requiredComponents.AddRange(requiredComponents);
+		if (conditions is not null) _conditions.AddRange(conditions);
+		NameContains = nameContains;
+	}
 	public IReadOnlyList<string> RequiredComponents => _requiredComponents;
 	public IReadOnlyList<QueryCondition> Conditions => _conditions;
 
