@@ -95,9 +95,25 @@ Shooter 示例：
 - `FireInputState`：上一 Tick 是否按住开火键。
 
 **什么时候用 WorldState？**
-
 当判断句是“这一局只有一份”，而不是“每个实体各有一份”时使用。
 注意：配置和状态都可以是 WorldState，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
+
+#### store/state 心智模型（借前端 Redux/Pinia，理解更容易）
+
+`WorldState` 这个概念正好对应前端的 `store`/`state` 分离——不熟悉 ECS 的开发者可用这个类比：
+
+| 前端（Redux/Pinia） | 我们 | 含义 |
+|---|---|---|
+| **store**（全局状态容器） | `world.State`（`WorldState` 实例） | 装所有"这一局唯一"状态的容器 |
+| **state**（容器里的一块） | `MatchState`/`SpawnConfig`/`Score` | 具体的某个全局状态 |
+| **setState / getState** | `world.InsertState(...)` / `world.State.Get<T>()` | 读/写某个全局状态 |
+| **action / 纯函数更新** | System / `EcsState.TransitionTo` | 修改状态的方式（规则） |
+
+**一句话**：
+> `world.State` 像前端 `store`（容器），里面放 `MatchState`、`Score` 这些 `state`；
+> 系统像 `action`，用 `InsertState`/`State<T>()` 修改或读取——概念边界和前端一致，容易迁移心智。
+
+**注意区分**：`EcsWorld.Store`（Friflo `EntityStore`，**实体**存储）与 `world.State`（**状态**容器）是**两件事**——前者放实体+组件，后者放世界唯一状态。名字都带 Store/State，但一个管实体、一个管全局状态。
 
 #### EcsState：有进入/退出生命周期的世界级 WorldState
 
