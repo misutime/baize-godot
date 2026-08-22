@@ -265,19 +265,24 @@ public class EnemyContactSystem : QuerySystem<Position, EnemyAI>
 
     protected override void OnUpdate()
     {
-        var config = _world.Resources.Get<SpawnConfig>();
         var state = _world.Resources.Get<GameState>();
-        if (config == null || state == null || state.Phase != GamePhase.Playing) return;
+        if (state == null || state.Phase != GamePhase.Playing) return;
 
-        Query.ForEachEntity((ref Position pos, ref EnemyAI ai, Entity e) =>
+        // 直接查询玩家实时 Position（MoveSystem 后，非 SpawnConfig 缓存——防接触判定用旧位置）
+        var players = _world.Store.Query<Position>().AllTags(Tags.Get<PlayerTag>()).Entities;
+        foreach (var player in players)
         {
-            float dx = config.PlayerX - pos.X;
-            float dz = config.PlayerZ - pos.Z;
-            if (MathF.Sqrt(dx * dx + dz * dz) < 1.0f)   // 敌人碰到主角
+            var playerPos = player.GetComponent<Position>();   // 拷贝值（ref 变量不能进 lambda）
+            Query.ForEachEntity((ref Position pos, ref EnemyAI ai, Entity e) =>
             {
-                _world.Events.Writer<GameOverEvent>().Send(default);
-            }
-        });
+                float dx = playerPos.X - pos.X;
+                float dz = playerPos.Z - pos.Z;
+                if (MathF.Sqrt(dx * dx + dz * dz) < 1.0f)   // 敌人碰到主角
+                {
+                    _world.Events.Writer<GameOverEvent>().Send(default);
+                }
+            });
+        }
     }
 }
 
