@@ -69,14 +69,14 @@ internal static class ShooterPocTests
 		EcsWorld world = CreateWorld(maxAlive: 0);
 		SetPlayerCooldown(world, 0);
 		InputFrame[] frames =
-		{
+		[
 			new(0, 0, false),
 			new(0, 0, true),
 			new(0, 0, true),
 			new(0, 0, false),
 			new(0, 0, true),
 			new(0, 0, false), // 播放上一 Tick 的第二个生成命令
-        };
+		];
 		foreach (InputFrame frame in frames) world.Tick(frame);
 
 		int projectileCount = CountEntitiesWithTag<ProjectileTag>(world);
@@ -411,20 +411,13 @@ internal static class ShooterPocTests
 		_failures++;
 	}
 
-	private readonly struct RunResult
+	private readonly struct RunResult(
+		long hash, int score, GamePhase phase, int projectileCount)
 	{
-		public long Hash { get; }
-		public int Score { get; }
-		public GamePhase Phase { get; }
-		public int ProjectileCount { get; }
-
-		public RunResult(long hash, int score, GamePhase phase, int projectileCount)
-		{
-			Hash = hash;
-			Score = score;
-			Phase = phase;
-			ProjectileCount = projectileCount;
-		}
+		public long Hash { get; } = hash;
+		public int Score { get; } = score;
+		public GamePhase Phase { get; } = phase;
+		public int ProjectileCount { get; } = projectileCount;
 	}
 }
 

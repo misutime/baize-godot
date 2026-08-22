@@ -5,21 +5,13 @@ using Baize.Ecs;
 
 namespace ShooterPoc;
 
-public readonly struct EnemyBundle : IEntityBundle
+public readonly struct EnemyBundle(
+	float x, float z, float moveSpeed = 3.5f, int health = 1, float radius = 0.5f) : IEntityBundle
 {
-	private readonly Position _position;
-	private readonly MoveSpeed _moveSpeed;
-	private readonly Health _health;
-	private readonly CollisionRadius _radius;
-
-	public EnemyBundle(float x, float z, float moveSpeed = 3.5f,
-		int health = 1, float radius = 0.5f)
-	{
-		_position = new Position { X = x, Z = z };
-		_moveSpeed = new MoveSpeed { Value = moveSpeed };
-		_health = new Health { Current = health, Max = health };
-		_radius = new CollisionRadius { Value = radius };
-	}
+	private readonly Position _position = new() { X = x, Z = z };
+	private readonly MoveSpeed _moveSpeed = new() { Value = moveSpeed };
+	private readonly Health _health = new() { Current = health, Max = health };
+	private readonly CollisionRadius _radius = new() { Value = radius };
 
 	public void Apply(in EntityCommand entity)
 	{
