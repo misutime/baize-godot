@@ -1,9 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<!-- SPDX-License-Identifier: MIT -->
+<Project Sdk="Godot.NET.Sdk/4.8.0-dev">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
     <LangVersion>latest</LangVersion>
-    <Nullable>disable</Nullable>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Baize.GodotSlice</RootNamespace>
+    <AssemblyName>godot-slice</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\modules\ecs\Baize.Ecs.csproj" />

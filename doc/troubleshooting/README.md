@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-08-22：Godot 编辑器 F5 报 MSB4236，命令行构建正常
+
+### 现象
+`godot-slice` 在命令行执行完整的 `dotnet build` 成功，但编辑器 F5 调用同一命令时，
+`Godot.NET.Sdk/4.8.0-dev/Sdk/Sdk.props(40)` 无法解析 `Microsoft.NET.Sdk`；无 `ProjectReference` 的 `p15-check` 曾能通过。
+
+### 根因
+失败发生在根项目导入 `Microsoft.NET.Sdk` 时，早于 `ProjectReference` 图求值，因此与 Baize.Ecs、Shooter.Gameplay、
+`GodotFloat64` 和 net11 项目引用无关。失败编辑器进程中的 `MSBuildSDKsPath` 与 `MSBUILD_EXE_PATH`
+分别缺少目录分隔符（如 `...26381.103Sdks`）；GodotTools 启动 `dotnet` 子进程时原样继承了这些为进程内
+MSBuild 项目求值设置的变量，覆盖了 dotnet CLI 自身的 SDK 定位。
+
+### 修复
+`BuildSystem` 启动 `dotnet build/publish` 前，按大小写不敏感方式移除 `MSBUILD_EXE_PATH`、
+`MSBuildExtensionsPath`、`MSBuildSDKsPath`，让 dotnet CLI 按自己的 SDK 选择结果重新设置；不修改任何 csproj、
+ProjectReference、Friflo 或 Godot.NET.Sdk 逻辑。
+
+### 验证
+- 在故意注入同样错误 MSBuild 变量的环境中，`--build-solutions` 对 `godot-slice` 和 `p15-check` 均 exit 0；
+- 编辑器实际命令包含 `-p:GodotTargetPlatform=windows -p:GodotFloat64=true`，构建成功；
+- `shooter-poc`、`ecsworld-smoke` 均 `failures=0`，`run_godot_slice_e2e.ps1` 通过。
+
+---
 ## 2026-08-21：GUI 编辑器弹窗 "Failed to load .NET runtime"
 
 ### 现象

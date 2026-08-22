@@ -11,9 +11,15 @@
 本项目沿用既定命名：
 
 - `EcsWorld` 保存一局 ECS 世界（事实 + 规则）；**现阶段暂由它执行固定 Tick**；
-- **将来由 `EcsHost` 接管引擎生命周期、输入采集与 Tick 驱动**（Bevy 的 App 跑循环、World 存数据的分工），`EcsWorld` 回归纯容器——所以 `Tick` 是作者层入口，但"谁来驱动 Tick"最终归 `EcsHost`；
+- Godot 侧由 `EcsHost` 接管引擎生命周期、输入采集与固定 Tick 驱动（Bevy 的 App 跑循环、World 存数据的分工）；`EcsWorld` 保持纯 .NET 权威模拟；
 - Friflo 是底层存储与查询实现，不在本示例中修改；
 - `Resource`、`Bundle`、`EventWriter/EventReader` 是三点 Bevy 作者体验借鉴，但保持 C# 语义；`EcsState` 是框架层对世界状态生命周期的明确表达。
+
+## 0. P2.3 共享边界
+
+玩法已抽成独立的 `Shooter.Gameplay` 纯 .NET 类库。`shooter-poc` 与 `godot-slice` 都通过 `ProjectReference` 引用同一个程序集；不使用跨目录 `<Compile Include>`，也不复制源码。
+
+Godot 只增加宿主与表现适配层：`InputAdapter → InputFrame → EcsHost → EcsWorld`，随后把只读 `RenderSnapshot`/`HudSnapshot` 投影到 Camera、HUD 与 MultiMesh。表现节点不拥有也不回写玩法状态，因此删除整个 `Presentation` 子树后模拟仍可继续推进。
 
 ---
 
@@ -21,10 +27,10 @@
 
 不要从所有组件或所有系统开始读。按以下顺序读：
 
-1. `Gameplay/ShooterGame.cs`：这一局装了什么全局事实、初始对象和玩法功能；
-2. `Gameplay/Actors/PlayerBundle.cs`：玩家出生时有哪些事实；
-3. `Gameplay/ShooterFeature.cs`：大 Feature 如何嵌套小 Feature，以及规则按什么因果顺序运行；
-4. 再进入某个功能目录，例如 `Gameplay/Combat/` 看局部数据变换；
+1. `../shooter-gameplay/ShooterGame.cs`：这一局装了什么全局事实、初始对象和玩法功能；
+2. `../shooter-gameplay/Actors/PlayerBundle.cs`：玩家出生时有哪些事实；
+3. `../shooter-gameplay/ShooterFeature.cs`：大 Feature 如何嵌套小 Feature，以及规则按什么因果顺序运行；
+4. 再进入某个功能目录，例如 `../shooter-gameplay/Combat/` 看局部数据变换；
 5. 最后才看 `Tests/ShooterPocTests.cs` 的测试安排和底层状态哈希。
 
 唯一游戏装配入口是：
@@ -391,19 +397,24 @@ public static void Install(EcsWorld world)
 当前结构：
 
 ```text
+shooter-gameplay/
+├─ Shooter.Gameplay.csproj       # 纯 .NET 共享类库，不依赖 Godot
+├─ ShooterGame.cs                # 唯一 Gameplay Composition Root
+├─ ShooterFeature.cs             # 大 Feature 嵌套小 Feature
+├─ Actors/ Combat/ Match/        # 按玩法功能组织
+├─ Movement/ Spawning/
+└─ Presentation/ShooterSnapshots.cs # 只读表现契约与提取器
+
 shooter-poc/
-├─ Gameplay/
-│  ├─ ShooterGame.cs          # 唯一 Composition Root
-│  ├─ ShooterFeature.cs       # 大 Feature 嵌套小 Feature，集中表达系统因果顺序
-│  ├─ Actors/                 # 玩家、敌人的能力/关系/配方/规则
-│  ├─ Combat/                 # 武器、投射物、伤害事件与规则
-│  ├─ Match/                  # 对局状态、结束事件与规则
-│  ├─ Movement/               # 通用移动事实与规则
-│  └─ Spawning/               # 生成配置、状态与规则
-├─ Tests/
-│  └─ ShooterPocTests.cs      # 测试安排、断言、稳定哈希
-├─ Program.cs                 # 仅启动测试
+├─ Tests/ShooterPocTests.cs      # 纯 .NET 测试安排与断言
+├─ Program.cs                    # 仅启动测试
 └─ HUMAN_FIRST_AUTHORING.md
+
+godot-slice/
+├─ Runtime/                      # EcsHost + InputAdapter
+├─ Presentation/                 # Camera/HUD/MultiMesh 适配器
+├─ Tests/HeadlessE2e.cs          # Godot 进程内退出门禁
+└─ Main.tscn + Main.cs
 ```
 
 不要回到以下结构：
