@@ -43,6 +43,19 @@ public sealed class EcsWorld : IDisposable
     /// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
     public EcsResource Resources => _resources;
 
+    /// <summary>从 Friflo Entity 构造 EntityHandle（Id+Revision）。</summary>
+    public EntityHandle GetHandle(Entity entity) => new(entity.Id, entity.Revision);
+
+    /// <summary>解析 EntityHandle 为活实体（验证 Revision），不匹配返回 null（防 ID 复用错指）。</summary>
+    public Entity ResolveHandle(EntityHandle handle)
+    {
+        if (_store.TryGetEntityById(handle.Id, out var entity) && entity.Revision == handle.Revision)
+        {
+            return entity;
+        }
+        return default;   // IsNull
+    }
+
     // Friflo EntitySchema 是进程级单例——AOT 注册 + CreateSchema 只执行一次
     // （P1-2 修复：静态锁内二次检查，防并发竞态）
     private static readonly object _schemaLock = new();

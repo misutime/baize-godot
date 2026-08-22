@@ -12,6 +12,25 @@ using Friflo.Engine.ECS.Systems;
 
 namespace ShooterPoc;
 
+/// <summary>玩家位置同步：玩家 Position → SpawnConfig（供 AI 追踪/接触判定，Phase.Input）。</summary>
+public class PlayerSyncSystem : QuerySystem<Position>
+{
+    private readonly EcsWorld _world;
+
+    public PlayerSyncSystem(EcsWorld world) { _world = world; Filter.AllTags(Tags.Get<PlayerTag>()); }
+
+    protected override void OnUpdate()
+    {
+        var config = _world.Resources.Get<SpawnConfig>();
+        if (config == null) return;
+        Query.ForEachEntity((ref Position pos, Entity e) =>
+        {
+            config.PlayerX = pos.X;
+            config.PlayerZ = pos.Z;
+        });
+    }
+}
+
 /// <summary>输入应用：InputFrame → 玩家速度（Phase.Input）。</summary>
 public class ApplyInputSystem : QuerySystem<Velocity, PlayerControl>
 {
@@ -21,6 +40,17 @@ public class ApplyInputSystem : QuerySystem<Velocity, PlayerControl>
 
     protected override void OnUpdate()
     {
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase != GamePhase.Playing)
+        {
+            Query.ForEachEntity((ref Velocity vel, ref PlayerControl ctrl, Entity e) =>
+            {
+                vel.X = 0;
+                vel.Z = 0;
+            });
+            return;
+        }
+
         var input = _world.CurrentInput;
         Query.ForEachEntity((ref Velocity vel, ref PlayerControl ctrl, Entity e) =>
         {
@@ -31,7 +61,7 @@ public class ApplyInputSystem : QuerySystem<Velocity, PlayerControl>
 }
 
 /// <summary>射击：Fire 边沿（FirePressed 本帧为真）→ 生成子弹（Phase.Spawn）。</summary>
-public class FireSystem : QuerySystem<Position, Weapon>
+public class FireSystem : QuerySystem<Position, Weapon>, IResettableSystem
 {
     private readonly EcsWorld _world;
     private bool _prevFire;
@@ -41,6 +71,9 @@ public class FireSystem : QuerySystem<Position, Weapon>
 
     protected override void OnUpdate()
     {
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase != GamePhase.Playing) return;
+
         float dt = Tick.deltaTime;
         var cb = _world.CommandBuffer;
         bool firePressed = _world.CurrentInput.FirePressed;   // 循环外（边沿判断）
@@ -57,6 +90,7 @@ public class FireSystem : QuerySystem<Position, Weapon>
                 FireCount++;
                 cb.CreateEntity()
                   .Add(new Position { X = pos.X, Z = pos.Z })
+                  .Add(new PreviousPosition { X = pos.X, Z = pos.Z })
                   .Add(new Velocity { X = 0, Z = weapon.BulletSpeed })    // 向前（+Z，迎面打敌人）
                   .Add(new Bullet { Damage = 1, Range = 50, Travelled = 0 })
                   .Add(new Radius { Value = 0.2f })
@@ -64,6 +98,12 @@ public class FireSystem : QuerySystem<Position, Weapon>
             }
         });
         _prevFire = firePressed;   // 存本帧（下帧判断边沿）
+    }
+
+    public void ResetState()
+    {
+        _prevFire = false;
+        FireCount = 0;
     }
 }
 
@@ -93,6 +133,7 @@ public class SpawnSystem : BaseSystem, IResettableSystem
 
         _world.CommandBuffer.CreateEntity()
             .Add(new Position { X = x, Z = z })
+            .Add(new PreviousPosition { X = x, Z = z })
             .Add(new Velocity { X = 0, Z = 0 })
             .Add(new Health { Current = 1, Max = 1 })
             .Add(new EnemyAI { Speed = 3.5f })
@@ -107,7 +148,7 @@ public class SpawnSystem : BaseSystem, IResettableSystem
 }
 
 /// <summary>敌人 AI：朝玩家方向移动（Phase.Simulation）。</summary>
-public class EnemySteeringSystem : QuerySystem<Position, EnemyAI>
+public class EnemySteeringSystem : QuerySystem<Position, Velocity, EnemyAI>
 {
     private readonly EcsWorld _world;
 
@@ -116,31 +157,52 @@ public class EnemySteeringSystem : QuerySystem<Position, EnemyAI>
     protected override void OnUpdate()
     {
         var config = _world.Resources.Get<SpawnConfig>();
-        if (config == null) return;
-        float dt = Tick.deltaTime;
+        var state = _world.Resources.Get<GameState>();
+        if (config == null || state == null) return;
 
-        Query.ForEachEntity((ref Position pos, ref EnemyAI ai, Entity e) =>
+        Query.ForEachEntity((ref Position pos, ref Velocity vel, ref EnemyAI ai, Entity e) =>
         {
+            if (state.Phase != GamePhase.Playing)
+            {
+                vel.X = 0;
+                vel.Z = 0;
+                return;
+            }
+
             float dx = config.PlayerX - pos.X;
             float dz = config.PlayerZ - pos.Z;
             float len = MathF.Sqrt(dx * dx + dz * dz);
             if (len > 0.01f)
             {
-                pos.X += dx / len * ai.Speed * dt;
-                pos.Z += dz / len * ai.Speed * dt;
+                vel.X = dx / len * ai.Speed;
+                vel.Z = dz / len * ai.Speed;
+            }
+            else
+            {
+                vel.X = 0;
+                vel.Z = 0;
             }
         });
     }
 }
 
 /// <summary>移动：Position += Velocity × dt（Phase.Simulation）。</summary>
-public class MoveSystem : QuerySystem<Position, Velocity>
+public class MoveSystem : QuerySystem<Position, PreviousPosition, Velocity>
 {
+    private readonly EcsWorld _world;
+
+    public MoveSystem(EcsWorld world) { _world = world; }
+
     protected override void OnUpdate()
     {
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase != GamePhase.Playing) return;
+
         float dt = Tick.deltaTime;
-        Query.ForEachEntity((ref Position pos, ref Velocity vel, Entity e) =>
+        Query.ForEachEntity((ref Position pos, ref PreviousPosition previous, ref Velocity vel, Entity e) =>
         {
+            previous.X = pos.X;
+            previous.Z = pos.Z;
             pos.X += vel.X * dt;
             pos.Z += vel.Z * dt;
         });
@@ -148,7 +210,7 @@ public class MoveSystem : QuerySystem<Position, Velocity>
 }
 
 /// <summary>子弹命中：swept 检测（子弹本帧轨迹 vs 敌人圆），命中发 DamageRequest（Phase.Collision）。</summary>
-public class SweptBulletHitSystem : QuerySystem<Position, Bullet>
+public class SweptBulletHitSystem : QuerySystem<Position, PreviousPosition, Bullet, Radius>
 {
     private readonly EcsWorld _world;
 
@@ -158,27 +220,24 @@ public class SweptBulletHitSystem : QuerySystem<Position, Bullet>
     protected override void OnUpdate()
     {
         CallCount++;
-        float dt = Tick.deltaTime;
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase != GamePhase.Playing) return;
+
         var writer = _world.Events.Writer<DamageRequest>();
         var store = _world.Store;
 
-        Query.ForEachEntity((ref Position pos, ref Bullet bullet, Entity e) =>
+        Query.ForEachEntity((ref Position pos, ref PreviousPosition previous, ref Bullet bullet, ref Radius bulletRadius, Entity e) =>
         {
-            // 子弹本帧位移（swept 线段：pos → pos + vel*dt）
-            var vel = e.GetComponent<Velocity>();
-            float endX = pos.X + vel.X * dt;
-            float endZ = pos.Z + vel.Z * dt;
-
-            // 遍历敌人（Tag 过滤：Query<Position> + AllTags + Entities）
-            var enemies = store.Query<Position>().AllTags(Tags.Get<EnemyTag>()).Entities;
+            // MoveSystem 已记录 previous 并推进到 current；碰撞只检查本 Tick 的真实轨迹。
+            var enemies = store.Query<Position, Radius>().AllTags(Tags.Get<EnemyTag>()).Entities;
             foreach (var enemy in enemies)
             {
                 ref var ePos = ref enemy.GetComponent<Position>();
-                float r = 0.5f;  // 敌人半径（扫地机器人）
-                // swept：点到线段距离 < r
-                if (SegmentPointDistance(pos.X, pos.Z, endX, endZ, ePos.X, ePos.Z) < r)
+                ref var enemyRadius = ref enemy.GetComponent<Radius>();
+                float combinedRadius = bulletRadius.Value + enemyRadius.Value;
+                if (SegmentPointDistance(previous.X, previous.Z, pos.X, pos.Z, ePos.X, ePos.Z) <= combinedRadius)
                 {
-                    writer.Send(new DamageRequest(e.Id, enemy.Id, (int)bullet.Damage));  // 子弹→敌人
+                    writer.Send(new DamageRequest(_world.GetHandle(e), _world.GetHandle(enemy), (int)bullet.Damage));
                     break;
                 }
             }
@@ -207,7 +266,8 @@ public class EnemyContactSystem : QuerySystem<Position, EnemyAI>
     protected override void OnUpdate()
     {
         var config = _world.Resources.Get<SpawnConfig>();
-        if (config == null) return;
+        var state = _world.Resources.Get<GameState>();
+        if (config == null || state == null || state.Phase != GamePhase.Playing) return;
 
         Query.ForEachEntity((ref Position pos, ref EnemyAI ai, Entity e) =>
         {
@@ -225,8 +285,8 @@ public class EnemyContactSystem : QuerySystem<Position, EnemyAI>
 public class DamageResolveSystem : BaseSystem
 {
     private readonly EcsWorld _world;
-    private readonly System.Collections.Generic.HashSet<int> _hitTargets = new();
-    private readonly System.Collections.Generic.HashSet<int> _hitSources = new();   // 子弹去重（防重复删除）
+    private readonly System.Collections.Generic.HashSet<EntityHandle> _hitTargets = new();
+    private readonly System.Collections.Generic.HashSet<EntityHandle> _hitSources = new();   // 子弹去重（防重复删除）
 
     public DamageResolveSystem(EcsWorld world) { _world = world; }
 
@@ -234,25 +294,36 @@ public class DamageResolveSystem : BaseSystem
     {
         var cb = _world.CommandBuffer;
         var state = _world.Resources.Get<GameState>();
-        if (state == null) return;
-
-        // 消费语义：读取并清空本 Tick 事件（避免跨 Tick 残留导致重复删除）
         var reader = _world.Events.Reader<DamageRequest>();
+        if (state == null || state.Phase != GamePhase.Playing)
+        {
+            reader.Consume();
+            return;
+        }
+
+        // 消费语义：读取本 Tick 事件；句柄解析同时校验 Id+Revision，拒绝 ID 复用错指。
         _hitTargets.Clear();
         _hitSources.Clear();
         foreach (DamageRequest req in reader.Read())
         {
-            // 防御式：删除前验证实体存在（事件延迟 + 跨 Tick 可能已删——防重复删除异常）
-            if (_hitTargets.Add(req.TargetId) && _hitSources.Add(req.SourceId)
-                && _world.Store.TryGetEntityById(req.TargetId, out _)
-                && _world.Store.TryGetEntityById(req.SourceId, out _))
+            Entity source = _world.ResolveHandle(req.Source);
+            Entity target = _world.ResolveHandle(req.Target);
+            if (source.IsNull || target.IsNull
+                || !source.Tags.Has<BulletTag>() || !target.Tags.Has<EnemyTag>())
             {
-                cb.DeleteEntity(req.TargetId);   // 消灭敌人（延迟）
-                cb.DeleteEntity(req.SourceId);   // 子弹消失（延迟）
-                state.Score += 1;
-                if (state.AliveEnemies > 0) state.AliveEnemies--;
+                continue;
             }
+
+            if (_hitTargets.Contains(req.Target) || _hitSources.Contains(req.Source)) continue;
+            _hitTargets.Add(req.Target);
+            _hitSources.Add(req.Source);
+
+            cb.DeleteEntity(target.Id);   // 消灭敌人（延迟）
+            cb.DeleteEntity(source.Id);   // 子弹消失（延迟）
+            state.Score += 1;
+            if (state.AliveEnemies > 0) state.AliveEnemies--;
         }
+        reader.Consume();
     }
 }
 
@@ -270,6 +341,20 @@ public class GameOverHandlerSystem : BaseSystem
         if (_world.Events.Reader<GameOverEvent>().Consume() > 0)
         {
             state.Phase = GamePhase.GameOver;
+
+            // 丢弃本 Tick 在早期 Phase 排队的射击/生成命令，避免下 Tick 在 GameOver 后落地。
+            _world.CommandBuffer.Reset();
+            state.AliveEnemies = 0;
+            foreach (var entity in _world.Store.Entities)
+            {
+                if (entity.Tags.Has<EnemyTag>()) state.AliveEnemies++;
+                if (entity.HasComponent<Velocity>())
+                {
+                    ref var velocity = ref entity.GetComponent<Velocity>();
+                    velocity.X = 0;
+                    velocity.Z = 0;
+                }
+            }
         }
     }
 }
@@ -290,6 +375,9 @@ public class CleanupSystem : QuerySystem<Position, Bullet>
 
     protected override void OnUpdate()
     {
+        var state = _world.Resources.Get<GameState>();
+        if (state == null || state.Phase != GamePhase.Playing) return;
+
         float dt = Tick.deltaTime;
         var cb = _world.CommandBuffer;
 

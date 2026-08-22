@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT
 // Events.cs —— P2.2 Shooter PoC 事件类型（纯数据）
+using Baize.Ecs;
+
 namespace ShooterPoc;
 
-/// <summary>伤害请求：子弹 → 敌人。</summary>
+/// <summary>伤害请求：子弹 → 敌人（EntityHandle 带代际——防 ID 复用错指）。</summary>
 public readonly struct DamageRequest
 {
-    public readonly int SourceId;   // 子弹
-    public readonly int TargetId;   // 敌人
+    public readonly EntityHandle Source;   // 子弹
+    public readonly EntityHandle Target;   // 敌人
     public readonly int Amount;
 
-    public DamageRequest(int sourceId, int targetId, int amount)
+    public DamageRequest(EntityHandle source, EntityHandle target, int amount)
     {
-        SourceId = sourceId;
-        TargetId = targetId;
+        Source = source;
+        Target = target;
         Amount = amount;
     }
 }

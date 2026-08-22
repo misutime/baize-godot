@@ -10,6 +10,7 @@ namespace ShooterPoc;
 
 // --- 基础组件 ---
 public struct Position : IComponent { public float X, Z; }
+public struct PreviousPosition : IComponent { public float X, Z; }   // MoveSystem 每 Tick 推进前快照
 public struct Velocity : IComponent { public float X, Z; }
 public struct Health   : IComponent { public int Current, Max; }
 public struct Radius   : IComponent { public float Value; }          // 碰撞半径（swept 检测用）
