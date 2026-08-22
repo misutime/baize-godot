@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // EcsWorld.cs —— baize-godot EcsWorld 框架核心（P2.1）
 //
-// 面向游戏开发者的 ECS 框架层：封装 Friflo 底层，
+// 面向游戏开发者的 ECS 框架层：封装世界生命周期与作者层入口，
 // 提供固定 Tick / 输入 / Command / 实体安全 / 系统调度（按 Phase）/ 重置。
-// 游戏代码不直接调 Friflo 底层（全部经 EcsWorld）。
+// 游戏装配优先使用 InsertResource / SpawnNow / AddFeature；
+// 系统热循环仍可通过 Store 使用 Friflo 的类型化查询。
 
 using System;
 using System.Collections.Generic;
@@ -42,6 +43,37 @@ public sealed class EcsWorld : IDisposable
 
     /// <summary>全局单例资源（GameState/Score/配置，借鉴 Bevy Resource）。</summary>
     public EcsResource Resources => _resources;
+
+    /// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
+    public EcsWorld InsertResource<T>(T resource) where T : class
+    {
+        _resources.Set(resource);
+        return this;
+    }
+
+    /// <summary>作者层：获取必需资源；未安装时抛出清晰错误。</summary>
+    public T GetResource<T>() where T : class => _resources.GetOrThrow<T>();
+
+    /// <summary>
+    /// 作者层：立刻用 Bundle 创建实体。仅用于 Composition Root、关卡装载和测试安排；
+    /// 系统查询期间的结构变更必须继续使用 CommandBuffer.Spawn。
+    /// </summary>
+    public EntityHandle SpawnNow(IEntityBundle bundle)
+    {
+        var entity = _store.CreateEntity();
+        _commandBuffer.ApplyTo(entity.Id, bundle);
+        _commandBuffer.Playback();
+        return GetHandle(entity);
+    }
+
+    /// <summary>测试/反序列化入口：用指定 Id 立刻创建 Bundle 实体。</summary>
+    public EntityHandle SpawnNow(int entityId, IEntityBundle bundle)
+    {
+        var entity = _store.CreateEntity(entityId);
+        _commandBuffer.ApplyTo(entity.Id, bundle);
+        _commandBuffer.Playback();
+        return GetHandle(entity);
+    }
 
     /// <summary>从 Friflo Entity 构造 EntityHandle（Id+Revision）。</summary>
     public EntityHandle GetHandle(Entity entity) => new(entity.Id, entity.Revision);
@@ -127,10 +159,17 @@ public sealed class EcsWorld : IDisposable
     /// <summary>当前 Tick 的输入（系统读取）。</summary>
     public InputFrame CurrentInput { get; private set; }
 
-    /// <summary>注册一个系统到指定阶段（P1-1 修复：挂到对应 SystemGroup，执行顺序由枚举保证）。</summary>
+    /// <summary>注册一个系统到指定阶段（底层能力；游戏装配优先通过 AddFeature 分组）。</summary>
     public void AddSystem(BaseSystem system, Phase phase = Phase.Simulation)
     {
         _phaseGroups[phase].Add(system);
+    }
+
+    /// <summary>作者层：安装一个功能切片，并返回世界以便连续装配。</summary>
+    public EcsWorld AddFeature(IEcsFeature feature)
+    {
+        feature.Install(this);
+        return this;
     }
 
     /// <summary>获取 CommandBuffer（延迟结构变更：创建/删除/添加组件）。</summary>

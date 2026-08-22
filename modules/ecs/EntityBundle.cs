@@ -2,7 +2,7 @@
 // EntityBundle.cs —— baize-godot EcsWorld 组件组合（P2.1，借鉴 Bevy Bundle）
 //
 // 组件组合包：一次创建实体时添加一组组件（对应 W1 Object = 组件组合 心智模型）。
-// 例：world.Spawn(new PlayerBundle { Pos = ..., Health = ... });
+// 装配时用 world.SpawnNow(bundle)，系统查询期间用 world.CommandBuffer.Spawn(bundle)。
 
 using System;
 using Friflo.Engine.ECS;
@@ -11,7 +11,7 @@ namespace Baize.Ecs;
 
 /// <summary>
 /// 组件组合接口：实现类声明一组组件，可一次创建实体。
-/// 用法：struct PlayerBundle : IEntityBundle { ... } → world.Spawn(new PlayerBundle{...})
+/// 用法：struct PlayerBundle : IEntityBundle { ... } → world.SpawnNow(new PlayerBundle{...})
 /// </summary>
 public interface IEntityBundle
 {
