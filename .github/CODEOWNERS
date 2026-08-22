@@ -303,3 +303,5 @@ SCsub                                         @godotengine/buildsystem
 /test-projects/                                @misutime
 /thirdparty/Friflo.Engine.ECS/                 @misutime
 /thirdparty/Friflo.Engine.ECS.Generator/       @misutime
+/modules/ecs/                                   @misutime
+/modules/ecs-generator/                         @misutime
