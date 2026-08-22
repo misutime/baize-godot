@@ -77,15 +77,18 @@ internal static class EndToEndTests
 		check(map[ids.Enemy1].IsNull, "被击杀敌人的实体应已失效（Friflo Entity.IsNull）");
 		check(CountEntities(world) < entitiesBefore + 10, "实体数量应收敛（投射物已清理或超射程回收中）");
 
-		// —— 6. 增量重烘后重挂载：改 W1 数据 → 重烘 → 新值生效 ——
+		// —— 6. 增量重烘后重挂载：改值 + 删除组件都应同步到 W2 ——
+		var oldBaked = scene.Find(ids.Enemy2);
 		var buffTx = new AuthoringTransaction();
 		buffTx.SetComponent(ids.Enemy2, new Health { Current = 1, Max = 60 }, authoring.Schema);
+		buffTx.RemoveComponent<SeekTarget>(ids.Enemy2, authoring.Schema);   // W1 删除能力组件
 		authoring.Apply(buffTx);
 		baker.Bake(authoring, scene);
-		world.ApplyTo(map[ids.Enemy2].Id, scene.Find(ids.Enemy2)!);
-		world.CommandBuffer.Playback();
+		map[ids.Enemy2].ApplyTo(oldBaked, scene.Find(ids.Enemy2)!);
 		check(map[ids.Enemy2].GetComponent<Health>().Current == 1,
 			"W1 改值经增量烘焙后应反映到 W2 实体");
+		check(!map[ids.Enemy2].HasComponent<SeekTarget>(),
+			"W1 删除的组件经差集重挂载后应从 W2 实体移除");
 
 		Console.WriteLine($"authoring-poc: W1→Baker→W2 端到端验证通过（score={match.Score}, alive={match.AliveEnemies}）");
 	}

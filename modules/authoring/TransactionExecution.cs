@@ -11,6 +11,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace Baize.Authoring;
@@ -29,16 +30,28 @@ public sealed partial class AuthoringWorld
 		if (transaction is null) throw new ArgumentNullException(nameof(transaction));
 		if (transaction.Count == 0) return AuthoringDiff.Empty;
 
-		_version++;
-		var applied = new AppliedTransaction();
-		var diffs = new List<AuthoringDiffEntry>();
-		var touched = new HashSet<StableId>();
-
+		// 入口规范化：组件 JSON 经 Schema 读入再输出（语义等价的 MCP 输入收敛为同一形态），
+		// 同时让历史栈持有独立 JsonElement（与调用方 JsonDocument 生命周期解耦）。
+		AuthoringTransaction canonical;
 		try
 		{
-			for (int index = 0; index < transaction.Ops.Count; index++)
+			canonical = transaction.Canonicalize(Schema);
+		}
+		catch (Exception ex)
+		{
+			throw new AuthoringTransactionException($"事务规范化失败（世界未改变）：{ex.Message}", ex);
+		}
+
+		_version++;
+		var applied = new AppliedTransaction();
+		applied.NextIdBefore = _nextId;   // 回滚/Undo 需恢复计数器，保证 ArtifactHash 完全还原
+		var diffs = new List<AuthoringDiffEntry>();
+		var touched = new HashSet<StableId>();
+		try
+		{
+			for (int index = 0; index < canonical.Ops.Count; index++)
 			{
-				AuthoringOp op = transaction.Ops[index];
+				AuthoringOp op = canonical.Ops[index];
 				try
 				{
 					applied.NormalizedOps.Add(ExecuteOp(op, applied.UndoEntries, diffs, touched, index));
@@ -46,13 +59,14 @@ public sealed partial class AuthoringWorld
 				catch (Exception failure)
 				{
 					throw new AuthoringTransactionException(
-						$"事务在第 {index + 1}/{transaction.Count} 个操作失败：{failure.Message}", failure);
+						$"事务在第 {index + 1}/{canonical.Count} 个操作失败：{failure.Message}", failure);
 				}
 			}
 		}
 		catch (Exception ex)
 		{
 			Rollback(applied.UndoEntries);
+			_nextId = applied.NextIdBefore;   // 计数器一并还原（自动分配的 Id 也回退）
 			foreach (StableId id in touched) ForgetObject(id);   // 回滚版本痕迹
 			_version--;
 			throw new AuthoringTransactionException($"事务已回滚（世界未改变）。{ex.Message}", ex);
@@ -91,6 +105,7 @@ public sealed partial class AuthoringWorld
 		}
 
 		foreach (StableId id in touched) TouchObject(id);
+		_nextId = applied.NextIdBefore;   // Undo 连计数器一起回退（hash 完全恢复的必要条件）
 		_redoStack.Add(applied);
 		return new AuthoringDiff(diffs);
 	}
@@ -165,9 +180,17 @@ public sealed partial class AuthoringWorld
 				{
 					id = AllocateId();
 				}
-				else if (Exists(id))
+				else
 				{
-					throw new InvalidOperationException($"对象 {id} 已存在，不能重复创建");
+					if (Exists(id))
+					{
+						throw new InvalidOperationException($"对象 {id} 已存在，不能重复创建");
+					}
+					// 显式大 Id 也推进计数器，避免未来自动分配撞上已占用 Id
+					if (id.Value >= _nextId)
+					{
+						_nextId = checked(id.Value + 1);
+					}
 				}
 				if (!create.ParentId.IsNone && !Exists(create.ParentId))
 				{
@@ -189,6 +212,23 @@ public sealed partial class AuthoringWorld
 				var root = Require(delete.Id);
 				var subtree = new List<AuthoringObject>();
 				CollectSubtree(root, subtree);
+
+				// 入引用预检：子树外对象的原型/关系指向将被删除的对象 → 拒绝（悬空引用会破坏 Baker 与关系不变量）
+				var doomed = new HashSet<StableId>(subtree.Select(node => node.Id));
+				foreach (var other in _objects.Values)
+				{
+					if (doomed.Contains(other.Id)) continue;
+					if (other.PrototypeId is { } protoRef && doomed.Contains(protoRef))
+					{
+						throw new InvalidOperationException(
+							$"无法删除 {delete.Id}：对象 {other.Id}（{other.Name}）的原型指向它，请先解除引用");
+					}
+					foreach (var relation in other._relations.Where(relation => doomed.Contains(relation.TargetId)))
+					{
+						throw new InvalidOperationException(
+							$"无法删除 {delete.Id}：对象 {other.Id}（{other.Name}）的关系 [{relation.RelationType}] 指向它，请先解除引用");
+					}
+				}
 
 				var snapshots = new List<ObjectSnapshot>(subtree.Count);
 				foreach (var node in subtree)
@@ -366,9 +406,10 @@ public sealed partial class AuthoringWorld
 					{
 						throw new KeyNotFoundException($"原型对象不存在：{prototypeId}");
 					}
-					if (IsAncestorOrSelf(obj.Id, prototypeId))
+					if (PrototypeChainReaches(prototypeId, obj.Id))
 					{
-						throw new InvalidOperationException($"不能把 {obj.Id} 或其子孙设为它的原型");
+						throw new InvalidOperationException(
+							$"不能把 {prototypeId} 设为 {obj.Id} 的原型：沿原型链会回到自身（形成环）");
 					}
 				}
 				undos.Add(new PrototypeEntry(obj.Id, obj.PrototypeId));
@@ -387,6 +428,19 @@ public sealed partial class AuthoringWorld
 	}
 
 	// —— 内部辅助 ——
+
+	/// <summary>沿 PrototypeId 链从 start 向上追溯是否到达 target（SetPrototype 的环预检）。</summary>
+	private bool PrototypeChainReaches(StableId start, StableId target)
+	{
+		var guard = new HashSet<StableId>();
+		StableId current = start;
+		while (!current.IsNone && guard.Add(current))
+		{
+			if (current == target) return true;
+			current = Find(current)?.PrototypeId ?? StableId.None;
+		}
+		return false;
+	}
 
 	internal IComponentSchema RequireSchema(string typeName) =>
 		Schema.TryGetByName(typeName, out var schema)
@@ -645,6 +699,9 @@ public sealed partial class AuthoringWorld
 	/// <summary>一次已提交事务的完整历史（规范化 ops + 逆数据 + 当时 diff）。</summary>
 	internal sealed class AppliedTransaction
 	{
+		/// <summary>事务开始时的 Id 计数器快照：失败回滚与 Undo 都要恢复它（hash 含计数器）。</summary>
+		public ulong NextIdBefore { get; set; }
+
 		/// <summary>规范化 ops：自动分配的 Id 已落实为显式 Id——Redo 重放完全确定。</summary>
 		public List<AuthoringOp> NormalizedOps { get; } = new();
 

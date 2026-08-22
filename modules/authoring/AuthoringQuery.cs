@@ -9,6 +9,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 
 namespace Baize.Authoring;
 
@@ -158,6 +159,7 @@ public static class AuthoringWorldQueryExtensions
 
 	private static bool Compare(SchemaFieldKind kind, object actual, QueryOperator op, object expected)
 	{
+		expected = NormalizeExpectedValue(expected);
 		if (kind == SchemaFieldKind.String)
 		{
 			string actualText = (string)actual;
@@ -205,5 +207,22 @@ public static class AuthoringWorldQueryExtensions
 		SchemaFieldKind.Enum => Convert.ToDouble(raw),
 		SchemaFieldKind.String => throw new InvalidOperationException("字符串字段走专用比较路径"),
 		_ => throw new NotSupportedException($"未支持的字段类别：{kind}"),
+	};
+
+	/// <summary>
+	/// 归一条件值：System.Text.Json 反序列化 object 得到 JsonElement（MCP 路径），
+	/// 按 ValueKind 读出标量，使其与强类型路径可比较。
+	/// </summary>
+	private static object NormalizeExpectedValue(object value) => value switch
+	{
+		JsonElement json => json.ValueKind switch
+		{
+			JsonValueKind.String => json.GetString() ?? string.Empty,
+			JsonValueKind.Number => json.GetDouble(),
+			JsonValueKind.True => true,
+			JsonValueKind.False => false,
+			_ => throw new ArgumentException($"查询条件值不支持 JSON {json.ValueKind}"),
+		},
+		_ => value,
 	};
 }

@@ -10,6 +10,7 @@
 // 事务历史不持久化（编辑会话内有效）；场景文件即 Artifact。
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -115,63 +116,97 @@ public static class AuthoringSceneFile
 
 		var world = new AuthoringWorld(schema);
 
+		// 两阶段加载：先创建全部对象，再恢复结构与数据——
+		// Save 按 Id 排序输出，但合法世界允许前向引用（o1 的父/原型/关系可指向 o2），
+		// 单遍加载会对"引用尚未定义对象"的场景误报。
+		var pending = new List<PendingObject>();
+		var creationTx = new AuthoringTransaction();
 		foreach (var objectElement in root.GetProperty("objects").EnumerateArray())
 		{
 			var id = new StableId(objectElement.GetProperty("id").GetUInt64());
 			string name = objectElement.GetProperty("name").GetString()
 				?? throw new InvalidDataException($"对象 {id} 的 name 缺失");
+			if (id.IsNone)
+			{
+				throw new InvalidDataException("对象的 id 不能为 0");
+			}
+
+			creationTx.Add(new CreateObjectOp(id, name, StableId.None));
+
 			var parent = new StableId(objectElement.GetProperty("parent").GetUInt64());
 			StableId? prototype = objectElement.TryGetProperty("prototype", out var protoElement)
 				? new StableId(protoElement.GetUInt64())
 				: null;
 
-			if (parent != default && !world.Exists(parent))
-			{
-				throw new InvalidDataException($"对象 {id} 的父 {parent} 在文件中不存在或尚未定义（父必须先于子出现）");
-			}
-
-			var transaction = new AuthoringTransaction();
-			transaction.Add(new CreateObjectOp(id, name, parent));
-			if (prototype is { } prototypeValue)
-			{
-				transaction.Add(new SetPrototypeOp(id, prototypeValue));
-			}
-
+			var components = new List<(string TypeName, JsonElement Value)>();
 			foreach (var componentProperty in objectElement.GetProperty("components").EnumerateObject())
 			{
-				transaction.Add(new AddComponentOp(id, componentProperty.Name, componentProperty.Value.Clone()));
+				components.Add((componentProperty.Name, componentProperty.Value.Clone()));
 			}
 
+			var relations = new List<AuthoringRelation>();
 			foreach (var relationElement in objectElement.GetProperty("relations").EnumerateArray())
 			{
-				transaction.Add(new AddRelationOp(
-					id,
+				relations.Add(new AuthoringRelation(
 					relationElement.GetProperty("type").GetString()
 						?? throw new InvalidDataException($"对象 {id} 有缺 type 的关系"),
 					new StableId(relationElement.GetProperty("target").GetUInt64())));
 			}
 
-			world.Apply(transaction);
+			pending.Add(new PendingObject(id, parent, prototype, components, relations));
+		}
+		world.Apply(creationTx);
 
-			// overrides 不走事务（是原型语义的派生记录）：直接落盘数据原样恢复
-			if (prototype is not null && objectElement.TryGetProperty("overrides", out var overridesElement))
+		// 第二遍：恢复层级、原型、组件、关系（此时全部对象已存在，环校验基于完整图）
+		foreach (var item in pending)
+		{
+			var structureTx = new AuthoringTransaction();
+			if (!item.ParentId.IsNone)
 			{
-				var restored = world.Require(id);
-				foreach (var overrideElement in overridesElement.EnumerateArray())
+				structureTx.Reparent(item.Id, item.ParentId);
+			}
+			foreach (var (typeName, value) in item.Components)
+			{
+				structureTx.Add(new AddComponentOp(item.Id, typeName, value));
+			}
+			foreach (var relation in item.Relations)
+			{
+				structureTx.Add(new AddRelationOp(item.Id, relation.RelationType, relation.TargetId));
+			}
+			// 原型必须最后设置：先设原型再添加组件会被 MarkLocalOverride 误标为本地覆盖
+			if (item.PrototypeId is { } prototypeValue)
+			{
+				structureTx.SetPrototype(item.Id, prototypeValue);
+			}
+			world.Apply(structureTx);
+
+			// overrides 是落盘的权威数据（派生记录）：以文件内容整体覆盖恢复
+			var restored = world.Require(item.Id);
+			restored._overrides.Clear();
+			if (item.PrototypeId is not null && OverridesOf(root, item.Id) is { } overrides)
+			{
+				foreach (var overrideElement in overrides.EnumerateArray())
 				{
 					restored._overrides.Add(overrideElement.GetString()
-						?? throw new InvalidDataException($"对象 {id} 有空 override 记录"));
+						?? throw new InvalidDataException($"对象 {item.Id} 有空 override 记录"));
 				}
 			}
 		}
-
+		// nextId 必须严格大于全部对象 Id（损坏文件拒绝加载，绝不按数值循环推进）
 		if (root.TryGetProperty("nextId", out var nextIdElement))
 		{
 			ulong savedNextId = nextIdElement.GetUInt64();
-			while (world.CurrentNextId < savedNextId)
+			ulong maxObjectId = pending.Max(p => p.Id.Value);
+			if (savedNextId == 0 || savedNextId <= maxObjectId)
 			{
-				world.AllocateId();   // 推进计数器到保存值（空洞无害）
+				throw new InvalidDataException(
+					$"nextId 非法：{savedNextId}（必须大于最大对象 Id {maxObjectId} 且非零）");
 			}
+			world.SetNextId(savedNextId);
+		}
+		else
+		{
+			throw new InvalidDataException("场景文件缺少 nextId 字段");
 		}
 		return world;
 	}
@@ -186,8 +221,27 @@ public static class AuthoringSceneFile
 		ids.Sort();
 		return ids;
 	}
-}
 
+	private static JsonElement? OverridesOf(JsonElement root, StableId id)
+	{
+		foreach (var objectElement in root.GetProperty("objects").EnumerateArray())
+		{
+			if (new StableId(objectElement.GetProperty("id").GetUInt64()) != id) continue;
+			return objectElement.TryGetProperty("overrides", out var overridesElement)
+				? overridesElement
+				: null;
+		}
+		return null;
+	}
+
+	/// <summary>第一遍收集的结构信息：对象创建后延后恢复的引用型数据。</summary>
+	private sealed record PendingObject(
+		StableId Id,
+		StableId ParentId,
+		StableId? PrototypeId,
+		System.Collections.Generic.List<(string TypeName, JsonElement Value)> Components,
+		System.Collections.Generic.List<AuthoringRelation> Relations);
+}
 internal static class AuthoringWorldSerializationExtensions
 {
 	/// <summary>组件按类型全名排序（序列化与 hash 共用同一确定性顺序）。</summary>

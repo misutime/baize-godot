@@ -63,6 +63,14 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
+	private static readonly DiagnosticDescriptor ReadonlyFieldNotSupported = new(
+		"BAIZEECSGEN025",
+		"readonly 字段无法参与 W1 编辑",
+		"[Component] '{0}' 的字段 '{1}' 是 readonly——生成代码无法按字段改写，请去掉 readonly 或不标注 [Component]",
+		Category,
+		DiagnosticSeverity.Error,
+		isEnabledByDefault: true);
+
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
 		var candidates = context.SyntaxProvider
@@ -173,7 +181,13 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 		foreach (var field in component.Fields)
 		{
 			builder.Append("\t\t\t").Append(field.Index).Append(" => ((")
-				.Append(componentType).Append(")component).").Append(field.Name).AppendLine(",");
+				.Append(componentType).Append(")component).").Append(field.Name);
+			if (field.IsString)
+			{
+				// string 字段读出口统一归一：default(T) 的 null 不外泄（hash/序列化安全）
+				builder.Append(" ?? string.Empty");
+			}
+			builder.AppendLine(",");
 		}
 		builder.AppendLine("\t\t\t_ => throw new global::System.ArgumentOutOfRangeException(nameof(index), index, \"字段索引越界\"),");
 		builder.AppendLine("\t\t};");
@@ -221,7 +235,7 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 			{
 				FullyQualifiedName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
 				MetadataName = symbol.ToDisplayString(),
-				SchemaClassName = Sanitize(symbol.Name) + "Schema",
+				SchemaClassName = Sanitize(symbol.Name) + "Schema_" + Fnv1a(symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToString("X8"),
 			};
 
 			ValidateEngineContract(symbol, candidate);
@@ -241,6 +255,13 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 						PrivateFieldNotSupported, field.Locations.FirstOrDefault(), candidate.MetadataName, field.Name));
 					continue;
 				}
+				if (field.IsReadOnly)
+				{
+					// 非 readonly struct 也能声明 readonly 实例字段——生成代码无法改写，提前给出明确诊断
+					candidate.Diagnostics.Add(Diagnostic.Create(
+						ReadonlyFieldNotSupported, field.Locations.FirstOrDefault(), candidate.MetadataName, field.Name));
+					continue;
+				}
 				if (!IsSupportedFieldType(field.Type))
 				{
 					candidate.Diagnostics.Add(Diagnostic.Create(
@@ -252,7 +273,8 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 				candidate.Fields.Add(new SchemaFieldInfo(
 					field.Name,
 					field.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-					index));
+					index,
+					isString: field.Type.SpecialType == SpecialType.System_String));
 				index++;
 			}
 
@@ -327,15 +349,31 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 
 	private sealed class SchemaFieldInfo
 	{
-		public SchemaFieldInfo(string name, string typeFullName, int index)
+		public SchemaFieldInfo(string name, string typeFullName, int index, bool isString)
 		{
 			Name = name;
 			TypeFullName = typeFullName;
 			Index = index;
+			IsString = isString;
 		}
 
 		public string Name { get; }
 		public string TypeFullName { get; }
 		public int Index { get; }
+		public bool IsString { get; }
+	}
+
+	private static uint Fnv1a(string value)
+	{
+		unchecked
+		{
+			uint hash = 2166136261;
+			foreach (char character in value)
+			{
+				hash ^= character;
+				hash *= 16777619;
+			}
+			return hash;
+		}
 	}
 }

@@ -161,7 +161,7 @@ public abstract class ComponentSchemaBase : IComponentSchema
 				case SchemaFieldKind.Float: writer.WriteNumber(field.Name, (float)value); break;
 				case SchemaFieldKind.Double: writer.WriteNumber(field.Name, (double)value); break;
 				case SchemaFieldKind.Bool: writer.WriteBoolean(field.Name, (bool)value); break;
-				case SchemaFieldKind.String: writer.WriteString(field.Name, (string?)value); break;
+				case SchemaFieldKind.String: writer.WriteString(field.Name, (value as string) ?? string.Empty); break;
 				case SchemaFieldKind.Enum:
 					writer.WriteString(field.Name, ((Enum)value).ToString());   // 枚举写名字：Git diff 友好
 					break;

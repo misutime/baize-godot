@@ -190,12 +190,27 @@ public static class RuntimeSceneSpawner
 		return map;
 	}
 
-	/// <summary>把一个烘焙对象的全部组件写到指定实体（增量重挂载用）。</summary>
-	public static void ApplyTo(this Baize.Ecs.EcsWorld world, int entityId, BakedObject baked)
+	/// <summary>
+	/// 增量重挂载：对比旧/新烘焙对象，把差异同步到 W2 实体——
+	/// 新增组件写入、共有组件覆盖、W1 已删除的组件/标签同步移除（保持 W2 与烘焙结果一致）。
+	/// 同步直调 Entity API（编辑器操作，非系统热路径）；previous 为 null 时全量写入。
+	/// </summary>
+	public static void ApplyTo(this Friflo.Engine.ECS.Entity entity, BakedObject? previous, BakedObject current)
 	{
-		var buffer = world.CommandBuffer;
-		buffer.ApplyTo(entityId, new RuntimeBundle(baked.Components));
-		buffer.Playback();
+		if (previous is not null)
+		{
+			foreach (var removedType in previous.Components.Keys.Where(t => !current.Components.ContainsKey(t)))
+			{
+				EntityMutator.Mutate(entity, removedType, null, EntityMutator.MutateKind.Remove);
+			}
+		}
+
+		foreach (var pair in current.Components)
+		{
+			bool existed = previous is not null && previous.Components.ContainsKey(pair.Key);
+			EntityMutator.Mutate(entity, pair.Key, pair.Value,
+				existed ? EntityMutator.MutateKind.Replace : EntityMutator.MutateKind.Add);
+		}
 	}
 
 	private sealed class RuntimeBundle : Baize.Ecs.IEntityBundle
@@ -254,3 +269,50 @@ public static class RuntimeSceneSpawner
 	}
 }
 
+/// <summary>
+/// 类型擦除的 W2 实体变更点：标签（ITag）与组件（IComponent）经反射分派到
+/// Entity 的 Add/Remove 泛型方法。句柄按 (类型, 操作) 缓存；仅用于场景装载/重挂载，非热路径。
+/// </summary>
+internal static class EntityMutator
+{
+	internal enum MutateKind { Add, Replace, Remove }
+
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, MutateKind), System.Reflection.MethodInfo> Methods = new();
+
+	internal static void Mutate(Friflo.Engine.ECS.Entity entity, Type type, object? value, MutateKind kind)
+	{
+		if (kind == MutateKind.Replace && !typeof(Friflo.Engine.ECS.ITag).IsAssignableFrom(type))
+		{
+			// Entity 无单组件 Set：先移除再添加（等价覆盖；标签无值无需 Replace）
+			Mutate(entity, type, null, MutateKind.Remove);
+			Mutate(entity, type, value, MutateKind.Add);
+			return;
+		}
+
+		bool isTag = typeof(Friflo.Engine.ECS.ITag).IsAssignableFrom(type);
+		var method = Methods.GetOrAdd((type, kind), static key =>
+		{
+			var (t, k) = key;
+			bool tag = typeof(Friflo.Engine.ECS.ITag).IsAssignableFrom(t);
+			string name = k switch
+			{
+				MutateKind.Remove => tag ? nameof(Friflo.Engine.ECS.Entity.RemoveTag) : nameof(Friflo.Engine.ECS.Entity.RemoveComponent),
+				_ => tag ? nameof(Friflo.Engine.ECS.Entity.AddTag) : nameof(Friflo.Engine.ECS.Entity.AddComponent),
+			};
+			int expectedParams = k == MutateKind.Remove || tag ? 0 : 1;
+			return typeof(Friflo.Engine.ECS.Entity)
+				.GetMethods()
+				.Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetParameters().Length == expectedParams)
+				.First()
+				.MakeGenericMethod(t);
+		});
+
+		object boxed = entity;   // 装箱副本；副作用经内部 store 引用生效
+		if (kind == MutateKind.Remove || isTag)
+		{
+			method.Invoke(boxed, null);   // Remove 与 AddTag/RemoveTag 均无参数
+			return;
+		}
+		method.Invoke(boxed, new[] { value });
+	}
+}

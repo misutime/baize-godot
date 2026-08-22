@@ -149,4 +149,156 @@ internal static class TransactionTests
 
 	private static string Describe(AuthoringTransaction transaction) =>
 		string.Join(", ", transaction.Ops.Select(op => op.GetType().Name));
+
+	/// <summary>P1 修复验证：自动分配 Id 的计数器必须纳入回滚/Undo（hash 完全恢复）。</summary>
+	public static void RunAutoIdCounterIsTransactional(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+		var world = new AuthoringWorld(schema);
+		ulong h0 = world.ComputeArtifactHash();
+
+		var tx = new AuthoringTransaction();
+		tx.Create(StableId.None, "AutoObject");   // 自动分配 Id
+		world.Apply(tx);
+		ulong hAfter = world.ComputeArtifactHash();
+		check(hAfter != h0, "自动创建应改变 hash");
+
+		world.Undo();
+		check(world.ComputeArtifactHash() == h0, "撤销自动创建后 hash 必须完全恢复（含计数器回退）");
+		world.Redo();
+		check(world.ComputeArtifactHash() == hAfter, "Redo 后 hash 应回到事务后状态");
+
+		// 失败事务：自动分配已推进，回滚必须一并还原
+		var badTx = new AuthoringTransaction();
+		badTx.Create(StableId.None, "WillRollback");
+		badTx.Add(new RenameObjectOp(new StableId(999), "Ghost"));
+		bool threw = false;
+		try { world.Apply(badTx); }
+		catch (AuthoringTransactionException) { threw = true; }
+		check(threw, "失败事务应抛出");
+		check(world.ComputeArtifactHash() == hAfter, "失败事务回滚后 hash 应与 Apply 前一致");
+
+		// 显式大 Id 推进计数器：后续自动分配不得撞上已占用 Id
+		var bigTx = new AuthoringTransaction();
+		bigTx.Create(new StableId(50), "ExplicitBig");
+		world.Apply(bigTx);
+		var autoTx = new AuthoringTransaction();
+		autoTx.Create(StableId.None, "AfterBig");
+		var diff = world.Apply(autoTx);
+		check(diff.Entries[0].Detail.Contains("o51"),
+			$"显式大 Id 之后自动分配应从 o51 开始，实际 diff：{diff.Entries[0].Detail}");
+
+		Console.WriteLine("authoring-poc: 自动 Id 计数器事务化验证通过（undo/回滚/显式大 Id）");
+	}
+
+	/// <summary>P1 修复验证：语义等价但词法不同的 JSON 经 Canonicalize 收敛为同一事务。</summary>
+	public static void RunCanonicalizeMergesEquivalentJson(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+
+		// MCP 路径：字段倒序 + 多余空白（语义与 UI 强类型路径相同）
+		var mcpTx = new AuthoringTransaction();
+		mcpTx.Add(new SetComponentOp(
+			new StableId(7),
+			"Shooter.Gameplay.Health",
+			TestSupport.Json("{ \"Max\":100 ,\"Current\":50 }")));
+		var canonical = mcpTx.Canonicalize(schema!);
+		check(canonical.Ops.Count == 1, "规范化副本应有 1 个 op");
+		var canonicalOp = (SetComponentOp)canonical.Ops[0];
+		check(canonicalOp.Value.GetRawText() == "{\"Current\":50,\"Max\":100}",
+			$"规范化后的组件值应为 Schema 键序：{canonicalOp.Value.GetRawText()}");
+		var rawOriginal = (SetComponentOp)mcpTx.Ops[0];
+		check(canonicalOp.Value.GetRawText() != rawOriginal.Value.GetRawText(),
+			"原始输入与规范化输出不同（证明规范化生效）");
+
+		// 门禁语义：UI 强类型路径与 MCP 倒序 JSON 路径，规范化后 op 完全一致
+		var uiTx = new AuthoringTransaction();
+		uiTx.SetComponent(new StableId(7), new Health { Current = 50, Max = 100 }, schema);
+		check(SameOps(uiTx.Canonicalize(schema).Ops, canonical.Ops),
+			$"UI 与 MCP 规范化后的事务应完全相同");
+	}
+
+	/// <summary>P1 修复验证：删除仍被引用的对象必须被拒绝且世界不变。</summary>
+	public static void RunDeleteRejectsExternalReferences(Action<bool, string> check)
+	{
+		var (world, ids) = TestSupport.BuildScene();
+		ulong before = world.ComputeArtifactHash();
+
+		// Player 的原型指向 EnemyGroup → 删除 Group 应被拒绝
+		var linkTx = new AuthoringTransaction();
+		linkTx.SetPrototype(ids.Player, ids.Group);
+		world.Apply(linkTx);
+
+		var deleteTx = new AuthoringTransaction();
+		deleteTx.Delete(ids.Group);
+		bool threw = false;
+		try { world.Apply(deleteTx); }
+		catch (AuthoringTransactionException ex)
+		{
+			threw = true;
+			check(ex.Message.Contains("原型"), $"拒绝原因应指出原型引用：{ex.Message}");
+		}
+		check(threw, "删除被实例引用的原型应被拒绝");
+		check(world.Exists(ids.Group), "被拒删除不应生效");
+		check(world.ComputeArtifactHash() != before, "链接操作本身已生效（hash 变化属预期）");
+
+		// 解除引用后删除成功
+		var unlinkTx = new AuthoringTransaction();
+		unlinkTx.Add(new SetPrototypeOp(ids.Player, StableId.None));
+		world.Apply(unlinkTx);
+		world.Apply(deleteTx);
+		check(!world.Exists(ids.Group), "解除引用后删除应成功");
+
+		// 关系入引用同样拦截
+		var relWorld = TestSupport.BuildScene().World;
+		var watcherId = relWorld.AllocateId();
+		var relLink = new AuthoringTransaction();
+		relLink.Create(watcherId, "Watcher");
+		relLink.AddRelation(watcherId, "Watch", ids.Enemy1);   // 新对象关系指向 Enemy1
+		relWorld.Apply(relLink);
+		var relDelete = new AuthoringTransaction();
+		relDelete.Delete(ids.Enemy1);
+		bool relThrew = false;
+		try { relWorld.Apply(relDelete); }
+		catch (AuthoringTransactionException ex)
+		{
+			relThrew = true;
+			check(ex.Message.Contains("关系"), $"拒绝原因应指出关系引用：{ex.Message}");
+		}
+		check(relThrew, "删除被关系引用的对象应被拒绝");
+
+		Console.WriteLine("authoring-poc: 删除入引用保护验证通过（原型 + 关系）");
+	}
+
+	/// <summary>P1 修复验证：沿原型链检测环（而非父子层级）。</summary>
+	public static void RunPrototypeCycleRejected(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+		var world = new AuthoringWorld(schema);
+		StableId first = world.AllocateIds(2);
+		var a = new StableId(first.Value);
+		var b = new StableId(first.Value + 1);
+
+		var setup = new AuthoringTransaction();
+		setup.Create(a, "A");
+		setup.Create(b, "B");
+		setup.SetPrototype(b, a);   // B 的原型是 A
+		world.Apply(setup);
+
+		// A 的原型设为 B → 沿 B 的原型链（B→A）会回到 A，必须拒绝
+		var cycleTx = new AuthoringTransaction();
+		cycleTx.SetPrototype(a, b);
+		bool threw = false;
+		try { world.Apply(cycleTx); }
+		catch (AuthoringTransactionException ex)
+		{
+			threw = true;
+			check(ex.InnerException?.Message.Contains("环") == true || ex.Message.Contains("环"),
+				$"应提示形成环：{ex.Message}");
+		}
+		check(threw, "原型环 A→B→A 必须被拒绝");
+		check(world.Require(a).PrototypeId is null, "被拒设置不应生效");
+
+		Console.WriteLine("authoring-poc: 原型链环检测验证通过");
+	}
 }

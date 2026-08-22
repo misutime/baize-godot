@@ -39,6 +39,13 @@ internal static class QueryTests
 		// 字符串字段比较路径 + NotEqual
 		var renamed = new AuthoringQuery().Where("Shooter.Gameplay.PreviousPosition", "X", QueryOperator.NotEqual, 0f);
 		check(world.Execute(renamed).Count == 1, "NotEqual 数值路径应命中 Enemy2(X=5)");
+		// —— JsonElement 条件值（MCP 反序列化路径）：object 字段实际是 JsonElement ——
+		var jsonQuery = new AuthoringQuery()
+			.Require("Shooter.Gameplay.EnemyFaction")
+			.Where("Shooter.Gameplay.Health", "Current", QueryOperator.LessThan, TestSupport.Json("50"));
+		var jsonHits = world.Execute(jsonQuery);
+		check(jsonHits.Count == 1 && jsonHits[0].Id == ids.Enemy1, "JsonElement 条件值应与强类型等价");
+
 		// —— 强类型谓词查询（C# 编辑器代码路径）——
 		var predicateHits = world.Execute((Health h) => h.Current < 50);
 		check(predicateHits.Count == 1 && predicateHits[0].Object.Id == ids.Enemy1,

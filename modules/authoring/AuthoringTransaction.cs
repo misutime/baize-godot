@@ -28,8 +28,8 @@ public sealed record RenameObjectOp(StableId Id, string NewName) : AuthoringOp;
 public sealed record ReparentObjectOp(StableId Id, StableId NewParentId) : AuthoringOp;
 
 /// <summary>
-/// 添加组件。JsonElement 不做结构相等的默认实现——手写按 RawText 比较，
-/// 保证"UI 序列化的值"与"MCP 传入的值"语义相同即视为同一 op（门禁）。
+/// 添加组件。手写相等按 GetRawText 比较（词法级）——键序/空白不同的等价 JSON
+/// 由 <see cref="AuthoringTransaction.Canonicalize"/> 在执行入口收敛为同一形态。
 /// </summary>
 public sealed record AddComponentOp(StableId Id, string ComponentType, JsonElement Value) : AuthoringOp
 {
@@ -129,6 +129,11 @@ public sealed class AuthoringTransaction
 
 	public AuthoringTransaction RemoveComponent<T>(StableId id, AuthoringSchema schema) where T : struct =>
 		RemoveComponent(schema.Get(typeof(T)).TypeName, id);
+	public AuthoringTransaction SetPrototype(StableId id, StableId prototypeId)
+	{
+		Add(new SetPrototypeOp(id, prototypeId));
+		return this;
+	}
 
 	public AuthoringTransaction AddRelation(StableId id, string relationType, StableId target)
 	{
@@ -142,9 +147,38 @@ public sealed class AuthoringTransaction
 		return this;
 	}
 
-	public AuthoringTransaction SetPrototype(StableId id, StableId prototypeId)
+	/// <summary>
+	/// 返回规范化副本：Add/Set 的组件值经 Schema 读入后重新序列化（键序/空白统一），
+	/// 且副本持有独立 JsonElement（与来源 JsonDocument 生命周期解耦，Undo/Redo 存档安全）。
+	/// UI 强类型路径与 MCP 原始 JSON 路径的同一逻辑操作经此收敛为完全相同的 op 序列（门禁基础）。
+	/// 组件类型未注册或 JSON 非法时抛出——调用方（Apply 入口）在改动世界之前即失败。
+	/// </summary>
+	public AuthoringTransaction Canonicalize(AuthoringSchema schema)
 	{
-		Add(new SetPrototypeOp(id, prototypeId));
-		return this;
+		if (schema is null) throw new ArgumentNullException(nameof(schema));
+		var canonical = new AuthoringTransaction();
+		foreach (AuthoringOp op in _ops)
+		{
+			canonical._ops.Add(op switch
+			{
+				AddComponentOp add => add with { Value = CanonicalValue(add.Value, add.ComponentType, schema) },
+				SetComponentOp set => set with { Value = CanonicalValue(set.Value, set.ComponentType, schema) },
+				_ => op,
+			});
+		}
+		return canonical;
+	}
+
+	private static JsonElement CanonicalValue(JsonElement value, string componentType, AuthoringSchema schema)
+	{
+		try
+		{
+			return schema.GetByName(componentType).ToJson(schema.GetByName(componentType).ReadJson(value));
+		}
+		catch (Exception ex) when (ex is not KeyNotFoundException)
+		{
+			throw new FormatException(
+				$"组件 '{componentType}' 的值无法按 Schema 解析：{value.GetRawText()}（{ex.Message}）", ex);
+		}
 	}
 }

@@ -34,8 +34,10 @@ internal static class AuthoringPocTests
 		PrefabTests.RunPrefabOverrideExplainable(Check);
 		PersistenceTests.RunRoundTripIsByteStable(Check);
 		EndToEndTests.RunW1SceneBakedIntoW2PlaysShooter(Check);
-
-
+		TransactionTests.RunAutoIdCounterIsTransactional(Check);
+		TransactionTests.RunCanonicalizeMergesEquivalentJson(Check);
+		TransactionTests.RunDeleteRejectsExternalReferences(Check);
+		TransactionTests.RunPrototypeCycleRejected(Check);
 		Console.WriteLine($"authoring-poc: 测试完成, failures={_failures}");
 		if (_failures != 0) return 1;
 

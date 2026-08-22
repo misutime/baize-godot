@@ -96,6 +96,9 @@ public sealed partial class AuthoringWorld
 		return first;
 	}
 
+	/// <summary>加载场景后直接设定计数器（调用方负责校验大于全部已加载 Id）。</summary>
+	internal void SetNextId(ulong value) => _nextId = value;
+
 	internal ulong CurrentNextId => _nextId;
 
 	// —— Prefab（原型）语义 ——
@@ -222,7 +225,7 @@ public sealed partial class AuthoringWorld
 					hash = Mix(hash, MixFieldValue(schema.Fields[index].Kind, raw));
 					if (schema.Fields[index].Kind == SchemaFieldKind.String)
 					{
-						hash = MixString(hash, (string)raw);
+							hash = MixString(hash, raw as string);   // null 由 MixString 归一
 					}
 				}
 			}
@@ -270,14 +273,15 @@ public sealed partial class AuthoringWorld
 		}
 	}
 
-	internal static ulong MixString(ulong hash, string text)
+	internal static ulong MixString(ulong hash, string? text)
 	{
-		byte[] bytes = Encoding.UTF8.GetBytes(text);
+		byte[] bytes = Encoding.UTF8.GetBytes(text ?? string.Empty);   // null 归一为空串（与 Schema 读出口一致）
 		hash = Mix(hash, (ulong)bytes.LongLength);
 		int offset = 0;
 		for (; offset + 8 <= bytes.Length; offset += 8)
 		{
-			hash = Mix(hash, BitConverter.ToUInt64(bytes, offset));
+			// 固定小端字节序：hash 跨平台（大小端）稳定，不依赖宿主
+			hash = Mix(hash, System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(offset, 8)));
 		}
 		if (offset < bytes.Length)
 		{

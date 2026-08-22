@@ -14,12 +14,13 @@ internal static class PersistenceTests
 	{
 		var (world, ids) = TestSupport.BuildScene();
 
-		// 加一些"会破坏确定性"的隐患数据：乱序创建的关系、浮点、覆盖
+		// 加"会破坏确定性/加载顺序"的数据：前向引用（小 Id 引用大 Id）+ 乱序关系
 		var tx = new AuthoringTransaction();
+		tx.Reparent(ids.Player, ids.Group);          // o1.parent = o2（文件中 o1 先于 o2 出现）
+		tx.SetPrototype(ids.Enemy1, ids.Enemy2);     // o3.prototype = o4（前向原型）
 		tx.AddRelation(ids.Enemy2, "Targets", ids.Player);
 		tx.AddRelation(ids.Enemy1, "Targets", ids.Player);
 		world.Apply(tx);
-
 		string dir = ".tmp";
 		Directory.CreateDirectory(dir);
 		string pathA = Path.Combine(dir, "authoring-roundtrip-a.bscene");
@@ -34,14 +35,32 @@ internal static class PersistenceTests
 
 			// 往返：Load 成新世界再保存
 			AuthoringWorld loaded = AuthoringSceneFile.Load(pathA, world.Schema);
+			if (loaded.ComputeArtifactHash() != hashBefore)
+			{
+				Console.WriteLine($"  [diag] hashBefore={hashBefore}, loaded={loaded.ComputeArtifactHash()}");
+				foreach (var id in new[] { ids.Player, ids.Group, ids.Enemy1, ids.Enemy2 })
+				{
+					var a = world.Require(id);
+					var b = loaded.Find(id);
+					if (b is null) { Console.WriteLine($"  [diag] {id}: 缺失"); continue; }
+					Console.WriteLine($"  [diag] {id} '{a.Name}'/'{b.Name}' parent {a.ParentId}/{b.ParentId} proto {a.PrototypeId?.ToString() ?? "-"}/{b.PrototypeId?.ToString() ?? "-"} " +
+						$"comp {a.Components.Count}/{b.Components.Count} rel {a.Relations.Count}/{b.Relations.Count} ov {a.OverriddenComponents.Count}/{b.OverriddenComponents.Count}");
+					foreach (var type in a.Components.Keys)
+					{
+						if (!b.Components.TryGetValue(type, out var bv) || !world.Schema.Get(type).ValueEquals(a.Components[type], bv))
+							Console.WriteLine($"  [diag]   组件差异: {type}");
+					}
+				}
+			}
 			check(loaded.ComputeArtifactHash() == hashBefore, "Load 后 Artifact hash 应与保存前一致");
 			check(loaded.ObjectCount == world.ObjectCount, "Load 后对象数应一致");
 
-			// 层级/关系/组件值逐一核对
-			check(loaded.Require(ids.Enemy1).ParentId == ids.Group, "往返后层级父保持");
+			// 层级/关系/组件值逐一核对（含前向引用：Player.parent=Group、Enemy1.prototype=Enemy2）
+			check(loaded.Require(ids.Player).ParentId == ids.Group, "往返后前向层级引用保持");
+			check(loaded.Require(ids.Enemy1).PrototypeId == ids.Enemy2, "往返后前向原型引用保持");
 			check(loaded.Require(ids.Enemy2).Relations.Single().TargetId == ids.Player,
 				"往返后关系目标保持");
-			check(loaded.ChildrenOf(ids.Group).Count == 2, "往返后 children 索引重建正确");
+			check(loaded.ChildrenOf(ids.Group).Count == 3, "往返后 children 索引重建正确（含移入的 Player）");
 
 			AuthoringSceneFile.Save(loaded, pathB);
 			byte[] bytesB = File.ReadAllBytes(pathB);
