@@ -83,9 +83,9 @@ Shooter 示例：
 
 正确问法：“哪条规则需要哪一条独立事实？”
 
-### 2.3 Resource：整个世界只有一份的事实
+### 2.3 WorldState：整个世界只有一份的事实（借鉴 Bevy Resource）
 
-Resource 不挂在虚构的“全局实体”上，由 `EcsWorld` 持有。
+WorldState 不挂在虚构的“全局实体”上，由 `EcsWorld` 持有。
 
 Shooter 示例：
 
@@ -94,14 +94,14 @@ Shooter 示例：
 - `SpawnState`：当前生成倒计时；
 - `FireInputState`：上一 Tick 是否按住开火键。
 
-**什么时候用 Resource？**
+**什么时候用 WorldState？**
 
 当判断句是“这一局只有一份”，而不是“每个实体各有一份”时使用。
-注意：配置和状态都可以是 Resource，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
+注意：配置和状态都可以是 WorldState，但必须用不同类型表达。`SpawnConfig` 不能再混入玩家位置或倒计时。
 
-#### EcsState：有进入/退出生命周期的世界级 Resource
+#### EcsState：有进入/退出生命周期的世界级 WorldState
 
-普通计数仍用普通 Resource；只有“世界同时只能处于一个阶段，而且切换有统一副作用”时才用 `EcsState<T>`：
+普通计数仍用普通 WorldState；只有“世界同时只能处于一个阶段，而且切换有统一副作用”时才用 `EcsState<T>`：
 
 ```csharp
 public sealed class MatchState : EcsState<GamePhase>
@@ -404,6 +404,24 @@ Events.cs
 
 ## 6. 作者层与底层实现层的边界
 
+**分层定位（日常只用 Baize.Ecs）**：
+
+```text
+Baize.Ecs        —— 游戏开发者日常入口（引用 using Baize.Ecs）
+    EcsSystem / EcsState / EcsWorld / ForEach / ForTag / Read /
+    InsertState / WorldState / EntityBundle / EventWriter-Reader / Phase
+Friflo.Engine.ECS —— 底层高性能内核（无需主动 using 也会用到）
+    IComponent / ITag / Entity / ref 组件 / 高级查询 / chunk 写入
+```
+
+- **日常写游戏**：`using Baize.Ecs`，用 `EcsSystem`/`ForEach`/`ForTag`/`InsertState`/`EcsState` 表达玩法。
+- **组件声明**（`struct Position : IComponent`）：`IComponent` 是 Friflo 的（性能内核，无法改为 Baize 的），
+  所以组件文件需 `using Friflo.Engine.ECS`——这是**有意**的（保留 Friflo 数据布局与泛型特化），不是缺隔离。
+- **了解 Friflo 的用户**：可直接用 Friflo 高级 API（`Query`/`Filter`/`Tags.Get<T>()`/`Store.Query`）——
+  Baize.Ecs 不封死底层，而是**默认走作者层**（更简洁），高级需求在局部显式下沉。
+
+**核心原则**：**默认代码先表达"处理谁、读什么、写什么"；只有确有高级需求时，底层查询机制才在局部显式出现。**
+不是把所有 Friflo 能力包一层藏起来，而是让日常写法最简、高级能力可及。
 ### 作者层优先使用
 
 - `EcsWorld.InsertState`：装配全局事实；
@@ -471,4 +489,5 @@ Events.cs
 - [ ] 新开发者能否先读 `ShooterGame.Install`，再按功能逐层深入？
 
 如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，事实先于类型，因果先于样板。
+
 
