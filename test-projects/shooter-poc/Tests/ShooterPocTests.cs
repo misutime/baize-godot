@@ -419,4 +419,3 @@ internal static class ShooterPocTests
 		public int ProjectileCount { get; } = projectileCount;
 	}
 }
-

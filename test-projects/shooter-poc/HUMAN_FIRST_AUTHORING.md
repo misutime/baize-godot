@@ -505,5 +505,3 @@ Friflo.Engine.ECS —— 底层高性能内核（IComponent/ITag/Entity 等核�
 - [ ] 新开发者能否先读 `ShooterGame.Install`，再按功能逐层深入？
 
 如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，事实先于类型，因果先于样板。
-
-

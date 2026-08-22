@@ -23,4 +23,3 @@ public static class ShooterGame
 		world.AddFeature(new ShooterFeature());
 	}
 }
-

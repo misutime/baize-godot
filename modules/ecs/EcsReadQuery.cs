@@ -52,23 +52,24 @@ public readonly struct EcsReadQuery<T1>
 		_tags = default;
 	}
 
-	private EcsReadQuery(EntityStore store, in Tags tags)
+	private EcsReadQuery(ArchetypeQuery<T1> query, in Tags tags)
 	{
-		_query = store.Query<T1>();
+		_query = query;
 		_tags = tags;
 	}
 
 	public EcsReadQuery<T1> WithTag<TTag>() where TTag : struct, ITag
 	{
-		// Friflo AllTags 是覆盖语义；先在值类型 Tags 中合并，再返回独立查询。
+		// Friflo AllTags 是覆盖语义；先在值类型 Tags 中合并，再返回带新 _tags 的副本。
+		// 复用同一个 _query 引用，不重复 store.Query<T1>()，避免额外分配查询对象。
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query.Store, tags);
+		return new(_query, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		if (_tags.Count > 0) _query.AllTags(_tags);
+		_query.AllTags(_tags);
 		return new(_query.Chunks.GetEnumerator());
 	}
 
@@ -125,9 +126,9 @@ public readonly struct EcsReadQuery<T1, T2>
 		_tags = default;
 	}
 
-	private EcsReadQuery(EntityStore store, in Tags tags)
+	private EcsReadQuery(ArchetypeQuery<T1, T2> query, in Tags tags)
 	{
-		_query = store.Query<T1, T2>();
+		_query = query;
 		_tags = tags;
 	}
 
@@ -135,12 +136,12 @@ public readonly struct EcsReadQuery<T1, T2>
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query.Store, tags);
+		return new(_query, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		if (_tags.Count > 0) _query.AllTags(_tags);
+		_query.AllTags(_tags);
 		return new(_query.Chunks.GetEnumerator());
 	}
 
@@ -199,9 +200,9 @@ public readonly struct EcsReadQuery<T1, T2, T3>
 		_tags = default;
 	}
 
-	private EcsReadQuery(EntityStore store, in Tags tags)
+	private EcsReadQuery(ArchetypeQuery<T1, T2, T3> query, in Tags tags)
 	{
-		_query = store.Query<T1, T2, T3>();
+		_query = query;
 		_tags = tags;
 	}
 
@@ -209,12 +210,12 @@ public readonly struct EcsReadQuery<T1, T2, T3>
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query.Store, tags);
+		return new(_query, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		if (_tags.Count > 0) _query.AllTags(_tags);
+		_query.AllTags(_tags);
 		return new(_query.Chunks.GetEnumerator());
 	}
 
@@ -274,9 +275,9 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4>
 		_tags = default;
 	}
 
-	private EcsReadQuery(EntityStore store, in Tags tags)
+	private EcsReadQuery(ArchetypeQuery<T1, T2, T3, T4> query, in Tags tags)
 	{
-		_query = store.Query<T1, T2, T3, T4>();
+		_query = query;
 		_tags = tags;
 	}
 
@@ -284,12 +285,12 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4>
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query.Store, tags);
+		return new(_query, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		if (_tags.Count > 0) _query.AllTags(_tags);
+		_query.AllTags(_tags);
 		return new(_query.Chunks.GetEnumerator());
 	}
 
@@ -351,9 +352,9 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4, T5>
 		_tags = default;
 	}
 
-	private EcsReadQuery(EntityStore store, in Tags tags)
+	private EcsReadQuery(ArchetypeQuery<T1, T2, T3, T4, T5> query, in Tags tags)
 	{
-		_query = store.Query<T1, T2, T3, T4, T5>();
+		_query = query;
 		_tags = tags;
 	}
 
@@ -361,12 +362,12 @@ public readonly struct EcsReadQuery<T1, T2, T3, T4, T5>
 	{
 		Tags tags = _tags;
 		tags.Add(Tags.Get<TTag>());
-		return new(_query.Store, tags);
+		return new(_query, tags);
 	}
 
 	public Enumerator GetEnumerator()
 	{
-		if (_tags.Count > 0) _query.AllTags(_tags);
+		_query.AllTags(_tags);
 		return new(_query.Chunks.GetEnumerator());
 	}
 

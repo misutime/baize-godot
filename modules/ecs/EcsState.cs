@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 // EcsState.cs —— 世界级声明式状态与进入/退出生命周期
 
 using System;
@@ -23,6 +23,8 @@ internal interface IEcsStateBinding
 
 /// <summary>
 /// 世界级声明式状态机。状态本身是 WorldState；长期玩法数据仍放 WorldState/Component，
+/// 转换副作用集中在 OnExit/OnEnter，而不是散落到每个 System 的 if 分支。
+/// </summary>
 public abstract class EcsState<TState> : IEcsState, IEcsStateBinding
 	where TState : struct, Enum
 {

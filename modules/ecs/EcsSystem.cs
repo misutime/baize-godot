@@ -332,4 +332,3 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
 }
-
