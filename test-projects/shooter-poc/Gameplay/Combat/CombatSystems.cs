@@ -62,8 +62,7 @@ public sealed class SweptProjectileHitSystem
 					targetPosition.X, targetPosition.Z);
 				if (distance > combinedRadius) continue;
 
-				writer.Send(new DamageRequested(
-					World.GetHandle(source), World.GetHandle(target), projectile.Damage));
+				writer.Send(new DamageRequested(source, target, projectile.Damage));
 				break;
 			}
 		});
@@ -95,8 +94,8 @@ public sealed class SweptProjectileHitSystem
 public sealed class ResolveDamageSystem : EcsSystem
 {
 	// 每次 Execute 开头清空：仅是本 Tick 去重工作区，不是玩法状态。
-	private readonly HashSet<EntityHandle> _hitTargets = new();
-	private readonly HashSet<EntityHandle> _hitSources = new();
+	private readonly HashSet<Entity> _hitTargets = new();
+	private readonly HashSet<Entity> _hitSources = new();
 
 	public ResolveDamageSystem() => RunInState<MatchState>(GamePhase.Playing);
 
@@ -108,8 +107,8 @@ public sealed class ResolveDamageSystem : EcsSystem
 		_hitSources.Clear();
 		foreach (DamageRequested request in reader.Read())
 		{
-			Entity source = World.ResolveHandle(request.Source);
-			Entity target = World.ResolveHandle(request.Target);
+			Entity source = request.Source;
+			Entity target = request.Target;
 			if (source.IsNull || target.IsNull
 				|| !source.Tags.Has<ProjectileTag>()
 				|| !target.Tags.Has<EnemyFaction>()

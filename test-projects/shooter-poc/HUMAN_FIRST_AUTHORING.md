@@ -212,7 +212,7 @@ foreach (var (position, player) in Read<Position>().WithTag<PlayerFaction>())
 - 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入 Component 或 Resource；
 - 倒计时、输入边沿、随机种子、累计分数不能藏在 System 字段；
 - 允许保存安装期不变配置，以及每次 `Execute` 开头清空的临时工作区；
-- `ResolveDamageSystem` 的两个 `HashSet<EntityHandle>` 只做同 Tick 去重，并在每次执行开头 `Clear()`，因此是可接受的 scratch state；
+- `ResolveDamageSystem` 的两个 `HashSet<Entity>` 只做同 Tick 去重，并在每次执行开头 `Clear()`，因此是可接受的 scratch state；
 - 如果删掉 System 再重建会改变下一 Tick 玩法结果，说明它藏了状态，应把那份数据搬回 Resource/Component。
 
 ---
@@ -412,7 +412,7 @@ Events.cs
 - `EcsWorld.AddFeature`：按功能安装系统；`Install` 内可继续 `AddFeature` 组合子功能；
 - `EcsSystem` / `EcsSystem<T...>`：显式获取世界依赖并声明 State 运行条件；
 - `EcsState<T>`：集中执行世界阶段的 `OnExit/OnEnter`；
-- `EntityHandle`：跨 Tick 引用实体，校验 Id + Revision。
+- Friflo `Entity`：唯一实体安全引用，自带 Store + Id + Revision；跨 Tick 直接用 `IsNull` 判断是否仍有效。
 
 ### 何时仍会看到 Friflo
 

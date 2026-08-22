@@ -73,34 +73,21 @@ public sealed class EcsWorld : IDisposable
 	/// 作者层：立刻用 Bundle 创建实体。仅用于 Composition Root、关卡装载和测试安排；
 	/// 系统查询期间的结构变更必须继续使用 CommandBuffer.Spawn。
 	/// </summary>
-	public EntityHandle SpawnNow(IEntityBundle bundle)
+	public Entity SpawnNow(IEntityBundle bundle)
 	{
 		var entity = _store.CreateEntity();
 		_commandBuffer.ApplyTo(entity.Id, bundle);
 		_commandBuffer.Playback();
-		return GetHandle(entity);
+		return entity;
 	}
 
 	/// <summary>测试/反序列化入口：用指定 Id 立刻创建 Bundle 实体。</summary>
-	public EntityHandle SpawnNow(int entityId, IEntityBundle bundle)
+	public Entity SpawnNow(int entityId, IEntityBundle bundle)
 	{
 		var entity = _store.CreateEntity(entityId);
 		_commandBuffer.ApplyTo(entity.Id, bundle);
 		_commandBuffer.Playback();
-		return GetHandle(entity);
-	}
-
-	/// <summary>从 Friflo Entity 构造 EntityHandle（Id+Revision）。</summary>
-	public EntityHandle GetHandle(Entity entity) => new(entity.Id, entity.Revision);
-
-	/// <summary>解析 EntityHandle 为活实体（验证 Revision），不匹配返回 null（防 ID 复用错指）。</summary>
-	public Entity ResolveHandle(EntityHandle handle)
-	{
-		if (_store.TryGetEntityById(handle.Id, out var entity) && entity.Revision == handle.Revision)
-		{
-			return entity;
-		}
-		return default;   // IsNull
+		return entity;
 	}
 
 	// Friflo EntitySchema 是进程级单例——AOT 注册 + CreateSchema 只执行一次

@@ -162,21 +162,20 @@ internal static class ShooterPocTests
 	private static void RunEntityReuseTest()
 	{
 		EcsWorld world = CreateWorld(maxAlive: 0);
-		EntityHandle source = AddProjectile(world, -10, 0, 0, 0);
-		EntityHandle oldTarget = AddEnemy(world, 10, 0, moveSpeed: 0);
+		Entity source = AddProjectile(world, -10, 0, 0, 0);
+		Entity oldTarget = AddEnemy(world, 10, 0, moveSpeed: 0);
 
-		world.ResolveHandle(oldTarget).DeleteEntity();
+		oldTarget.DeleteEntity();
 		world.GetResource<MatchState>().AliveEnemies = 0;
 
-		EntityHandle newTarget = AddEnemy(world, 10, 0, moveSpeed: 0, entityId: oldTarget.Id);
+		Entity newTarget = AddEnemy(world, 10, 0, moveSpeed: 0, entityId: oldTarget.Id);
 		world.Events.Writer<DamageRequested>()
 			.Send(new DamageRequested(source, oldTarget, 1));
 		world.Tick(InputFrame.Empty);
 
 		MatchState match = world.GetResource<MatchState>();
 		bool reused = oldTarget.Id == newTarget.Id && oldTarget.Revision != newTarget.Revision;
-		bool replacementsAlive = !world.ResolveHandle(source).IsNull
-								 && !world.ResolveHandle(newTarget).IsNull;
+		bool replacementsAlive = !source.IsNull && !newTarget.IsNull;
 		Console.WriteLine($"shooter-poc: ID 复用 source={source}, " +
 						  $"target old={oldTarget}, new={newTarget}, score={match.Score}");
 
@@ -228,18 +227,18 @@ internal static class ShooterPocTests
 		return world;
 	}
 
-	private static EntityHandle AddEnemy(EcsWorld world, float x, float z,
+	private static Entity AddEnemy(EcsWorld world, float x, float z,
 		float moveSpeed, float radius = 0.5f, int? entityId = null)
 	{
 		var bundle = new EnemyBundle(x, z, moveSpeed, radius: radius);
-		EntityHandle handle = entityId.HasValue
+		Entity entity = entityId.HasValue
 			? world.SpawnNow(entityId.Value, bundle)
 			: world.SpawnNow(bundle);
 		world.GetResource<MatchState>().AliveEnemies++;
-		return handle;
+		return entity;
 	}
 
-	private static EntityHandle AddProjectile(EcsWorld world, float x, float z,
+	private static Entity AddProjectile(EcsWorld world, float x, float z,
 		float velocityX, float velocityZ, float radius = 0.2f)
 	{
 		return world.SpawnNow(new ProjectileBundle(
