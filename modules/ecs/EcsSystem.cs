@@ -23,7 +23,17 @@ internal sealed class EcsStateCondition<TState> : IEcsSystemCondition
 {
     private readonly object _required;
 
-    public EcsStateCondition(object required) => _required = required;
+    public EcsStateCondition(object required)
+    {
+        // P1-3：校验 required 是枚举（状态值是枚举）；Is(object) 内再做与 Current 的精确类型匹配。
+        if (required is null || !required.GetType().IsEnum)
+        {
+            throw new ArgumentException(
+                $"RunInState<{typeof(TState).Name}> 的 required 必须是该状态的枚举值（收到 " +
+                $"{required?.GetType().Name ?? "null"}）。", nameof(required));
+        }
+        _required = required;
+    }
 
     public bool Matches(EcsWorld world) => world.GetResource<TState>().Is(_required);
 }

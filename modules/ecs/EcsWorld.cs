@@ -47,10 +47,21 @@ public sealed class EcsWorld : IDisposable
     /// <summary>作者层：插入或覆盖资源，并返回世界以便连续装配。</summary>
     public EcsWorld InsertResource<T>(T resource) where T : class
     {
-        _resources.Set(resource);
-        if (resource is IEcsStateBinding state)
+        // P2-1：事务性插入——绑定失败时恢复旧值/移除新值（避免污染世界）。
+        var previous = _resources.Has<T>() ? _resources.Get<T>() : null;
+        _resources.Set(resource);   // 先放入（若绑定失败再回滚）
+        try
         {
-            state.Bind(this);
+            if (resource is IEcsStateBinding state)
+            {
+                state.Bind(this);
+            }
+        }
+        catch
+        {
+            if (previous is not null) _resources.Set(previous);
+            else _resources.Remove<T>();
+            throw;
         }
         return this;
     }
@@ -160,6 +171,9 @@ public sealed class EcsWorld : IDisposable
         _tickIndex++;
     }
 
+    /// <summary>兼容别名（[Obsolete]）：今从 Step 改名为 Tick，调用方可暂时用 Step 转发。</summary>
+    [Obsolete("请改用 Tick(in InputFrame)——命名与'固定 Tick'统一。")]
+    public void Step(in InputFrame input) => Tick(input);
     /// <summary>当前 Tick 的输入（系统读取）。</summary>
     public InputFrame CurrentInput { get; private set; }
 
@@ -179,9 +193,23 @@ public sealed class EcsWorld : IDisposable
     /// </summary>
     public EcsWorld AddFeature(IEcsFeature feature)
     {
-        feature.Install(this);
+        // P1-2：防循环 Feature 图（Self→Self / A→B→A）——用 visiting 集合检测。
+        var type = feature.GetType();
+        if (_installingFeatures.Add(type))
+        {
+            try
+            {
+                feature.Install(this);
+            }
+            finally
+            {
+                _installingFeatures.Remove(type);
+            }
+        }
         return this;
     }
+
+    private readonly HashSet<Type> _installingFeatures = new();
 
     /// <summary>获取 CommandBuffer（延迟结构变更：创建/删除/添加组件）。</summary>
     public WorldCommandBuffer CommandBuffer => _commandBuffer;
@@ -249,4 +277,3 @@ public enum Phase
     Cleanup,
     RenderExtract,
 }
-
