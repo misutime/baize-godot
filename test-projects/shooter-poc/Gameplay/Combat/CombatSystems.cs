@@ -13,7 +13,7 @@ public sealed class FireWeaponSystem : EcsSystem<Position, WeaponConfig, Cooldow
 	public FireWeaponSystem()
 	{
 		RunInState<MatchState>(GamePhase.Playing);
-		Filter.AllTags(Tags.Get<PlayerFaction>());
+		ForTag<PlayerFaction>();
 	}
 
 	protected override void Execute()
@@ -23,7 +23,7 @@ public sealed class FireWeaponSystem : EcsSystem<Position, WeaponConfig, Cooldow
 		bool fireEdge = firePressed && !edgeState.WasPressed;
 		float delta = Tick.deltaTime;
 
-		Query.ForEachEntity((ref Position position, ref WeaponConfig weapon,
+		ForEach((ref Position position, ref WeaponConfig weapon,
 			ref Cooldown cooldown, Entity player) =>
 		{
 			cooldown.Remaining -= delta;
@@ -44,20 +44,18 @@ public sealed class SweptProjectileHitSystem
 	public SweptProjectileHitSystem()
 	{
 		RunInState<MatchState>(GamePhase.Playing);
-		Filter.AllTags(Tags.Get<ProjectileTag>());
+		ForTag<ProjectileTag>();
 	}
 
 	protected override void Execute()
 	{
 		EventWriter<DamageRequested> writer = WriteEvents<DamageRequested>();
-		Query.ForEachEntity((ref Position position, ref PreviousPosition previous,
+		var targets = Read<Position, Health, CollisionRadius>().WithTag<EnemyFaction>();
+		ForEach((ref Position position, ref PreviousPosition previous,
 			ref ProjectileConfig projectile, ref CollisionRadius projectileRadius, Entity source) =>
 		{
-			foreach (var target in World.Store.Query<Position, Health, CollisionRadius>()
-						 .AllTags(Tags.Get<EnemyFaction>()).Entities)
+			foreach (var (targetPosition, _, targetRadius, target) in targets)
 			{
-				ref Position targetPosition = ref target.GetComponent<Position>();
-				ref CollisionRadius targetRadius = ref target.GetComponent<CollisionRadius>();
 				float combinedRadius = projectileRadius.Value + targetRadius.Value;
 				float distance = SegmentPointDistance(
 					previous.X, previous.Z, position.X, position.Z,
@@ -145,13 +143,13 @@ public sealed class CleanupProjectilesSystem
 	public CleanupProjectilesSystem()
 	{
 		RunInState<MatchState>(GamePhase.Playing);
-		Filter.AllTags(Tags.Get<ProjectileTag>());
+		ForTag<ProjectileTag>();
 	}
 
 	protected override void Execute()
 	{
 		float delta = Tick.deltaTime;
-		Query.ForEachEntity((ref Velocity velocity, ref TravelDistance travelled,
+		ForEach((ref Velocity velocity, ref TravelDistance travelled,
 			ref ProjectileConfig config, Entity entity) =>
 		{
 			travelled.Value += MathF.Sqrt(

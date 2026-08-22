@@ -71,6 +71,19 @@ internal sealed class EcsSystemContext
 
 	public void RunInState<TState>(object required) where TState : class, IEcsState =>
 		_conditions.Add(new EcsStateCondition<TState>(required));
+	public EcsReadQuery<T1> Read<T1>() where T1 : struct, IComponent => new(World.Store);
+	public EcsReadQuery<T1, T2> Read<T1, T2>()
+		where T1 : struct, IComponent where T2 : struct, IComponent => new(World.Store);
+	public EcsReadQuery<T1, T2, T3> Read<T1, T2, T3>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent => new(World.Store);
+	public EcsReadQuery<T1, T2, T3, T4> Read<T1, T2, T3, T4>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent where T4 : struct, IComponent => new(World.Store);
+	public EcsReadQuery<T1, T2, T3, T4, T5> Read<T1, T2, T3, T4, T5>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent where T4 : struct, IComponent
+		where T5 : struct, IComponent => new(World.Store);
 
 	public bool ShouldRun()
 	{
@@ -98,6 +111,19 @@ public abstract class EcsSystem : BaseSystem, IEcsSystemBinding
 	protected T State<T>() where T : class, IEcsState => World.GetResource<T>();
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
+	protected EcsReadQuery<T1> Read<T1>() where T1 : struct, IComponent => _context.Read<T1>();
+	protected EcsReadQuery<T1, T2> Read<T1, T2>()
+		where T1 : struct, IComponent where T2 : struct, IComponent => _context.Read<T1, T2>();
+	protected EcsReadQuery<T1, T2, T3> Read<T1, T2, T3>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent => _context.Read<T1, T2, T3>();
+	protected EcsReadQuery<T1, T2, T3, T4> Read<T1, T2, T3, T4>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent where T4 : struct, IComponent => _context.Read<T1, T2, T3, T4>();
+	protected EcsReadQuery<T1, T2, T3, T4, T5> Read<T1, T2, T3, T4, T5>()
+		where T1 : struct, IComponent where T2 : struct, IComponent
+		where T3 : struct, IComponent where T4 : struct, IComponent
+		where T5 : struct, IComponent => _context.Read<T1, T2, T3, T4, T5>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState =>
 		_context.RunInState<TState>(required);
 
@@ -123,6 +149,21 @@ public abstract class EcsSystem<T1> : QuerySystem<T1>, IEcsSystemBinding
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
+	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForEach(ForEachEntity<T1> action) => Query.ForEachEntity(action);
+	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
+	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent => _context.Read<TRead1, TRead2>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3> Read<TRead1, TRead2, TRead3>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4> Read<TRead1, TRead2, TRead3, TRead4>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4, TRead5> Read<TRead1, TRead2, TRead3, TRead4, TRead5>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent
+		where TRead5 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4, TRead5>();
 	void IEcsSystemBinding.Bind(EcsWorld world) => _context.Bind(world);
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
@@ -141,6 +182,21 @@ public abstract class EcsSystem<T1, T2> : QuerySystem<T1, T2>, IEcsSystemBinding
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
+	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForEach(ForEachEntity<T1, T2> action) => Query.ForEachEntity(action);
+	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
+	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent => _context.Read<TRead1, TRead2>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3> Read<TRead1, TRead2, TRead3>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4> Read<TRead1, TRead2, TRead3, TRead4>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4, TRead5> Read<TRead1, TRead2, TRead3, TRead4, TRead5>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent
+		where TRead5 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4, TRead5>();
 	void IEcsSystemBinding.Bind(EcsWorld world) => _context.Bind(world);
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
@@ -160,6 +216,21 @@ public abstract class EcsSystem<T1, T2, T3> : QuerySystem<T1, T2, T3>, IEcsSyste
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
+	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForEach(ForEachEntity<T1, T2, T3> action) => Query.ForEachEntity(action);
+	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
+	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent => _context.Read<TRead1, TRead2>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3> Read<TRead1, TRead2, TRead3>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4> Read<TRead1, TRead2, TRead3, TRead4>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4, TRead5> Read<TRead1, TRead2, TRead3, TRead4, TRead5>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent
+		where TRead5 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4, TRead5>();
 	void IEcsSystemBinding.Bind(EcsWorld world) => _context.Bind(world);
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
@@ -180,6 +251,21 @@ public abstract class EcsSystem<T1, T2, T3, T4> : QuerySystem<T1, T2, T3, T4>, I
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
+	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForEach(ForEachEntity<T1, T2, T3, T4> action) => Query.ForEachEntity(action);
+	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
+	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent => _context.Read<TRead1, TRead2>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3> Read<TRead1, TRead2, TRead3>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4> Read<TRead1, TRead2, TRead3, TRead4>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4, TRead5> Read<TRead1, TRead2, TRead3, TRead4, TRead5>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent
+		where TRead5 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4, TRead5>();
 	void IEcsSystemBinding.Bind(EcsWorld world) => _context.Bind(world);
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();
@@ -201,6 +287,21 @@ public abstract class EcsSystem<T1, T2, T3, T4, T5> : QuerySystem<T1, T2, T3, T4
 	protected EventReader<T> ReadEvents<T>() where T : struct => World.Events.Reader<T>();
 	protected EventWriter<T> WriteEvents<T>() where T : struct => World.Events.Writer<T>();
 	protected void RunInState<TState>(object required) where TState : class, IEcsState => _context.RunInState<TState>(required);
+	protected void ForTag<TTag>() where TTag : struct, ITag => Filter.AllTags(Tags.Get<TTag>());
+	protected void ForEach(ForEachEntity<T1, T2, T3, T4, T5> action) => Query.ForEachEntity(action);
+	protected EcsReadQuery<TRead1> Read<TRead1>() where TRead1 : struct, IComponent => _context.Read<TRead1>();
+	protected EcsReadQuery<TRead1, TRead2> Read<TRead1, TRead2>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent => _context.Read<TRead1, TRead2>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3> Read<TRead1, TRead2, TRead3>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4> Read<TRead1, TRead2, TRead3, TRead4>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4>();
+	protected EcsReadQuery<TRead1, TRead2, TRead3, TRead4, TRead5> Read<TRead1, TRead2, TRead3, TRead4, TRead5>()
+		where TRead1 : struct, IComponent where TRead2 : struct, IComponent
+		where TRead3 : struct, IComponent where TRead4 : struct, IComponent
+		where TRead5 : struct, IComponent => _context.Read<TRead1, TRead2, TRead3, TRead4, TRead5>();
 	void IEcsSystemBinding.Bind(EcsWorld world) => _context.Bind(world);
 	protected sealed override void OnUpdate() { if (_context.ShouldRun()) Execute(); }
 	protected abstract void Execute();

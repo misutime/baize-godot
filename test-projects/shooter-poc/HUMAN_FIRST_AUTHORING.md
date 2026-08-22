@@ -167,21 +167,43 @@ public sealed class FireWeaponSystem
     public FireWeaponSystem()
     {
         RunInState<MatchState>(GamePhase.Playing);
-        Filter.AllTags(Tags.Get<PlayerFaction>());
+        ForTag<PlayerFaction>();
     }
 
     protected override void Execute()
     {
         FireInputState edge = Res<FireInputState>();
         bool pressed = Input.FirePressed;
-        // Query.ForEachEntity(...)
+        ForEach((ref Position position, ref WeaponConfig weapon,
+            ref Cooldown cooldown, Entity player) => { /* 原地更新 */ });
     }
 }
 ```
 
 一眼可见的依赖是：查询组件泛型、`MatchState` 运行条件、Tag 过滤、`FireInputState` Resource 和当前输入。`World`、`Input`、`Res<T>()`、`State<T>()`、`ReadEvents<T>()`、`WriteEvents<T>()` 由基类提供，不再为每个系统保存 `_world`、写构造器注入和手工判空。
 
-`EcsSystem<T...>` 底层仍继承 Friflo `QuerySystem<T...>`；原有 `BaseSystem`、`QuerySystem<T...>` 与 `EcsWorld.AddSystem` 完全保留。新基类是作者层捷径，不是对 Friflo 的替换。
+作者层查询按“是否改写组件”分成两条明确路径：
+
+```csharp
+ForTag<EnemyFaction>(); // 构造器：给本 System 的主查询加 Tag 条件
+
+ForEach((ref Position position, ref Velocity velocity, Entity enemy) =>
+{
+    velocity.X = 0;     // 写路径：ref 原地更新，不复制组件
+});
+
+foreach (var (position, player) in Read<Position>().WithTag<PlayerFaction>())
+{
+    // 读路径：position 是按值快照，不能误改世界中的 Position
+}
+```
+
+- `ForEach(...)` 只转发到 Friflo `Query.ForEachEntity(...)`；组件仍由 `ref` 原地访问。C# 对值类型原地改写必须显式写出 `ref`，封装不隐藏这一语义，只去掉重复的 `Query.ForEachEntity` 机制噪音。
+- `ForTag<T>()` 只在构造器配置继承来的 `QueryFilter`，等价于原来的 `Filter.AllTags(Tags.Get<T>())`；查询创建时机、AOT 注册、Feature 生成器与诊断都不变。
+- `Read<T...>().WithTag<T>()` 使用 Friflo `Chunks` 的结构体枚举器，逐项把组件复制为只读意图明确的值。它适合寻敌、接触检测等次级读取；大组件或需要写回的热循环继续用 `ForEach(ref ...)`。
+- 一次 `Read<T...>()` 会创建一个 Friflo 查询对象；嵌套热循环应像命中系统一样先保存为局部变量再复用。该层不承诺查询对象零分配，但逐项枚举不走 `IEnumerable` 装箱，也不额外建立实体列表。
+
+`EcsSystem<T...>` 底层仍继承 Friflo `QuerySystem<T...>`；原有 `Query.ForEachEntity`、`Filter`、`BaseSystem`、`QuerySystem<T...>` 与 `EcsWorld.AddSystem` 完全保留。新 API 是向后兼容的作者层捷径，不是对 Friflo 的替换。
 
 #### System 纯函数约束
 
@@ -394,9 +416,9 @@ Events.cs
 
 ### 何时仍会看到 Friflo
 
-系统实现需要高效类型化查询，因此 `QuerySystem<...>`、`Entity`、`Tags.Get<T>()` 和 `world.Store.Query<...>()` 仍属于实现层工具。Human-first 不等于隐藏所有底层能力，而是：
+系统的常见写路径优先使用 `ForEach(ref ...)`，常见次级只读查询优先使用 `Read<T...>().WithTag<T>()`。只有需要 Friflo 的高级过滤、索引、并行 Job 或直接 chunk 写入时，才下沉到 `Query`、`Filter`、`Tags.Get<T>()` 与 `world.Store.Query<...>()`。Human-first 不等于封死底层能力，而是：
 
-> **装配游戏不需要底层 API；实现一条批处理规则时，底层查询在局部、直接、可见。**
+> **默认代码先表达“处理谁、读什么、写什么”；只有确有高级需求时，底层查询机制才在局部显式出现。**
 
 测试中的 `Store` 查询只用于白盒断言和稳定状态哈希，不是游戏 Composition Root 的示范写法。
 

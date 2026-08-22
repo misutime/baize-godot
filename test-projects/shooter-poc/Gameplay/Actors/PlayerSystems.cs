@@ -13,7 +13,7 @@ public sealed class ApplyPlayerInputSystem : EcsSystem<Velocity, MoveSpeed, Play
 	protected override void Execute()
 	{
 		InputFrame input = Input;
-		Query.ForEachEntity((ref Velocity velocity, ref MoveSpeed speed, ref PlayerInput _, Entity entity) =>
+		ForEach((ref Velocity velocity, ref MoveSpeed speed, ref PlayerInput _, Entity entity) =>
 		{
 			velocity.X = input.MoveX * speed.Value;
 			velocity.Z = input.MoveZ * speed.Value;
