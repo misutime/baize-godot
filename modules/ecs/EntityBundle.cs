@@ -15,8 +15,8 @@ namespace Baize.Ecs;
 /// </summary>
 public interface IEntityBundle
 {
-    /// <summary>把本组合的组件应用到实体创建命令。</summary>
-    void Apply(in EntityCommand entity);
+	/// <summary>把本组合的组件应用到实体创建命令。</summary>
+	void Apply(in EntityCommand entity);
 }
 
 /// <summary>
@@ -24,18 +24,18 @@ public interface IEntityBundle
 /// </summary>
 public static class EntityBundleExtensions
 {
-    /// <summary>用组合包创建实体（延迟到 Playback）。</summary>
-    public static EntityCommand Spawn(this WorldCommandBuffer buffer, IEntityBundle bundle)
-    {
-        var entity = buffer.CreateEntity();
-        bundle.Apply(entity);
-        return entity;
-    }
+	/// <summary>用组合包创建实体（延迟到 Playback）。</summary>
+	public static EntityCommand Spawn(this WorldCommandBuffer buffer, IEntityBundle bundle)
+	{
+		var entity = buffer.CreateEntity();
+		bundle.Apply(entity);
+		return entity;
+	}
 
-    /// <summary>给已创建实体应用组合包（添加组件）。</summary>
-    public static void ApplyTo(this WorldCommandBuffer buffer, int entityId, IEntityBundle bundle)
-    {
-        // 通过 EntityCommand 应用（复用链式 Add）
-        bundle.Apply(new EntityCommand(buffer, entityId));
-    }
+	/// <summary>给已创建实体应用组合包（添加组件）。</summary>
+	public static void ApplyTo(this WorldCommandBuffer buffer, int entityId, IEntityBundle bundle)
+	{
+		// 通过 EntityCommand 应用（复用链式 Add）
+		bundle.Apply(new EntityCommand(buffer, entityId));
+	}
 }

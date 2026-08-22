@@ -17,9 +17,9 @@ public sealed class EcsFeatureAttribute : Attribute { }
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class AddSystemAttribute<TSystem> : Attribute
 {
-    public Phase Phase { get; }
+	public Phase Phase { get; }
 
-    public AddSystemAttribute(Phase phase) => Phase = phase;
+	public AddSystemAttribute(Phase phase) => Phase = phase;
 }
 
 /// <summary>声明本 Feature 组合某个子 Feature（生成器产出 AddFeature 调用）。</summary>
