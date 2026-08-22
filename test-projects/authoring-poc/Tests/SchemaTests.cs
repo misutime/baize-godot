@@ -41,6 +41,84 @@ internal static class SchemaTests
 		check(factionSchema.Fields.Count == 0, "标签组件应无字段");
 		check(factionSchema.ComponentType == typeof(PlayerFaction), "标签组件按 CLR 类型可查");
 
-		Console.WriteLine($"authoring-poc: Schema 注册/按名读写验证通过（{schema.All.Count} 个组件）");
+	Console.WriteLine($"authoring-poc: Schema 注册/按名读写验证通过（{schema.All.Count} 个组件）");
+
+		RunUlongEnumHash(check);
+	}
+
+	// ulong 底层枚举：高位值（> long.MaxValue）是 hash 路径的边界情况
+	[Flags]
+	private enum BigMask : ulong
+	{
+		None = 0,
+		Low = 1UL << 5,
+		High = 0x8000_0000_0000_0000UL,
+	}
+
+	private struct BigMaskHolder
+	{
+		public BigMask Mask;
+	}
+
+	/// <summary>手写 Schema：与生成器产物同构，验证 ComponentSchemaBase 契约对 ulong 枚举的兼容性。</summary>
+	private sealed class BigMaskHolderSchema : Baize.Authoring.ComponentSchemaBase
+	{
+		public BigMaskHolderSchema() : base(
+			typeof(BigMaskHolder),
+			new[] { new Baize.Authoring.SchemaField("Mask", typeof(BigMask), 0) })
+		{
+		}
+
+		public override object CreateDefault() => default(BigMaskHolder);
+
+		public override object GetFieldRaw(object component, int index) => index switch
+		{
+			0 => ((BigMaskHolder)component).Mask,
+			_ => throw new ArgumentOutOfRangeException(nameof(index)),
+		};
+
+		public override void SetFieldRaw(ref object component, int index, object value)
+		{
+			if (index != 0) throw new ArgumentOutOfRangeException(nameof(index));
+			var typed = (BigMaskHolder)component;
+			typed.Mask = (BigMask)value;
+			component = typed;
+		}
+	}
+
+	/// <summary>P2 验证：ulong 底层枚举（含高位值）可安全参与 ArtifactHash 与 JSON 往返。</summary>
+	private static void RunUlongEnumHash(Action<bool, string> check)
+	{
+		var schema = TestSupport.BuildSchema();
+
+		// 手写 Schema 子类（生成器之外的合法路径）：验证 ulong 底层枚举字段
+		schema.Register(new BigMaskHolderSchema());
+
+		var world = new AuthoringWorld(schema);
+		var id = world.AllocateId();
+		var tx = new AuthoringTransaction();
+		tx.Create(id, "BigMaskObj");
+		world.Apply(tx);
+
+		var setTx = new AuthoringTransaction();
+		setTx.Add(new SetComponentOp(id, typeof(BigMaskHolder).FullName!,
+			System.Text.Json.JsonDocument.Parse("{\"Mask\":\"High\"}").RootElement.Clone()));
+		world.Apply(setTx);
+
+		ulong hash = world.ComputeArtifactHash();   // 修复前此处抛 InvalidCastException
+		check(hash != 0, "ulong 底层枚举应能参与 ArtifactHash");
+
+		var setTx2 = new AuthoringTransaction();
+		setTx2.Add(new SetComponentOp(id, typeof(BigMaskHolder).FullName!,
+			System.Text.Json.JsonDocument.Parse("{\"Mask\":\"Low\"}").RootElement.Clone()));
+		world.Apply(setTx2);
+		check(world.ComputeArtifactHash() != hash, "不同枚举值应产生不同 hash");
+
+		// JSON 往返：枚举写名字、读回按底层类型还原位模式
+		var boxed = world.Require(id).Components[typeof(BigMaskHolder)];
+		var maskValue = (BigMask)schema.Get(typeof(BigMaskHolder)).GetFieldRaw(boxed, 0);
+		check(maskValue == BigMask.Low, $"JSON 往返后枚举应为 Low，实际 {maskValue}");
+
+		Console.WriteLine("authoring-poc: ulong 枚举 hash/往返验证通过");
 	}
 }

@@ -233,7 +233,13 @@ public sealed class AuthoringSchemaGenerator : IIncrementalGenerator
 			{
 				return Invalid(symbol, InvalidComponentDeclaration);
 			}
-			// 嵌套容器检查：任一层 generic 或不可见（private/protected）都会让全局生成类无法访问组件类型
+			// 可见性/泛型度检查覆盖组件自身与全部嵌套容器：任一层 generic 或
+			// 非 Public/Internal（private/protected/file）都会让全局生成类无法访问该类型
+			if (symbol.Arity > 0 ||
+				symbol.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Internal))
+			{
+				return Invalid(symbol, NestedContainerNotSupported);
+			}
 			for (INamedTypeSymbol? containing = symbol.ContainingType; containing is not null; containing = containing.ContainingType)
 			{
 				if (containing.Arity > 0 || containing.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Internal))
