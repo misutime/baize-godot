@@ -105,6 +105,14 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor CyclicFeatureDependency = new(
+        "BAIZEECSGEN011",
+        "Feature 依赖存在环",
+        "同程序集 Feature 依赖存在环：{0}",
+        Category,
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var candidates = context.SyntaxProvider
@@ -131,10 +139,103 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
         INamedTypeSymbol? phaseType = compilation.GetTypeByMetadataName(PhaseMetadataName);
         ImmutableArray<INamedTypeSymbol> systemBases = GetSystemBases(compilation);
 
+        ReportFeatureCycles(context, candidates);
+
         foreach (FeatureCandidate candidate in candidates)
         {
             GenerateFeature(context, compilation, candidate, featureInterface, worldType, phaseType, systemBases);
         }
+    }
+
+    private static void ReportFeatureCycles(
+        SourceProductionContext context,
+        ImmutableArray<FeatureCandidate> candidates)
+    {
+        var featureSet = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        var featureOrder = new List<INamedTypeSymbol>();
+        foreach (FeatureCandidate candidate in candidates)
+        {
+            if (featureSet.Add(candidate.Symbol))
+            {
+                featureOrder.Add(candidate.Symbol);
+            }
+        }
+
+        // 只把本次编译中带 [EcsFeature] 的类型纳入图；跨程序集环由运行时 visitor 兜底。
+        var dependencies = new Dictionary<INamedTypeSymbol, List<FeatureDependency>>(SymbolEqualityComparer.Default);
+        foreach (INamedTypeSymbol feature in featureOrder)
+        {
+            var children = new List<FeatureDependency>();
+            dependencies.Add(feature, children);
+
+            IEnumerable<AttributeData> attributes = feature.GetAttributes()
+                .Where(attribute => GetMetadataName(attribute.AttributeClass?.OriginalDefinition) == AddFeatureAttributeMetadataName)
+                .OrderBy(attribute => attribute.ApplicationSyntaxReference?.Span.Start ?? int.MaxValue);
+            foreach (AttributeData attribute in attributes)
+            {
+                INamedTypeSymbol? attributeClass = attribute.AttributeClass;
+                if (attributeClass is null ||
+                    attributeClass.TypeArguments.Length != 1 ||
+                    attributeClass.TypeArguments[0] is not INamedTypeSymbol childFeature ||
+                    !featureSet.Contains(childFeature))
+                {
+                    continue;
+                }
+
+                Location location = attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation()
+                    ?? feature.Locations.FirstOrDefault()
+                    ?? Location.None;
+                children.Add(new FeatureDependency(childFeature, location));
+            }
+        }
+
+        // 三色 DFS 只在回边处报错，因此 Self→Self 与多节点环都能给出闭合路径。
+        var states = new Dictionary<INamedTypeSymbol, FeatureVisitState>(SymbolEqualityComparer.Default);
+        var path = new List<INamedTypeSymbol>();
+        foreach (INamedTypeSymbol feature in featureOrder)
+        {
+            if (!states.ContainsKey(feature))
+            {
+                VisitFeature(context, feature, dependencies, states, path);
+            }
+        }
+    }
+
+    private static void VisitFeature(
+        SourceProductionContext context,
+        INamedTypeSymbol feature,
+        IReadOnlyDictionary<INamedTypeSymbol, List<FeatureDependency>> dependencies,
+        IDictionary<INamedTypeSymbol, FeatureVisitState> states,
+        List<INamedTypeSymbol> path)
+    {
+        states[feature] = FeatureVisitState.Visiting;
+        path.Add(feature);
+
+        foreach (FeatureDependency dependency in dependencies[feature])
+        {
+            if (!states.TryGetValue(dependency.Child, out FeatureVisitState childState))
+            {
+                VisitFeature(context, dependency.Child, dependencies, states, path);
+                continue;
+            }
+            if (childState != FeatureVisitState.Visiting)
+            {
+                continue;
+            }
+
+            int cycleStart = path.FindIndex(candidate =>
+                SymbolEqualityComparer.Default.Equals(candidate, dependency.Child));
+            string cyclePath = string.Join(
+                " -> ",
+                path.Skip(cycleStart).Select(Display).Concat(new[] { Display(dependency.Child) }));
+            context.ReportDiagnostic(Diagnostic.Create(
+                CyclicFeatureDependency,
+                dependency.Location,
+                cyclePath));
+        }
+
+        path.RemoveAt(path.Count - 1);
+        states[feature] = FeatureVisitState.Visited;
     }
 
     private static void GenerateFeature(
@@ -635,6 +736,24 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
             hash *= 16777619;
         }
         return hash;
+    }
+
+    private enum FeatureVisitState
+    {
+        Visiting,
+        Visited,
+    }
+
+    private sealed class FeatureDependency
+    {
+        public FeatureDependency(INamedTypeSymbol child, Location location)
+        {
+            Child = child;
+            Location = location;
+        }
+
+        public INamedTypeSymbol Child { get; }
+        public Location Location { get; }
     }
 
     private sealed class FeatureCandidate

@@ -12,3 +12,4 @@ BAIZEECSGEN007 | Baize.Ecs.Generator | Error | Phase 值无效
 BAIZEECSGEN008 | Baize.Ecs.Generator | Error | 子 Feature 类型不受支持
 BAIZEECSGEN009 | Baize.Ecs.Generator | Error | 子 Feature 类型不可访问
 BAIZEECSGEN010 | Baize.Ecs.Generator | Error | 子 Feature 缺少可访问的无参构造器
+BAIZEECSGEN011 | Baize.Ecs.Generator | Error | 同程序集 Feature 依赖存在环
