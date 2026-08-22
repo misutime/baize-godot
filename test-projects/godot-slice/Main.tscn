@@ -1,0 +1,90 @@
+; SPDX-License-Identifier: MIT
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://Main.cs" id="1_main"]
+[ext_resource type="Script" path="res://Runtime/EcsHost.cs" id="2_host"]
+[ext_resource type="Script" path="res://Runtime/InputAdapter.cs" id="3_input"]
+[ext_resource type="Script" path="res://Presentation/RenderAdapter.cs" id="4_render"]
+[ext_resource type="Script" path="res://Presentation/CameraPresenter.cs" id="5_camera"]
+[ext_resource type="Script" path="res://Presentation/HudPresenter.cs" id="6_hud"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="EcsHost" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_host")
+input_adapter_path = NodePath("InputAdapter")
+
+[node name="InputAdapter" type="Node" parent="EcsHost"]
+script = ExtResource("3_input")
+
+[node name="Presentation" type="Node3D" parent="."]
+
+[node name="RenderAdapter" type="Node3D" parent="Presentation"]
+script = ExtResource("4_render")
+host_path = NodePath("../../EcsHost")
+
+[node name="Player" type="MeshInstance3D" parent="Presentation/RenderAdapter"]
+
+[node name="Enemies" type="MultiMeshInstance3D" parent="Presentation/RenderAdapter"]
+
+[node name="Projectiles" type="MultiMeshInstance3D" parent="Presentation/RenderAdapter"]
+
+[node name="CameraPresenter" type="Node3D" parent="Presentation"]
+script = ExtResource("5_camera")
+host_path = NodePath("../../EcsHost")
+
+[node name="Camera3D" type="Camera3D" parent="Presentation/CameraPresenter"]
+current = true
+near = 0.1
+far = 200.0
+
+[node name="Sun" type="DirectionalLight3D" parent="Presentation"]
+rotation_degrees = Vector3(-55, -30, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Hud" type="CanvasLayer" parent="Presentation"]
+
+[node name="HudPresenter" type="Control" parent="Presentation/Hud"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6_hud")
+host_path = NodePath("../../../EcsHost")
+
+[node name="Panel" type="PanelContainer" parent="Presentation/Hud/HudPresenter"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 360.0
+offset_bottom = 120.0
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="Presentation/Hud/HudPresenter/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+mouse_filter = 2
+
+[node name="Rows" type="VBoxContainer" parent="Presentation/Hud/HudPresenter/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+mouse_filter = 2
+
+[node name="Score" type="Label" parent="Presentation/Hud/HudPresenter/Panel/Margin/Rows"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "分数：0　敌人：0"
+
+[node name="Status" type="Label" parent="Presentation/Hud/HudPresenter/Panel/Margin/Rows"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "状态：游戏中"
