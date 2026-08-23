@@ -2,7 +2,7 @@
 # Node 能力去向与复用边界（团队必读）
 
 > 定位：O6 完成后的**概念澄清文档**——帮助团队成员理解"Godot 约 1000 个 Node 类型在我们引擎里怎么办"。
-> 一句话结论：**不是全部重写**。Node 的能力分三类——机器能力复用 Godot Server（不重写）、
+> 一句话结论：**不是全部重写**。Node 的能力分三类——机器能力复用 Godot Core 的 Server API（不重写）、
 > 组织能力已重写为 GameObject 内核（O1–O4 完成）、编辑器壳 O7 重做。
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md` §3/§4/§5/§7。
 > 与本仓库其他文档的关系：O5/O6 文档讲"怎么做"，本文讲"为什么不用做那么多"。
