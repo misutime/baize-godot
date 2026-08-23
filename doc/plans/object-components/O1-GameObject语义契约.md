@@ -135,3 +135,4 @@ Disable / 父链禁用 / Pause
 | R18 | `Destroy` 阶段 2 **OnDisable/OnDestroy 分离捕获**：OnDisable 异常不吞同组件的 OnDestroy，两者均被尝试并聚合 | reviewer P1（第三轮） |
 | R19 | `Tick/FixedTick` 在 `EnsureStarted(OnStart)` **之后重新验证 Revision + IsTickable**：OnStart 内禁用/销毁/重挂自身则不再回调 | reviewer P1（第三轮） |
 | R20 | **社区借鉴决策**（对照 `doc/plans/object-components/社区对象模型对照与借鉴.md`）：B1 Required Components（O2 前）/*B2 DataContract 序列化对齐（O3）/*B3 prefab override 照 Unity（O4）/ 默认不借鉴 DOTS Archetype 存储与 EnTT 池布局（有意决策，非缺失） | 社区调研（Unity/Flecs/Bevy/EnTT/Stride/Wave/Defold） |
+| R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.SpawnTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `AuthoringId`（O1 契约） | O2 实施 + reviewer P1（第三轮） |

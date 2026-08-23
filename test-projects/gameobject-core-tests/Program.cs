@@ -827,6 +827,23 @@ private sealed class TargetRelation : GameRelation
 		Check("Service：HasService", world.HasService<TestService>());
 	}
 
+	private static void Test_Reset()
+	{
+		var world = new GameWorld();
+		world.AddService(new TestService { Tag = "keep" });
+		var obj = world.CreateGameObject("A");
+		var id = obj.Id;
+		obj.AddComponent<Health>();
+		world.Tick(0.016f);
+		Check("Reset 前：TickIndex>0", world.TickIndex > 0);
+
+		world.Reset();
+		Check("Reset：对象清空", world.AliveCount == 0);
+		Check("Reset：TickIndex 归零", world.TickIndex == 0);
+		Check("Reset：旧 Id 失效", !world.IsAlive(id));
+		Check("Reset：Services 保留", world.GetService<TestService>().Tag == "keep");
+	}
+
 	private sealed class TestService
 	{
 		public string Tag = string.Empty;
@@ -891,6 +908,7 @@ private sealed class TargetRelation : GameRelation
 		Test_Review3_三事务交错全链Redo();
 		Test_Review4_跨世界事务拒绝();
 		Test_Services();
+		Test_Reset();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)

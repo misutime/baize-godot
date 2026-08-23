@@ -102,6 +102,7 @@ public sealed class GameWorld
 		var obj = new GameObject(this, id, name)
 		{
 			CreationIndex = ++_creationCounter,
+			CreatedAtTickIndex = TickIndex,
 		};
 		_slots[index] = obj;
 		_enabled.Add(obj, true);
@@ -651,8 +652,7 @@ public sealed class GameWorld
 	/// <summary>是否存在该服务。</summary>
 	public bool HasService<T>() where T : class => _services.ContainsKey(typeof(T));
 
-	/// <summary>清理全部对象（等价逐个 Destroy；处理过程中 registry 与层级同步失效）。</summary>
-/// <summary>清理全部对象（等价逐个 Destroy；已随级联销毁的对象自动跳过，契约 §6 语义）。</summary>
+	/// <summary>清理全部对象（等价逐个 Destroy；已随级联销毁的对象自动跳过，契约 §6 语义）。</summary>
 	public void Clear()
 	{
 		var roots = new GameObject[_hierarchy.Roots.Count];
@@ -667,6 +667,21 @@ public sealed class GameWorld
 				Destroy(obj);
 			}
 		}
+	}
+
+	/// <summary>重置一局世界：清对象、清时间轴与事务栈，保留 Services（O2 Restart/O1 可复用）。</summary>
+	public void Reset()
+	{
+		Clear();
+		_undoStack.Clear();
+		_redoStack.Clear();
+		_transactionObjects.Clear();
+		TickIndex = 0;
+		FixedTickIndex = 0;
+		_paused = false;
+		_revisionCounter = 0;
+		_creationCounter = 0;
+		// 事务逻辑 ID 世界生命周期内单调递增，不复用（reviewer P1：防 Reset 前悬挂事务 Undo 误解析到新对象）。
 	}
 
 	// ---------- Undo/Redo（事务栈，O1 验证清单项）----------

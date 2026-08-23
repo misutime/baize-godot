@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Shooter.Objects</RootNamespace>
+    <AssemblyName>Shooter.Objects</AssemblyName>
+    <!-- O2 硬门禁：纯 .NET + Baize.GameObject，零 Friflo/Baize.Ecs/Godot/Node -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\modules\gameobject\Baize.GameObject.csproj" />
+  </ItemGroup>
+</Project>
