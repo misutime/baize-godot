@@ -21,7 +21,7 @@ namespace Baize.GameObject;
 public static class GameWorldTextSerializer
 {
 	/// <summary>格式名（第一行，固定值）。</summary>
-	public const string FormatName = "baize.object-components.v1";
+	public const string FormatName = "baize.v1"; // 精简（用户裁定）；领域由 kind 行承担
 
 	/// <summary>kind = scene（本文档范围；prefab 由 O4 定义）。</summary>
 	public const string KindScene = "scene";

@@ -1032,7 +1032,7 @@ internal static class Program
 		string text = GameWorldTextSerializer.Serialize(snap);
 
 		// 可读性冒烟：格式头/对象行/属性行/关系行/缩进/enum 裸词/禁用尾注。
-		Check("R26：文本含 format 头", text.Contains("format = \"baize.object-components.v1\""));
+		Check("R26：文本含 format 头", text.Contains("format = \"baize.v1\""));
 		Check("R26：文本含 kind 头", text.Contains("kind = \"scene\""));
 		Check("R26：文本含对象行（@uid parent 引用）", text.Contains("object @0000000000000002 \"CubeA\" parent = @0000000000000001"));
 		Check("R26：文本含属性行", text.Contains("Max = 50"));
@@ -1073,32 +1073,32 @@ internal static class Program
 		Check("R26：缺 format 头报错",
 			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize("kind = \"scene\"\n\nobject @a1 \"A\"\n")));
 		Check("R26：format 版本不匹配报错",
-			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize("format = \"baize.object-components.v2\"\nkind = \"scene\"\n"), "v1"));
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize("format = \"baize.v2\"\nkind = \"scene\"\n"), "v1"));
 		// uid-only：对象行无序号字段（出现序即索引）；@uid 唯一性校验见 O4 测试。
 		Check("R26：关系序号越界报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nrelation X.Y @a1 -> @b2\n"), "端点无效"));
+"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nrelation X.Y @a1 -> @b2\n"), "端点无效"));
 		Check("R26：parent 越界报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"B\" parent = @9a\n"), "不存在"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"B\" parent = @9a\n"), "不存在"));
 		Check("R26：parent 自引用报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" parent = @a1\n"), "不存在或尚未出现"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" parent = @a1\n"), "不存在或尚未出现"));
 		Check("R26：对象尾注（enabled = false）解析",
 					GameWorldTextSerializer.Deserialize(
-						"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" enabled = false\n").Objects[0].Enabled == false);
+						"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" enabled = false\n").Objects[0].Enabled == false);
 		Check("R26：属性在组件块外报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nMax = 1\n"), "组件块之外"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nMax = 1\n"), "组件块之外"));
 		Check("R26：缩进无含义（任意缩进可解析）",
 			GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n  object @a1 \"A\"\n\tobject @b2 \"B\" parent = @a1\n").Objects.Count == 2);
+				"format = \"baize.v1\"\nkind = \"scene\"\n\n  object @a1 \"A\"\n\tobject @b2 \"B\" parent = @a1\n").Objects.Count == 2);
 
 		// 语义层：文本含未知组件/未知属性 → Deserialize 成功（语法层），Restore 按 R24 策略处理。
 		var world = new GameWorld();
 		world.Schemas.Register<Armor>(); // 注册目标组件 Schema（Restore 语义层需要）
 		world.CreateGameObject("坦克");
-		string unknownCompText = "format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component Ghost.UnknownComp]\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n";
+		string unknownCompText = "format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component Ghost.UnknownComp]\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n";
 		var parsedUnknown = GameWorldTextSerializer.Deserialize(unknownCompText);
 		Check("R26：未知组件文本可解析为快照", parsedUnknown.Objects[0].Components.Count == 2);
 		Check("R26：未知组件 Restore 默认 Throw 带对象名",
@@ -1106,7 +1106,7 @@ internal static class Program
 		var skipUnknown = GameWorldSerializer.Restore(parsedUnknown, new RestoreOptions { UnknownComponentPolicy = UnknownMemberPolicy.Skip }, world.Schemas, world.Relations);
 		Check("R26：未知组件 Skip 保留已知", skipUnknown.Roots[0].GetComponent<Armor>() != null);
 
-		string unknownPropText = "format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n\t不存在的属性 = 42\n";
+		string unknownPropText = "format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n\t不存在的属性 = 42\n";
 		var parsedUnknownProp = GameWorldTextSerializer.Deserialize(unknownPropText);
 		Check("R26：未知属性 Restore 默认 Throw 带属性名",
 			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(parsedUnknownProp, world.Schemas, world.Relations), "不存在的属性"));
@@ -1114,7 +1114,7 @@ internal static class Program
 		Check("R26：未知属性 Skip 保留已知值", skipUnknownProp.Roots[0].GetComponent<Armor>()!.MaxDurability == 99);
 
 		// 注释与空行容忍。
-		string commented = "# 场景注释\nformat = \"baize.object-components.v1\"\nkind = \"scene\"\n\n# 对象注释\nobject @a1 \"A\"\n";
+		string commented = "# 场景注释\nformat = \"baize.v1\"\nkind = \"scene\"\n\n# 对象注释\nobject @a1 \"A\"\n";
 		Check("R26：注释与空行容忍", GameWorldTextSerializer.Deserialize(commented).Objects.Count == 1);
 		// Serialize 侧：重名对象合法（序号即身份，草案 §3.3）——可序列化且往返保真。
 		var dupWorld = new GameWorld();
@@ -1134,7 +1134,7 @@ internal static class Program
 		// P1-1（shifu 评审）：非 DFS 序列拒绝（曾接受并破坏 hash 保真）。
 		Check("R26评审：非 DFS 序列拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"A-child\" parent = @a1\nobject @c3 \"B\"\nobject @d4 \"A-grandchild\" parent = @b2\n"), "非 DFS"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"A-child\" parent = @a1\nobject @c3 \"B\"\nobject @d4 \"A-grandchild\" parent = @b2\n"), "非 DFS"));
 
 		// P1-1：Serialize 非法 ParentIndex 抛错（曾静默降级为顶层）。
 		var bad = new GameWorldSnapshot();
@@ -1145,13 +1145,13 @@ internal static class Program
 		// P1-2：头部阶段化——缺 kind / 重复 format / 顺序错。
 		Check("R26评审：缺 kind 拒绝",
 			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nobject @a1 \"A\"\n")));
+				"format = \"baize.v1\"\nobject @a1 \"A\"\n")));
 		Check("R26评审：重复 format 拒绝",
 			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\nformat = \"baize.object-components.v1\"\nobject @a1 \"A\"\n")));
+				"format = \"baize.v1\"\nkind = \"scene\"\nformat = \"baize.v1\"\nobject @a1 \"A\"\n")));
 		Check("R26评审：对象行先于头部拒绝",
 			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"object @a1 \"A\"\nformat = \"baize.object-components.v1\"\nkind = \"scene\"\n")));
+				"object @a1 \"A\"\nformat = \"baize.v1\"\nkind = \"scene\"\n")));
 
 		// P1-3：NaN/Infinity 拒绝序列化。
 		var nanWorld = new GameWorld();
@@ -1162,12 +1162,12 @@ internal static class Program
 		// P1-8：relation 后属性行拒绝（曾错误归属旧组件）。
 		Check("R26评审：relation 后属性行拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nrelation X.R @a1 -> @a1\nY = 2\n"), "组件块之外"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nrelation X.R @a1 -> @a1\nY = 2\n"), "组件块之外"));
 
 		// P2：严格转义——未知转义拒绝（曾静默吞反斜杠）。
 		Check("R26评审：未知转义拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nTag = \"\\q\"\n"), "未知转义"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nTag = \"\\q\"\n"), "未知转义"));
 
 		// P2：strict 转换矩阵——Float token 写给 int 拒绝（曾 Convert.ToInt32 舍入）。
 		var world = new GameWorld();
@@ -1175,17 +1175,17 @@ internal static class Program
 		Check("R26评审：Float 写给 int 拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(
 				GameWorldTextSerializer.Deserialize(
-					"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1.5\n"),
+					"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1.5\n"),
 				new RestoreOptions(), world.Schemas, world.Relations), "strict"));
 
 		// 重复属性名拒绝。
 		Check("R26评审：重复属性名拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nMaxDurability = 2\n"), "重复"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nMaxDurability = 2\n"), "重复"));
 
 		// P3：golden 示例（草案 §3.7）直接解析成功。
 		var golden = GameWorldTextSerializer.Deserialize(
-			"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n# 商场关卡\n" +
+			"format = \"baize.v1\"\nkind = \"scene\"\n\n# 商场关卡\n" +
 			"object @a1 \"主场景\"\nobject @b2 \"CubeA\" parent = @a1\n" +
 			"[component " + typeof(Health).FullName + "]\n\tMax = 50\n\tCurrent = 37\n" +
 			"object @c3 \"敌人\"\n[component " + typeof(Health).FullName + " enabled = false]\n\tMax = 100\n\tCurrent = 100\n" +
@@ -1198,7 +1198,7 @@ internal static class Program
 	{
 		// @id 对象行 + parent=@id 引用 + 关系 @id 端点 + round-trip。
 		string text =
-					"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n" +
+					"format = \"baize.v1\"\nkind = \"scene\"\n\n" +
 					"object @a1 \"主场景\"\n" +
 					"object @b2 \"CubeA\" parent = @a1\n" +
 					"[component " + typeof(Health).FullName + "]\n\tMax = 50\n\tCurrent = 37\n" +
@@ -1242,11 +1242,11 @@ internal static class Program
 		// @id 唯一性约束。
 		Check("O4：@id 重复拒绝",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @a1 \"B\"\n"), "重复"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @a1 \"B\"\n"), "重复"));
 
 		// prefb 字段解析进 SourceTemplate。
 		var withPrefab = GameWorldTextSerializer.Deserialize(
-"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"root\"\nobject @e1 \"敌人\" prefab = \"res://Enemy.bprefab\" parent = @a1\n");
+"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @a1 \"root\"\nobject @e1 \"敌人\" prefab = \"res://Enemy.bprefab\" parent = @a1\n");
 		Check("O4：prefab 字段 → SourceTemplate", withPrefab.Objects[1].SourceTemplate == "res://Enemy.bprefab");
 	}
 
@@ -1254,14 +1254,14 @@ internal static class Program
 	{
 		// prefab 模板（单 root + 子树 + 组件）。
 		string prefabText =
-			"format = \"baize.object-components.v1\"\nkind = \"prefab\"\n\n" +
+			"format = \"baize.v1\"\nkind = \"prefab\"\n\n" +
 "object @1a \"EnemyRoot\"\n" +
 			"[component " + typeof(Health).FullName + "]\n\tMax = 100\n\tCurrent = 100\n" +
 			"object @1b \"Mesh\" parent = @1a\n";
 
 		// 场景：两个实例 + override 区。
 		string sceneText =
-			"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n" +
+			"format = \"baize.v1\"\nkind = \"scene\"\n\n" +
 			"object @10 \"主场景\"\n" +
 			"object @11 \"敌人A\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
 			"object @12 \"敌人B\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
@@ -1289,12 +1289,12 @@ internal static class Program
 		// override 未知组件报错。
 		Check("O4：override 未知组件拒绝",
 			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @1a \"A\"\n[component " + typeof(Health).FullName + "]\n\tMax = 1\n[override]\n    @1a Ghost.Nope.Value = 5\n"), "override 引用组件不存在"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @1a \"A\"\n[component " + typeof(Health).FullName + "]\n\tMax = 1\n[override]\n    @1a Ghost.Nope.Value = 5\n"), "override 引用组件不存在"));
 
 		// prefab resolver 返回 null → 报错。
 		Check("O4：prefab 无法解析拒绝",
 			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @1a \"A\" prefab = \"res://Missing.bprefab\"\n", _ => null), "无法解析"));
+				"format = \"baize.v1\"\nkind = \"scene\"\n\nobject @1a \"A\" prefab = \"res://Missing.bprefab\"\n", _ => null), "无法解析"));
 	}
 
 	private static GameWorld CreateO4World(string name)
