@@ -319,7 +319,53 @@ private sealed class TargetRelation : GameRelation
 		Check("传播：暂停不改变标志", child.Enabled);
 	}
 
-	// ---------- review P1/P2 回归 ----------
+	// ---------- review P1：回调内改结构不得中断暂停刷新（消除 Collection modified）----------
+
+	private sealed class PauseMutator : GameComponent
+	{
+		public bool MutateOnDisable;
+		public bool MutateOnEnable;
+
+		public override void OnDisable()
+		{
+			if (!MutateOnDisable) return;
+			// 在回调内改结构：销毁兄弟 + 新增组件——若枚举未快照，此处会抛 Collection modified。
+			var world = World!;
+			// 用快照遍历：回调内改结构时，本方法自己也要物化副本，避免枚举 live Roots（对齐内核快照语义）。
+			var roots = new GameObject[world.Roots.Count];
+			for (int i = 0; i < roots.Length; i++) roots[i] = world.Roots[i];
+			foreach (var root in roots)
+			{
+				if (root != Owner && !root.IsDestroyed) root.Destroy();
+			}
+		}
+
+		public override void OnEnable()
+		{
+			if (!MutateOnEnable) return;
+			Owner!.AddComponent<Health>();
+		}
+}
+
+	private static void Test_暂停回调内改结构不中断刷新()
+	{
+		var world = new GameWorld();
+		var a = world.CreateGameObject("A");
+		var b = world.CreateGameObject("B");
+		var ma = a.AddComponent<PauseMutator>();
+		ma.MutateOnDisable = true;
+		ma.MutateOnEnable = true;
+		_ = b;
+
+		// Paused=true 触发全树 OnDisable；回调内 Destroy(兄弟) —— 快照后不抛异常、不中断。
+		world.Paused = true;
+		Check("暂停回调内改结构：Paused=true 无异常且已关闭", world.Paused);
+		Check("暂停回调内改结构：兄弟已被销毁", b.IsDestroyed);
+
+		// Paused=false 触发 OnEnable；回调内 AddComponent —— 快照后不抛异常。
+		world.Paused = false;
+		Check("暂停回调内改结构：恢复无异常且已开启", !world.Paused);
+	}
 
 	private static void Test_Review_重复挂载与外来组件()
 	{
@@ -886,6 +932,7 @@ private sealed class TargetRelation : GameRelation
 		Test_Tick确定性与快照遍历();
 		Test_父子与销毁级联();
 		Test_有效状态传播();
+		Test_暂停回调内改结构不中断刷新();
 		Test_Review_重复挂载与外来组件();
 		Test_Review_跨世界与销毁语义();
 		Test_Review_FixedTick首次OnStart();

@@ -52,7 +52,10 @@ public sealed class GameWorld
 			}
 			_paused = value;
 			// 暂停/恢复会翻转全树 effective 状态 → 触发 OnDisable/OnEnable（契约 §3）。
-			foreach (var root in _hierarchy.Roots)
+			// 物化 roots 快照：OnDisable/OnEnable 回调可能改层级结构，避免枚举期间"Collection modified"（对齐 TickSnapshot）。
+			var roots = new GameObject[_hierarchy.Roots.Count];
+			for (int i = 0; i < roots.Length; i++) roots[i] = _hierarchy.Roots[i];
+			foreach (var root in roots)
 			{
 				RefreshEffective(root);
 			}
@@ -230,7 +233,10 @@ public sealed class GameWorld
 		}
 		if (_stores.TryGetValue(obj, out var store))
 		{
-			foreach (var comp in store.All)
+			// 物化组件快照：OnEnable/OnDisable 回调可能 Add/RemoveComponent，避免枚举期间"Collection modified"（对齐 TickSnapshot）。
+			var comps = new GameComponent[store.All.Count];
+			for (int i = 0; i < comps.Length; i++) comps[i] = store.All[i];
+			foreach (var comp in comps)
 			{
 				bool compEffective = effective && comp.Enabled;
 				if (compEffective && !comp.EffectiveActive)
@@ -245,7 +251,11 @@ public sealed class GameWorld
 				}
 			}
 		}
-		foreach (var child in _hierarchy.GetChildren(obj))
+		// 物化 children 快照：子对象 OnDisable/OnEnable 回调可能改层级，避免枚举期间"Collection modified"（对齐 TickSnapshot）。
+		var children = _hierarchy.GetChildren(obj);
+		var childSnapshot = new GameObject[children.Count];
+		for (int i = 0; i < childSnapshot.Length; i++) childSnapshot[i] = children[i];
+		foreach (var child in childSnapshot)
 		{
 			RefreshEffective(child);
 		}
