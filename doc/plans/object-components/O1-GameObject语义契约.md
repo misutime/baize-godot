@@ -134,3 +134,4 @@ Disable / 父链禁用 / Pause
 | R17 | 事务句柄提升到 **GameWorld 级**：`GameObject.TransactionId`（稳定逻辑句柄）+ `_transactionObjects` 世界映射——**跨事务** Undo/Redo 链（tx1 建、tx2 编辑，双撤销/双重做）完整解析重建实例 | reviewer P1（第三轮） |
 | R18 | `Destroy` 阶段 2 **OnDisable/OnDestroy 分离捕获**：OnDisable 异常不吞同组件的 OnDestroy，两者均被尝试并聚合 | reviewer P1（第三轮） |
 | R19 | `Tick/FixedTick` 在 `EnsureStarted(OnStart)` **之后重新验证 Revision + IsTickable**：OnStart 内禁用/销毁/重挂自身则不再回调 | reviewer P1（第三轮） |
+| R20 | **社区借鉴决策**（对照 `doc/plans/object-components/社区对象模型对照与借鉴.md`）：B1 Required Components（O2 前）/*B2 DataContract 序列化对齐（O3）/*B3 prefab override 照 Unity（O4）/ 默认不借鉴 DOTS Archetype 存储与 EnTT 池布局（有意决策，非缺失） | 社区调研（Unity/Flecs/Bevy/EnTT/Stride/Wave/Defold） |
