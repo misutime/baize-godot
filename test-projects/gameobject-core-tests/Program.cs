@@ -3,7 +3,7 @@
 
 using System;
 using System.Collections.Generic;
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace GameObjectCoreTests;
 
@@ -153,6 +153,30 @@ internal static class Program
 	{
 		[GameProperty]
 		public BigEnum Kind { get; set; }
+	}
+
+	// ---------- O3：Schema 驱动元数据层 + 校验整合（契约 R22–R25） ----------
+
+	// R23：带 Inspector 元数据的组件（显示名/分组/只读/默认值）。
+	[GameComponent(DisplayName = "甲胄", Group = "装备")]
+	private sealed class Armor : GameComponent
+	{
+		[GameProperty(DisplayName = "最大耐久", Group = "基础", DefaultValue = 100)]
+		public int MaxDurability { get; set; } = 100;
+
+		[GameProperty(DisplayName = "当前耐久", ReadOnly = true, DefaultValue = 100)]
+		public int CurrentDurability { get; set; } = 100;
+
+		[GameProperty]
+		public int NoMeta { get; set; } = 7;
+	}
+
+	// R22 反例：只读属性标记 [GameProperty] → 注册报错（缺可写访问器）。
+	[GameComponent]
+	private sealed class BadReadOnlyPropertyComp : GameComponent
+	{
+		[GameProperty]
+		public int ReadOnlyValue => 42;
 	}
 
 	// ---------- 用例 ----------
@@ -890,6 +914,445 @@ internal static class Program
 		Check("Reset：Resources 保留", world.GetResource<TestResource>().Tag == "keep");
 	}
 
+	private static void Test_O3_Schema元数据层()
+	{
+		var world = new GameWorld();
+		var schema = world.Schemas.Register<Armor>();
+		CheckEq("R23：组件 DisplayName", schema.DisplayName, "甲胄");
+		CheckEq("R23：组件 Group", schema.Group, "装备");
+
+		var max = schema.SerializedProperties[0];
+		CheckEq("R23：属性 DisplayName", max.DisplayName, "最大耐久");
+		CheckEq("R23：属性 Group", max.Group, "基础");
+		Check("R23：属性缺省 ReadOnly=false", !max.IsReadOnly);
+		Check("R23：属性 DefaultValue", Equals(max.DefaultValue, 100));
+
+		var cur = schema.SerializedProperties[1];
+		Check("R23：ReadOnly 标记生效", cur.IsReadOnly);
+
+		var noMeta = schema.SerializedProperties[2];
+		Check("R23：缺省 DisplayName = 属性名", noMeta.DisplayName == "NoMeta");
+		Check("R23：缺省 Group = 空串", noMeta.Group == "");
+
+		// R22：属性名 O(1) 索引。
+		Check("R22：TryGetProperty 命中", schema.TryGetProperty("MaxDurability", out var byName) && ReferenceEquals(byName, max));
+		Check("R22：TryGetProperty 未命中", !schema.TryGetProperty("不存在", out _));
+
+		// R22：编译委托 Get/Set 往返。
+		var obj = world.CreateGameObject("tank");
+		var armor = obj.AddComponent<Armor>();
+		Check("R22：GetValue 初始", Equals(max.GetValue(armor), 100));
+		max.SetValue(armor, 250);
+		CheckEq("R22：SetValue 生效", armor.MaxDurability, 250);
+		Check("R22：GetValue 再读", Equals(max.GetValue(armor), 250));
+
+		// R22：只读属性标 [GameProperty] → 注册报错。
+		Check("R22：只读属性注册报错", Throws<ArgumentException>(() => world.Schemas.Register(typeof(BadReadOnlyPropertyComp))));
+	}
+
+	private static void Test_O3_Restore容错策略()
+	{
+		// 正常世界：1 对象 1 组件，MaxDurability=99。
+		var world = new GameWorld();
+		var obj = world.CreateGameObject("坦克");
+		var armor = obj.AddComponent<Armor>();
+		armor.MaxDurability = 99;
+
+		// 注入未知组件记录。
+		var pollutedComp = GameWorldSerializer.Capture(world);
+		pollutedComp.Objects[0].Components.Add(new GameComponentRecord { TypeName = "Ghost.UnknownComp", Enabled = true });
+		Check("R24：未知组件默认 Throw 带对象名",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(pollutedComp, world.Schemas, world.Relations), "坦克"));
+		Check("R24：未知组件报错带类型名",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(pollutedComp, world.Schemas, world.Relations), "Ghost.UnknownComp"));
+
+		// Skip 策略：未知组件丢弃，已知保留。
+		var skipComp = GameWorldSerializer.Restore(pollutedComp, new RestoreOptions { UnknownComponentPolicy = UnknownMemberPolicy.Skip }, world.Schemas, world.Relations);
+		Check("R24：Skip 未知组件后对象保留", skipComp.Roots.Count == 1);
+		Check("R24：Skip 后已知组件保留", skipComp.Roots[0].GetComponent<Armor>() != null);
+
+		// 注入未知属性记录。
+		var pollutedProp = GameWorldSerializer.Capture(world);
+		pollutedProp.Objects[0].Components[0].Properties.Add(new KeyValuePair<string, object?>("不存在的属性", 42));
+		Check("R24：未知属性默认 Throw 带属性名",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(pollutedProp, world.Schemas, world.Relations), "不存在的属性"));
+
+		// Skip 策略：未知属性跳过，已知值保留。
+		var skipProp = GameWorldSerializer.Restore(pollutedProp, new RestoreOptions { UnknownPropertyPolicy = UnknownMemberPolicy.Skip }, world.Schemas, world.Relations);
+		Check("R24：Skip 未知属性后恢复", skipProp.Roots.Count == 1);
+		CheckEq("R24：Skip 后已知属性值保留", skipProp.Roots[0].GetComponent<Armor>()!.MaxDurability, 99);
+	}
+
+	private static void Test_O3_Schema实例化()
+	{
+		var world = new GameWorld();
+		var schema = world.Schemas.Register<Armor>();
+		var instance = schema.CreateInstance();
+		Check("R25：Schema.CreateInstance 类型", instance is Armor);
+
+		var byName = world.Schemas.CreateInstance(typeof(Armor).FullName!);
+		Check("R25：Registry.CreateInstance 按稳定名", byName is Armor);
+
+		Check("R25：未注册稳定名报错带数量",
+			ThrowsWith<InvalidOperationException>(() => world.Schemas.CreateInstance("Ghost.Nothing"), "已注册"));
+	}
+
+	private static void Test_O3_序列化Schema委托往返()
+	{
+		var world = new GameWorld();
+		var obj = world.CreateGameObject("坦克");
+		var armor = obj.AddComponent<Armor>();
+		armor.MaxDurability = 123;
+		armor.CurrentDurability = 88;
+		var snap = GameWorldSerializer.Capture(world);
+		var restored = GameWorldSerializer.Restore(snap, world.Schemas, world.Relations);
+		Check("R22：Restore 走 Schema 委托读回值", restored.Roots[0].GetComponent<Armor>()!.MaxDurability == 123);
+		Check("R22：round-trip hash 相等",
+			GameWorldSerializer.ComputeHash(snap) == GameWorldSerializer.ComputeHash(GameWorldSerializer.Capture(restored)));
+	}
+
+	private static void Test_O3_文本格式往返与可读性()
+	{
+		// 构造含层级/多组件/多实例/关系/枚举/浮点/字符串转义/禁用状态的世界。
+		var world = new GameWorld();
+		var root = world.CreateGameObject("主场景");
+		var cube = world.CreateGameObject("CubeA");
+		cube.SetParent(root);
+		var h = cube.AddComponent<Health>();
+		h.Max = 50;
+		h.Current = 37;
+		cube.AddComponent<Buff>().Name = "攻速";
+		cube.AddComponent<Buff>().Name = "a\"b\nc"; // 转义路径
+		cube.AddComponent<BigEnumComp>().Kind = BigEnum.Huge;
+		var enemy = world.CreateGameObject("敌人");
+		enemy.Enabled = false; // 禁用对象
+		cube.Relations.Add<TargetRelation>(enemy);
+
+		var snap = GameWorldSerializer.Capture(world);
+		string text = GameWorldTextSerializer.Serialize(snap);
+
+		// 可读性冒烟：格式头/对象行/属性行/关系行/缩进/enum 裸词/禁用尾注。
+		Check("R26：文本含 format 头", text.Contains("format = \"sola3d.v1\""));
+		Check("R26：文本含 kind 头", text.Contains("kind = \"scene\""));
+		Check("R26：文本含对象行（@uid parent 引用）", text.Contains("object @0000000000000002 \"CubeA\" parent = @0000000000000001"));
+		Check("R26：文本含属性行", text.Contains("Max = 50"));
+		Check("R26：文本含组件块头", text.Contains("[component "));
+		Check("R26：文本含关系行（@uid 端点）", text.Contains("relation ") && text.Contains("@0000000000000002 -> @0000000000000003"));
+		Check("R26：enum 裸词输出", text.Contains("Kind = Huge"));
+		Check("R26：禁用对象尾注", text.Contains("object @0000000000000003 \"敌人\" enabled = false"));
+		Check("R26：字符串带引号", text.Contains("Name = \"攻速\""));
+
+		// 确定性：同快照 Serialize 两次字节相等（可 diff 前提）。
+		Check("R26：同快照 Serialize 两次相等", GameWorldTextSerializer.Serialize(snap) == text);
+
+		// Round-trip：Serialize→Deserialize→Restore→Capture hash 相等。
+		var parsed = GameWorldTextSerializer.Deserialize(text);
+		var restored = GameWorldSerializer.Restore(parsed, world.Schemas, world.Relations);
+		Check("R26：文本 round-trip hash 相等",
+			GameWorldSerializer.ComputeHash(GameWorldSerializer.Capture(restored)) == GameWorldSerializer.ComputeHash(snap));
+		Check("R26：往返后层级保留", restored.Roots[0].Name == "主场景" && restored.Roots[0].Children.Count == 1);
+		Check("R26：往返后多实例属性值保留", restored.Roots[0].Children[0].GetComponents<Buff>()[1].Name == "a\"b\nc");
+		Check("R26：往返后枚举保留", restored.Roots[0].Children[0].GetComponent<BigEnumComp>()!.Kind == BigEnum.Huge);
+		Check("R26：往返后禁用状态保留", !restored.Roots[1].Enabled);
+		Check("R26：往返后关系保留", restored.Relations.All.Count == 1);
+
+		// 幂等：Serialize→Deserialize→Serialize 字节相等。
+		Check("R26：Serialize/Deserialize/Serialize 幂等",
+			GameWorldTextSerializer.Serialize(GameWorldTextSerializer.Deserialize(text)) == text);
+
+		// 空快照：合法且可往返。
+		var emptySnap = new GameWorldSnapshot();
+		string emptyText = GameWorldTextSerializer.Serialize(emptySnap);
+		Check("R26：空快照可往返",
+			GameWorldSerializer.ComputeHash(GameWorldTextSerializer.Deserialize(emptyText)) == GameWorldSerializer.ComputeHash(emptySnap));
+	}
+
+	private static void Test_O3_文本格式语法与容错()
+	{
+		// 语法层：缺 format 头报错；序号不连续报错；关系序号越界报错；层级断裂报错。
+		Check("R26：缺 format 头报错",
+			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize("kind = \"scene\"\n\nobject @a1 \"A\"\n")));
+		Check("R26：format 版本不匹配报错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize("format = \"sola3d.v2\"\nkind = \"scene\"\n"), "v1"));
+		// uid-only：对象行无序号字段（出现序即索引）；@uid 唯一性校验见 O4 测试。
+		Check("R26：关系序号越界报错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nrelation X.Y @a1 -> @b2\n"), "端点无效"));
+		Check("R26：parent 越界报错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"B\" parent = @9a\n"), "不存在"));
+		Check("R26：parent 自引用报错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" parent = @a1\n"), "不存在或尚未出现"));
+		Check("R26：对象尾注（enabled = false）解析",
+					GameWorldTextSerializer.Deserialize(
+						"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\" enabled = false\n").Objects[0].Enabled == false);
+		Check("R26：属性在组件块外报错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nMax = 1\n"), "组件块之外"));
+		Check("R26：缩进无含义（任意缩进可解析）",
+			GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\n  object @a1 \"A\"\n\tobject @b2 \"B\" parent = @a1\n").Objects.Count == 2);
+
+		// 语义层：文本含未知组件/未知属性 → Deserialize 成功（语法层），Restore 按 R24 策略处理。
+		var world = new GameWorld();
+		world.Schemas.Register<Armor>(); // 注册目标组件 Schema（Restore 语义层需要）
+		world.CreateGameObject("坦克");
+		string unknownCompText = "format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component Ghost.UnknownComp]\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n";
+		var parsedUnknown = GameWorldTextSerializer.Deserialize(unknownCompText);
+		Check("R26：未知组件文本可解析为快照", parsedUnknown.Objects[0].Components.Count == 2);
+		Check("R26：未知组件 Restore 默认 Throw 带对象名",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(parsedUnknown, world.Schemas, world.Relations), "坦克"));
+		var skipUnknown = GameWorldSerializer.Restore(parsedUnknown, new RestoreOptions { UnknownComponentPolicy = UnknownMemberPolicy.Skip }, world.Schemas, world.Relations);
+		Check("R26：未知组件 Skip 保留已知", skipUnknown.Roots[0].GetComponent<Armor>() != null);
+
+		string unknownPropText = "format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"坦克\"\n[component " + typeof(Armor).FullName + "]\n\tMaxDurability = 99\n\t不存在的属性 = 42\n";
+		var parsedUnknownProp = GameWorldTextSerializer.Deserialize(unknownPropText);
+		Check("R26：未知属性 Restore 默认 Throw 带属性名",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(parsedUnknownProp, world.Schemas, world.Relations), "不存在的属性"));
+		var skipUnknownProp = GameWorldSerializer.Restore(parsedUnknownProp, new RestoreOptions { UnknownPropertyPolicy = UnknownMemberPolicy.Skip }, world.Schemas, world.Relations);
+		Check("R26：未知属性 Skip 保留已知值", skipUnknownProp.Roots[0].GetComponent<Armor>()!.MaxDurability == 99);
+
+		// 注释与空行容忍。
+		string commented = "# 场景注释\nformat = \"sola3d.v1\"\nkind = \"scene\"\n\n# 对象注释\nobject @a1 \"A\"\n";
+		Check("R26：注释与空行容忍", GameWorldTextSerializer.Deserialize(commented).Objects.Count == 1);
+		// Serialize 侧：重名对象合法（序号即身份，草案 §3.3）——可序列化且往返保真。
+		var dupWorld = new GameWorld();
+		var dupA = dupWorld.CreateGameObject("同名");
+		var dupB = dupWorld.CreateGameObject("同名");
+		dupB.SetParent(dupA);
+		var dupSnap = GameWorldSerializer.Capture(dupWorld);
+		string dupText = GameWorldTextSerializer.Serialize(dupSnap);
+		var dupRestored = GameWorldSerializer.Restore(GameWorldTextSerializer.Deserialize(dupText), dupWorld.Schemas, dupWorld.Relations);
+		Check("R26：重名对象可序列化且往返保真",
+			GameWorldSerializer.ComputeHash(GameWorldSerializer.Capture(dupRestored)) == GameWorldSerializer.ComputeHash(dupSnap));
+		Check("R26：重名对象层级保留", dupRestored.Roots[0].Name == "同名" && dupRestored.Roots[0].Children.Count == 1);
+	}
+
+	private static void Test_O3_评审修订回归()
+	{
+		// P1-1（shifu 评审）：非 DFS 序列拒绝（曾接受并破坏 hash 保真）。
+		Check("R26评审：非 DFS 序列拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @b2 \"A-child\" parent = @a1\nobject @c3 \"B\"\nobject @d4 \"A-grandchild\" parent = @b2\n"), "非 DFS"));
+
+		// P1-1：Serialize 非法 ParentIndex 抛错（曾静默降级为顶层）。
+		var bad = new GameWorldSnapshot();
+		bad.Objects.Add(new GameObjectRecord { Name = "x", Enabled = true, ParentIndex = 7, Components = new List<GameComponentRecord>() });
+		Check("R26评审：Serialize 非法 ParentIndex 抛错",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Serialize(bad), "ParentIndex"));
+
+		// P1-2：头部阶段化——缺 kind / 重复 format / 顺序错。
+		Check("R26评审：缺 kind 拒绝",
+			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nobject @a1 \"A\"\n")));
+		Check("R26评审：重复 format 拒绝",
+			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\nformat = \"sola3d.v1\"\nobject @a1 \"A\"\n")));
+		Check("R26评审：对象行先于头部拒绝",
+			Throws<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"object @a1 \"A\"\nformat = \"sola3d.v1\"\nkind = \"scene\"\n")));
+
+		// P1-3：NaN/Infinity 拒绝序列化。
+		var nanWorld = new GameWorld();
+		nanWorld.CreateGameObject("o").AddComponent<Buff>().Amount = float.NaN;
+		Check("R26评审：NaN 属性 Serialize 拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Serialize(GameWorldSerializer.Capture(nanWorld)), "非有限"));
+
+		// P1-8：relation 后属性行拒绝（曾错误归属旧组件）。
+		Check("R26评审：relation 后属性行拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nrelation X.R @a1 -> @a1\nY = 2\n"), "组件块之外"));
+
+		// P2：严格转义——未知转义拒绝（曾静默吞反斜杠）。
+		Check("R26评审：未知转义拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nTag = \"\\q\"\n"), "未知转义"));
+
+		// P2：strict 转换矩阵——Float token 写给 int 拒绝（曾 Convert.ToInt32 舍入）。
+		var world = new GameWorld();
+		world.Schemas.Register<Armor>();
+		Check("R26评审：Float 写给 int 拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldSerializer.Restore(
+				GameWorldTextSerializer.Deserialize(
+					"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1.5\n"),
+				new RestoreOptions(), world.Schemas, world.Relations), "strict"));
+
+		// 重复属性名拒绝。
+		Check("R26评审：重复属性名拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\n[component " + typeof(Armor).FullName + "]\nMaxDurability = 1\nMaxDurability = 2\n"), "重复"));
+
+		// P3：golden 示例（草案 §3.7）直接解析成功。
+		var golden = GameWorldTextSerializer.Deserialize(
+			"format = \"sola3d.v1\"\nkind = \"scene\"\n\n# 商场关卡\n" +
+			"object @a1 \"主场景\"\nobject @b2 \"CubeA\" parent = @a1\n" +
+			"[component " + typeof(Health).FullName + "]\n\tMax = 50\n\tCurrent = 37\n" +
+			"object @c3 \"敌人\"\n[component " + typeof(Health).FullName + " enabled = false]\n\tMax = 100\n\tCurrent = 100\n" +
+"object @d4 \"哨兵\"\nobject @e5 \"哨兵\" parent = @d4\n");
+		Check("R26评审：golden 示例解析成功",
+			golden.Objects.Count == 5 && golden.Objects[1].ParentIndex == 0 && golden.Objects[2].Components[0].Enabled == false);
+	}
+
+	private static void Test_O4_Uid与混合引用()
+	{
+		// @id 对象行 + parent=@id 引用 + 关系 @id 端点 + round-trip。
+		string text =
+					"format = \"sola3d.v1\"\nkind = \"scene\"\n\n" +
+					"object @a1 \"主场景\"\n" +
+					"object @b2 \"CubeA\" parent = @a1\n" +
+					"[component " + typeof(Health).FullName + "]\n\tMax = 50\n\tCurrent = 37\n" +
+					"object @d4 \"哨兵\" parent = @b2\n" +           // CubeA 子树内（DFS 合法）
+				"object @c3 \"敌人\"\n" +                          // 顶层（关闭 CubeA 子树；@c3 与哨兵 @d4 不冲突）
+				"relation " + typeof(TargetRelation).FullName + " @b2 -> @c3\n";
+		var snap = GameWorldTextSerializer.Deserialize(text);
+		Check("O4：@id 解析进快照 Uid",
+			snap.Objects[0].Uid == 0xa1 && snap.Objects[1].Uid == 0xb2 && snap.Objects[2].Uid == 0xd4);
+		Check("O4：parent=@id 解析为索引", snap.Objects[1].ParentIndex == 0 && snap.Objects[2].ParentIndex == 1);
+		Check("O4：关系 @id 端点解析", snap.Relations.Count == 1 && snap.Relations[0].SourceIndex == 1 && snap.Relations[0].TargetIndex == 3);
+
+		// 幂等：Serialize(Deserialize) 保留 @id 引用形态。
+		string round = GameWorldTextSerializer.Serialize(snap);
+		Check("O4：@id round-trip 幂等", round.Contains("object @00000000000000a1 \"主场景\"") && round.Contains("parent = @00000000000000a1"));
+		Check("O4：@id round-trip 再解析等价",
+			GameWorldSerializer.ComputeHash(GameWorldTextSerializer.Deserialize(round)) == GameWorldSerializer.ComputeHash(snap));
+
+		// hash 不含稳定ID（运行时口径不变）：同结构不同 @id → hash 相同（在快照层注入 @id 验证）。
+		var snapA = GameWorldSerializer.Capture(CreateO4World("o"));
+		snapA.Objects[0].Uid = 0x1111;
+		var snapB = GameWorldSerializer.Capture(CreateO4World("o"));
+		snapB.Objects[0].Uid = 0x2222;
+		var h1 = GameWorldSerializer.ComputeHash(snapA);
+		var h2 = GameWorldSerializer.ComputeHash(snapB);
+		Check("O4：Uid 不参与 hash", h1 == h2);
+
+		// Restore 写回 → Capture 再导出（Uid round-trip 保真）。
+		var wR = new GameWorld();
+		wR.CreateGameObject("o");
+		var sR = GameWorldSerializer.Capture(wR);
+		sR.Objects[0].Uid = 0xabcd;
+		var rR = GameWorldSerializer.Restore(sR, wR.Schemas, wR.Relations);
+		Check("O4：Restore 写回 Uid", rR.Roots[0].Uid.Value == 0xabcd && rR.Roots[0].Uid.IsValid);
+		var sR2 = GameWorldSerializer.Capture(rR);
+		Check("O4：Capture 再导出 Uid", sR2.Objects[0].Uid == 0xabcd);
+	}
+
+	private static void Test_O4_Uid_唯一性与Prefab字段()
+	{
+		// @id 唯一性约束。
+		Check("O4：@id 重复拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @a1 \"B\"\n"), "重复"));
+
+		// prefb 字段解析进 SourceTemplate。
+		var withPrefab = GameWorldTextSerializer.Deserialize(
+"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @a1 \"root\"\nobject @e1 \"敌人\" prefab = \"res://Enemy.bprefab\" parent = @a1\n");
+		Check("O4：prefab 字段 → SourceTemplate", withPrefab.Objects[1].SourceTemplate == "res://Enemy.bprefab");
+	}
+
+	private static void Test_O4_Prefab实例化与Override()
+	{
+		// prefab 模板（单 root + 子树 + 组件）。
+		string prefabText =
+					"format = \"sola3d.v1\"\nkind = \"prefab\"\n\n" +
+					"object @1a \"EnemyRoot\"\n" +
+					"[component " + typeof(Health).FullName + "]\n\tMax = 100\n\tCurrent = 100\n" +
+					"object @1b \"Mesh\" parent = @1a\n" +
+		"relation " + typeof(TargetRelation).FullName + " @1a -> @1b\n";
+
+		// 场景：两个实例 + override 区。
+		string sceneText =
+			"format = \"sola3d.v1\"\nkind = \"scene\"\n\n" +
+			"object @10 \"主场景\"\n" +
+			"object @11 \"敌人A\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
+			"object @12 \"敌人B\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
+			"[override]\n" +
+			"    @11 " + typeof(Health).FullName + ".Max = 42\n" +
+			"    @11 " + typeof(Health).FullName + ".Current = 7\n";
+
+		var world = new GameWorld();
+		world.Schemas.Register<Health>();
+		// 注册模板关系类型（Restore 需先 Add<T> 过——用临时对象注册工厂）。
+		var regA = world.CreateGameObject("__regA");
+		var regB = world.CreateGameObject("__regB");
+		world.Relations.Add<TargetRelation>(regA, regB);
+		world.Destroy(regA);
+		world.Destroy(regB);
+		var loaded = BSceneLoader.LoadSceneToWorld(sceneText, world.Schemas, world.Relations, path => path == "res://Enemy.bprefab" ? prefabText : null);
+		// 结构：主场景 + 2 实例（各 2 对象）→ 共 5 对象。
+		Check("O4：prefab 实例化展开对象数", loaded.AliveCount == 1 + 2 * 2);
+		var root = loaded.GetObject(loaded.Roots[0].Id)!;
+		Check("O4：实例为 root 子树", root.Children.Count == 2);
+		var enemyA = root.Children[0];
+		var enemyB = root.Children[1];
+		Check("O4：实例名保留场景声明", enemyA.Name == "敌人A" && enemyB.Name == "敌人B");
+		Check("O4：SourceTemplate 记录", enemyA.SourceTemplate == "res://Enemy.bprefab");
+		Check("O4：实例子树挂 Mesh 子对象", enemyA.Children.Count == 1 && enemyA.Children[0].Name == "Mesh");
+		Check("O4：模板默认值保留（未 override）", enemyB.GetComponent<Health>()!.Max == 100);
+		Check("O4：override 应用", enemyA.GetComponent<Health>()!.Max == 42 && enemyA.GetComponent<Health>()!.Current == 7);
+		Check("O4：override 不影响其他实例", enemyB.GetComponent<Health>()!.Current == 100);
+
+		// reviewer P1-3：模板关系复制——每实例各带 1 条模板关系（EnemyRoot → Mesh）。
+		var snapRel = BSceneLoader.LoadScene(sceneText, path => path == "res://Enemy.bprefab" ? prefabText : null);
+		Check("O4：模板关系复制（2 实例 × 1）", snapRel.Relations.Count == 2);
+		bool relsInSubtrees = true;
+		foreach (var rel in snapRel.Relations)
+		{
+			if (rel.SourceIndex < 0 || rel.TargetIndex < 0 ||
+				rel.SourceIndex >= snapRel.Objects.Count || rel.TargetIndex >= snapRel.Objects.Count)
+			{
+				relsInSubtrees = false;
+				break;
+			}
+			// 端点必须都是 prefab-derived 节点（索引 > 0，即主场景之后）。
+			if (rel.SourceIndex <= 0 || rel.TargetIndex <= 0)
+			{
+				relsInSubtrees = false;
+				break;
+			}
+		}
+		Check("O4：模板关系端点落在实例子树", relsInSubtrees);
+		// reviewer P1-2：双实例的子对象（模板 Mesh）Uid 不得共享——Capture 快照 uid 全唯一。
+		var snap = GameWorldSerializer.Capture(world);
+		var uidSet = new HashSet<ulong>();
+		bool uidUnique = true;
+		foreach (var o in snap.Objects)
+		{
+			if (o.Uid != 0 && !uidSet.Add(o.Uid))
+			{
+				uidUnique = false;
+			}
+		}
+		Check("O4：双实例子对象 Uid 唯一（不共享模板 uid）", uidUnique);
+		// 展开后序列化可被自身读回（无重复 @id）。
+		string reText = GameWorldTextSerializer.Serialize(snap);
+		var reSnap = GameWorldTextSerializer.Deserialize(reText);
+		Check("O4：双实例展开后 Serialize→Deserialize 不抛错", reSnap.Objects.Count == snap.Objects.Count);
+		// override 未知组件报错。
+		Check("O4：override 未知组件拒绝",
+			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @1a \"A\"\n[component " + typeof(Health).FullName + "]\n\tMax = 1\n[override]\n    @1a Ghost.Nope.Value = 5\n"), "override 引用组件不存在"));
+
+		// prefab resolver 返回 null → 报错。
+		Check("O4：prefab 无法解析拒绝",
+ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
+				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @1a \"A\" prefab = \"res://Missing.bprefab\"\n", _ => null), "无法解析"));
+
+		// reviewer P2：Serialize 拒绝重复非零 Uid（防产出自身不可读文本）。
+		var dupSnap = new GameWorldSnapshot();
+		dupSnap.Objects.Add(new GameObjectRecord { Name = "X", Uid = 0xab });
+		dupSnap.Objects.Add(new GameObjectRecord { Name = "Y", Uid = 0xab });
+		Check("O4：Serialize 拒绝重复 Uid",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Serialize(dupSnap), "重复"));
+	}
+
+	private static GameWorld CreateO4World(string name)
+	{
+		var w = new GameWorld();
+		w.CreateGameObject(name);
+		return w;
+	}
+
 	private sealed class TestResource
 	{
 		public string Tag = string.Empty;
@@ -917,6 +1380,20 @@ internal static class Program
 		catch (T)
 		{
 			return true;
+		}
+	}
+
+	/// <summary>断言抛出指定异常且消息包含指定子串（R24 报错上下文验证）。</summary>
+	private static bool ThrowsWith<T>(Action action, string contains) where T : Exception
+	{
+		try
+		{
+			action();
+			return false;
+		}
+		catch (T ex)
+		{
+			return ex.Message.Contains(contains, StringComparison.Ordinal);
 		}
 	}
 
@@ -956,6 +1433,16 @@ internal static class Program
 		Test_Review4_跨世界事务拒绝();
 		Test_Resources();
 		Test_Reset();
+		Test_O3_Schema元数据层();
+		Test_O3_Restore容错策略();
+		Test_O3_Schema实例化();
+		Test_O3_序列化Schema委托往返();
+		Test_O3_文本格式往返与可读性();
+		Test_O3_文本格式语法与容错();
+		Test_O3_评审修订回归();
+		Test_O4_Uid与混合引用();
+		Test_O4_Uid_唯一性与Prefab字段();
+		Test_O4_Prefab实例化与Override();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)

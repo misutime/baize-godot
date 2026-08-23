@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // MovementSystems.cs —— 对所有具备位置与速度事实的实体执行同一数据变换
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 
 namespace Shooter.Gameplay;

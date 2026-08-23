@@ -1,5 +1,5 @@
-﻿// SPDX-License-Identifier: MIT
-// EcsWorld.cs —— baize-godot EcsWorld 框架核心（P2.1）
+// SPDX-License-Identifier: MIT
+// EcsWorld.cs —— sola3d-godot EcsWorld 框架核心（P2.1）
 //
 // 面向游戏开发者的 ECS 框架层：封装世界生命周期与作者层入口，
 // 提供固定 Tick / 输入 / Command / 实体安全 / 系统调度（按 Phase）/ 重置。
@@ -11,7 +11,7 @@ using System.Collections.Generic;
 using Friflo.Engine.ECS;
 using Friflo.Engine.ECS.Systems;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>
 /// EcsWorld —— 游戏世界的框架层容器。

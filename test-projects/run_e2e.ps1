@@ -1,5 +1,5 @@
-﻿# SPDX-License-Identifier: MIT
-# run_e2e.ps1 —— baize-godot P1.5 headless e2e 测试基座
+# SPDX-License-Identifier: MIT
+# run_e2e.ps1 —— sola3d-godot P1.5 headless e2e 测试基座
 #
 # 验证 All-in C# 最小闭环（退出条件 ①③⑥⑤）：
 #   ① 项目有 C# 工程（csproj + slnx）
@@ -33,7 +33,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 # 写日志前确保 .tmp 存在（全新 checkout 无此目录）
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
-Write-Host "=== baize-godot e2e: $Project ==="
+Write-Host "=== sola3d-godot e2e: $Project ==="
 Write-Host "项目目录: $projDir"
 
 # ① 工程文件存在（csproj + 解决方案 .slnx 或 .sln——新项目默认 slnx，历史项目可能 .sln）

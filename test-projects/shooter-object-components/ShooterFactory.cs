@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShooterFactory.cs —— O2 对象工厂（B1 Required Components：创建即带全套组件，零样板）
 
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace Shooter.Objects;
 

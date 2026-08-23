@@ -1,15 +1,18 @@
-﻿<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: MIT -->
 <Project Sdk="Godot.NET.Sdk/4.8.0-dev">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RootNamespace>Baize.GodotSlice</RootNamespace>
+    <RootNamespace>Sola3d.GodotSlice</RootNamespace>
     <AssemblyName>godot-slice</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\modules\ecs\Baize.Ecs.csproj" />
+<ProjectReference Include="..\..\modules\ecs\Sola3d.Ecs.csproj" />
+    <ProjectReference Include="..\..\modules\mainloop\Sola3d.MainLoop.csproj" />
+<ProjectReference Include="..\..\modules\gameobject\Sola3d.GameObject.csproj" />
+    <ProjectReference Include="..\..\modules\editor\Sola3d.Editor.csproj" />
     <ProjectReference Include="..\shooter-gameplay\Shooter.Gameplay.csproj" />
   </ItemGroup>
 </Project>

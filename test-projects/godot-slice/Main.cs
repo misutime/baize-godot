@@ -3,12 +3,32 @@
 
 using Godot;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 public partial class Main : Node3D
 {
 	public override void _Ready()
 	{
+		if (IsPreviewMode())
+		{
+			// O7.5：隔离 ECS slice 内容，只显示我们的 GameObject+Component cube（经 Gateway 渲染）。
+			// O7.5：隔离 ECS slice 内容，只显示我们的 GameObject+Component cube（经 Gateway 渲染）。
+			if (GetNodeOrNull<Node>("EcsHost") is Node ecsHost)
+			{
+				ecsHost.ProcessMode = ProcessModeEnum.Disabled;
+			}
+			if (GetNodeOrNull<Node3D>("Presentation") is Node3D pres)
+			{
+				pres.Visible = false;
+			}
+			if (GetNodeOrNull<Node3D>("GridGround") is Node3D grid)
+			{
+				grid.Visible = false;
+			}
+			var demo = new DemoPreview();
+			AddChild(demo);
+			return;
+		}
 		if (!IsE2eMode())
 		{
 			GD.Print("godot-slice: P2.3 Godot vertical slice 已启动");
@@ -39,6 +59,15 @@ public partial class Main : Node3D
 		foreach (string argument in OS.GetCmdlineUserArgs())
 		{
 			if (argument == "--e2e") return true;
+		}
+		return false;
+	}
+
+	private static bool IsPreviewMode()
+	{
+		foreach (string argument in OS.GetCmdlineUserArgs())
+		{
+			if (argument == "--preview3d") return true;
 		}
 		return false;
 	}

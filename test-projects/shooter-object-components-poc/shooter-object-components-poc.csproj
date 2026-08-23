@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
@@ -8,7 +8,7 @@
     <AssemblyName>shooter-object-components-poc</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\modules\gameobject\Baize.GameObject.csproj" />
+    <ProjectReference Include="..\..\modules\gameobject\Sola3d.GameObject.csproj" />
     <ProjectReference Include="..\shooter-object-components\Shooter.Objects.csproj" />
   </ItemGroup>
 </Project>

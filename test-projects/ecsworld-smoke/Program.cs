@@ -4,7 +4,7 @@
 // 验证 EcsWorld 核心能力：创建世界 / 组件 / 系统 / Step / CommandBuffer / Reset。
 
 using System;
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 using Friflo.Engine.ECS.Systems;
 

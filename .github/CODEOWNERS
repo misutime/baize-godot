@@ -298,7 +298,7 @@
 SConstruct                                    @godotengine/buildsystem
 SCsub                                         @godotengine/buildsystem
 
-# baize-godot fork（All-in C#）自定义
+# sola3d-godot fork（All-in C#）自定义
 
 /test-projects/                                @misutime
 /thirdparty/Friflo.Engine.ECS/                 @misutime

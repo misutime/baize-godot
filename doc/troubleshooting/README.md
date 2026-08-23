@@ -1,8 +1,51 @@
-# baize-godot 排障记录（Troubleshooting）
+# sola3d-godot 排障记录（Troubleshooting）
 
-> 本文件是 baize-godot fork 的**故障排查积累**，按时间倒序追加。
+> 本文件是 sola3d-godot fork 的**故障排查积累**，按时间倒序追加。
 > 每条：现象 → 排查 → 根因 → 修复 → 验证。持续积累，方便以后快速定位同类问题。
 > 原则：每次解决一个真问题，把"排查思路 + 根因 + 修复"记下来，不重复踩坑。
+
+---
+
+## 2026-08-23：RenderingServer 手动 mesh instance 不渲染（场景节点正常，两渲染器都黑）
+
+### 现象
+`godot-slice --preview3d`（O7.5 最小可展示切片）：`RenderingServer` 手动创建的 mesh instance
+（`MeshCreate` + `MeshAddSurfaceFromArrays` + `InstanceCreate2`）不渲染——窗口全黑；
+但**场景节点 `MeshInstance3D`（BoxMesh/ArrayMesh）正常可见**。gl_compatibility 和 forward_plus 都如此，
+形成"对照可见、手动不可见"的迷惑现象。
+
+### 排查链
+1. **先排除基本配置**：日志确认 `mesh=1 instance=1 surface=1 scenario=valid camera current=true`；
+   scenario 与场景节点相同（RID 一致）；`MeshGetSurfaceCount`=1（surface 已建）；
+2. **camera 怀疑**：`Camera3D` + `MakeCurrent()` 后 `GetCamera3D()==cam` 为 true——排除；对照 cube 可见证明 camera/pipeline 正常；
+3. **AABB/frustum culling 怀疑**：手动 instance 无 AABB → `InstanceSetIgnoreCulling(true)`——无效；
+4. **scenario/base 怀疑**：显式 `InstanceSetBase` + `InstanceSetScenario`——无效；
+5. **渲染器怀疑**：gl_compatibility → forward_plus（Vulkan）——仍不可见（对照正常）；
+6. **截图像素分析**（headless 截图 `GetViewport().GetTexture().GetImage()` + System.Drawing 采样）：
+   绿色对照 cube 有大面积像素，手动 instance 区域 0 像素——坐实"手动实例确实没被绘制"；
+7. **shifu 专家诊断**：`MaterialCreate()` 是**空材质容器**；`MaterialSetParam("shading_mode", 0)`
+   是高层 StandardMaterial3D 属性，对底层空材质无效 → surface 无有效材质路径 → 不渲染。
+
+### 根因
+- **手动 RenderingServer mesh 必须绑定真实 shader 材质**：`ShaderCreate` → `ShaderSetCode(spatial shader)` →
+  `MaterialCreate` → `MaterialSetShader` → `MeshSurfaceSetMaterial(mesh, 0, material)`。
+  `MaterialCreate()` 只是空容器，不绑定 shader 就没有渲染路径。
+- **次要**:重构时 `MeshAddSurfaceFromArrays` 调用被误删 → Forward+ (RendererRD) 下
+  `MeshSurfaceSetMaterial` 报 `Index out of bounds (surface_count=0)`——先打印计数再设材质可定位。
+
+### 修复
+```csharp
+var shader = RenderingServer.ShaderCreate();
+RenderingServer.ShaderSetCode(shader, "shader_type spatial; render_mode unshaded; void fragment() { ALBEDO = vec3(0.0,1.0,1.0); }");
+var material = RenderingServer.MaterialCreate();
+RenderingServer.MaterialSetShader(material, shader);
+RenderingServer.MeshSurfaceSetMaterial(mesh, 0, material);
+```
+（详见 `O7.5-最小可展示切片.md` §5「关键坑」；`GodotRenderGateway` 已含 `Dispose()` 释放 RID。）
+
+### 验证
+- 截图像素分析：手动 instance（青色）中心 10870 px + ArrayMesh 对照（红色）右侧可见；
+- 日志零错误（仅 Vulkan 退出无害告警）；全量回归 242+18+11+14+O2 全绿。
 
 ---
 
@@ -13,7 +56,7 @@
 `Godot.NET.Sdk/4.8.0-dev/Sdk/Sdk.props(40)` 无法解析 `Microsoft.NET.Sdk`；无 `ProjectReference` 的 `p15-check` 曾能通过。
 
 ### 根因
-失败发生在根项目导入 `Microsoft.NET.Sdk` 时，早于 `ProjectReference` 图求值，因此与 Baize.Ecs、Shooter.Gameplay、
+失败发生在根项目导入 `Microsoft.NET.Sdk` 时，早于 `ProjectReference` 图求值，因此与 Sola3d.Ecs、Shooter.Gameplay、
 `GodotFloat64` 和 net11 项目引用无关。失败编辑器进程中的 `MSBuildSDKsPath` 与 `MSBUILD_EXE_PATH`
 分别缺少目录分隔符（如 `...26381.103Sdks`）；GodotTools 启动 `dotnet` 子进程时原样继承了这些为进程内
 MSBuild 项目求值设置的变量，覆盖了 dotnet CLI 自身的 SDK 定位。

@@ -1,4 +1,4 @@
-# macOS 3D 开发基线 (baize-godot All-in C#)。
+# macOS 3D 开发基线 (sola3d-godot All-in C#)。
 # 用法：
 #   scons profile=misc/customization/scons-profiles/macos_3d_dev.py -j8
 

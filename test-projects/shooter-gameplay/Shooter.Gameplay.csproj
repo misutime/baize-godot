@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -7,8 +7,8 @@
     <AssemblyName>Shooter.Gameplay</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\modules\ecs\Baize.Ecs.csproj" />
-    <ProjectReference Include="..\..\modules\ecs-generator\Baize.Ecs.Generator.csproj"
+    <ProjectReference Include="..\..\modules\ecs\Sola3d.Ecs.csproj" />
+    <ProjectReference Include="..\..\modules\ecs-generator\Sola3d.Ecs.Generator.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\thirdparty\Friflo.Engine.ECS.Generator\Friflo.Engine.ECS.Generator.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />

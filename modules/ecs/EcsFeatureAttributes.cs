@@ -7,7 +7,7 @@
 
 using System;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>标记一个 partial Feature 类：其 Install 方法由源生成器产出。</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]

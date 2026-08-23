@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // InputAdapter.cs —— Godot InputMap 到纯数据 InputFrame 的唯一翻译边界
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Godot;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 public partial class InputAdapter : Node
 {

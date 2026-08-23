@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SpawningSystems.cs —— 生成规则只读配置，节拍写入独立运行状态
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

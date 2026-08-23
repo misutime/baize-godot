@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// InputFrame.cs —— baize-godot EcsWorld 输入帧（P2.1）
+// InputFrame.cs —— sola3d-godot EcsWorld 输入帧（P2.1）
 //
 // 不可变输入帧：Godot Input → InputAdapter → InputFrame → EcsWorld.Step。
 // 回放/测试直接注入 InputFrame（不依赖 Godot.Input）。
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>
 /// 一帧的输入（不可变，回放/测试可注入）。

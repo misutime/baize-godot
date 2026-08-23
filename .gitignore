@@ -102,7 +102,7 @@ platform/android/java/*/libs/
 *.bc
 platform/web/node_modules/
 
-# baize-godot（fork）：临时日志统一放 .tmp/（验证/排障输出，不入库）
+# sola3d-godot（fork）：临时日志统一放 .tmp/（验证/排障输出，不入库）
 .tmp/
 
 # Misc

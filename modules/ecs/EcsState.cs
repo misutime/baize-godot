@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>非泛型状态标记，供 System 声明运行条件与获取状态资源。</summary>
 public interface IEcsState

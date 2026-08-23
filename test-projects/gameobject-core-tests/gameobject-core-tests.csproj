@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
@@ -8,6 +8,6 @@
     <AssemblyName>gameobject-core-tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\modules\gameobject\Baize.GameObject.csproj" />
+    <ProjectReference Include="..\..\modules\gameobject\Sola3d.GameObject.csproj" />
   </ItemGroup>
 </Project>

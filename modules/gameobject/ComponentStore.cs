@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>组件容器：单实例快速路径 + 多实例列表 + 插入序遍历。内部使用。</summary>
 public sealed class ComponentStore

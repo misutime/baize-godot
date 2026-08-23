@@ -2,7 +2,7 @@
 // EnemySystems.cs —— 寻敌能力与接触规则；没有 EnemyAI 大杂烩组件
 
 using System;
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 
 namespace Shooter.Gameplay;

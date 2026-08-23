@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 // GameWorld.cs —— 纯运行时世界（O1，方案 §4.6/§14.5 / 契约全篇）
 //
-// 纯 .NET、可测试、可服务器复用；不连接 Node、不连接编辑器（O5 才做 BaizeMainLoop/Host）。
+// 纯 .NET、可测试、可服务器复用；不连接 Node、不连接编辑器（O5 才做 Sola3dMainLoop/Host）。
 // 职责：对象 registry（ObjectId 槽位 + Generation）、层级、关系、组件生命周期调度、
 //       variable/fixed tick、删除（同步，契约 §5）、Resources 端口。
 
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>纯运行时游戏世界（Headless GameObject Kernel）。
 /// <para><b>粒度</b>：一个 <c>GameWorld</c> 代表<b>一场对局 / 一个关卡</b>的可运行模拟容器——
@@ -288,7 +288,7 @@ public sealed class GameWorld
 			// reviewer P1（第二轮）：依赖校验需同时覆盖单实例与多实例容器（ContainsType）。
 			if (!store.ContainsType(requireType))
 			{
-				throw new InvalidOperationException($"添加 {schema.TypeName} 缺少必需依赖组件 {requireType.Name}（契约 §2）。");
+				throw new InvalidOperationException($"对象 {obj} 添加 {schema.TypeName} 缺少必需依赖组件 {requireType.Name}（契约 §2）。");
 			}
 		}
 

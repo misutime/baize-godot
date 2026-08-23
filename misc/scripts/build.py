@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform scons build wrapper for baize-godot.
+"""Cross-platform scons build wrapper for sola3d-godot.
 
 Replaces build-windows.ps1 and build-macos.sh.
 Usage:
@@ -45,7 +45,7 @@ def detect_platform() -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Godot engine (baize).")
+    parser = argparse.ArgumentParser(description="Build Godot engine (Sola3d).")
     parser.add_argument("--preset", "-p", choices=["dev", "pro"], default="dev")
     parser.add_argument("--jobs", "-j", type=int, default=8)
     args, extra = parser.parse_known_args()

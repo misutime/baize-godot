@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sola3d.Editor</RootNamespace>
+    <AssemblyName>Sola3d.Editor</AssemblyName>
+    <!-- O7 硬门禁：纯 .NET 编辑器核心，零 Godot 依赖（Design World 侧数据编辑）。
+         唯一引用：Sola3d.GameObject（快照/序列化/组件 Schema）。headless 可测。 -->
+  </PropertyGroup>
+  <ItemGroup>
+<ProjectReference Include="..\gameobject\Sola3d.GameObject.csproj" />
+<ProjectReference Include="..\mainloop\Sola3d.MainLoop.csproj" />
+  </ItemGroup>
+</Project>

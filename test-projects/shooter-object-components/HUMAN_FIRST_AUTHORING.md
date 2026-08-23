@@ -12,7 +12,7 @@
 
 本项目沿用既定命名：
 
-- `GameObject`（`Baize.GameObject`）保存一个对象（一组组件的 Id + 生命周期）；`GameWorld` 保存一局世界（组件 + 规则 + 资源）；
+- `GameObject`（`Sola3d.GameObject`）保存一个对象（一组组件的 Id + 生命周期）；`GameWorld` 保存一局世界（组件 + 规则 + 资源）；
 - `GameComponent` 是挂在对象上的小块能力/数据；`GameWorld.Tick` 每帧驱动所有组件的 `OnTick`；
 - `ComponentSchema` 用 `[GameComponent]` 与 `[GameComponent(Requires = ...)]` 声明「这个组件需要哪些其它组件」，创建时校验；
 - `[GameProperty]` 标记会被确定性序列化的字段；
@@ -23,7 +23,7 @@
 
 ## 0. 这份设计站在哪
 
-`shooter-object-components`（共享库）与 `shooter-object-components-poc`（验收程序）都只引用 `modules/gameobject/`（O1 纯 .NET 内核）。**零 Godot、零 Node、零 Friflo/Baize.Ecs**——玩法层不依赖引擎，也不依赖任何 ECS 框架。这是 O1 的硬门禁：Gameplay 侧调不到引擎 API。
+`shooter-object-components`（共享库）与 `shooter-object-components-poc`（验收程序）都只引用 `modules/gameobject/`（O1 纯 .NET 内核）。**零 Godot、零 Node、零 Friflo/Sola3d.Ecs**——玩法层不依赖引擎，也不依赖任何 ECS 框架。这是 O1 的硬门禁：Gameplay 侧调不到引擎 API。
 
 游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 17 项断言把关。
 
@@ -447,6 +447,6 @@ Bevy/Friflo 里 `Component` 是**纯数据 struct**（位置/血量），行为�
 - [ ] 创建长链是否已经提取为 `ShooterFactory`？世界装配是否只从一个 `ShooterGame.Install` 进入？
 - [ ] 测试安排是否和游戏装配分开？
 - [ ] 新开发者能否先读 `ShooterGame.Install` + `ShooterGame.RunFrame`，再按文件逐层深入？
-- [ ] 是否零 Godot/Node/Friflo/Baize.Ecs 引用（只 `using Baize.GameObject`）？
+- [ ] 是否零 Godot/Node/Friflo/Sola3d.Ecs 引用（只 `using Sola3d.GameObject`）？
 
 如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，组件先于类型，因果先于样板。

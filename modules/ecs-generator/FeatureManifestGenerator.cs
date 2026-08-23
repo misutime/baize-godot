@@ -12,21 +12,21 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
-namespace Baize.Ecs.Generator;
+namespace Sola3d.Ecs.Generator;
 
 [Generator(LanguageNames.CSharp)]
 public sealed class FeatureManifestGenerator : IIncrementalGenerator
 {
-	private const string FeatureAttributeMetadataName = "Baize.Ecs.EcsFeatureAttribute";
-	private const string AddSystemAttributeMetadataName = "Baize.Ecs.AddSystemAttribute`1";
-	private const string AddFeatureAttributeMetadataName = "Baize.Ecs.AddFeatureAttribute`1";
-	private const string FeatureInterfaceMetadataName = "Baize.Ecs.IEcsFeature";
-	private const string WorldMetadataName = "Baize.Ecs.EcsWorld";
-	private const string PhaseMetadataName = "Baize.Ecs.Phase";
-	private const string Category = "Baize.Ecs.Generator";
+	private const string FeatureAttributeMetadataName = "Sola3d.Ecs.EcsFeatureAttribute";
+	private const string AddSystemAttributeMetadataName = "Sola3d.Ecs.AddSystemAttribute`1";
+	private const string AddFeatureAttributeMetadataName = "Sola3d.Ecs.AddFeatureAttribute`1";
+	private const string FeatureInterfaceMetadataName = "Sola3d.Ecs.IEcsFeature";
+	private const string WorldMetadataName = "Sola3d.Ecs.EcsWorld";
+	private const string PhaseMetadataName = "Sola3d.Ecs.Phase";
+	private const string Category = "Sola3d.Ecs.Generator";
 
 	private static readonly DiagnosticDescriptor InvalidFeatureDeclaration = new(
-		"BAIZEECSGEN001",
+		"SOLA3DECSGEN001",
 		"Feature 声明不受支持",
 		"Feature '{0}' 必须是非 static、非 generic、单一源码声明的 partial class；包含类型也必须是非 generic partial class",
 		Category,
@@ -34,15 +34,15 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor MissingFeatureInterface = new(
-		"BAIZEECSGEN002",
+		"SOLA3DECSGEN002",
 		"Feature 未实现 IEcsFeature",
-		"Feature '{0}' 必须实现 global::Baize.Ecs.IEcsFeature",
+		"Feature '{0}' 必须实现 global::Sola3d.Ecs.IEcsFeature",
 		Category,
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor ExistingInstallMethod = new(
-		"BAIZEECSGEN003",
+		"SOLA3DECSGEN003",
 		"Feature 已有 Install 方法",
 		"Feature '{0}' 已声明 Install；源生成器只做 additive generation，请删除手写 Install 后再迁移",
 		Category,
@@ -50,15 +50,15 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor InvalidSystemType = new(
-		"BAIZEECSGEN004",
+		"SOLA3DECSGEN004",
 		"System 类型不受支持",
-		"Feature '{0}' 声明的 System '{1}' 必须是非 abstract、闭合且继承 Baize.Ecs.EcsSystem 家族的 class",
+		"Feature '{0}' 声明的 System '{1}' 必须是非 abstract、闭合且继承 Sola3d.Ecs.EcsSystem 家族的 class",
 		Category,
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor InaccessibleSystemType = new(
-		"BAIZEECSGEN005",
+		"SOLA3DECSGEN005",
 		"System 类型不可访问",
 		"System '{0}' 不可从 Feature '{1}' 的生成代码访问",
 		Category,
@@ -66,7 +66,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor MissingSystemConstructor = new(
-		"BAIZEECSGEN006",
+		"SOLA3DECSGEN006",
 		"System 缺少可访问的无参构造器",
 		"System '{0}' 必须提供可从 Feature '{1}' 访问的无参构造器",
 		Category,
@@ -74,15 +74,15 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor InvalidPhase = new(
-		"BAIZEECSGEN007",
+		"SOLA3DECSGEN007",
 		"Phase 值无效",
-		"Feature '{0}' 为 System '{1}' 声明的 Phase 值 '{2}' 不是已定义的 Baize.Ecs.Phase 成员",
+		"Feature '{0}' 为 System '{1}' 声明的 Phase 值 '{2}' 不是已定义的 Sola3d.Ecs.Phase 成员",
 		Category,
 		DiagnosticSeverity.Error,
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor InvalidChildFeature = new(
-		"BAIZEECSGEN008",
+		"SOLA3DECSGEN008",
 		"子 Feature 类型不受支持",
 		"Feature '{0}' 声明的子 Feature '{1}' 必须是非 abstract、闭合、实现 IEcsFeature 的 class",
 		Category,
@@ -90,7 +90,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor InaccessibleChildFeature = new(
-		"BAIZEECSGEN009",
+		"SOLA3DECSGEN009",
 		"子 Feature 类型不可访问",
 		"子 Feature '{0}' 不可从 Feature '{1}' 的生成代码访问",
 		Category,
@@ -98,7 +98,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor MissingChildFeatureConstructor = new(
-		"BAIZEECSGEN010",
+		"SOLA3DECSGEN010",
 		"子 Feature 缺少可访问的无参构造器",
 		"子 Feature '{0}' 必须提供可从 Feature '{1}' 访问的无参构造器",
 		Category,
@@ -106,7 +106,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		isEnabledByDefault: true);
 
 	private static readonly DiagnosticDescriptor CyclicFeatureDependency = new(
-		"BAIZEECSGEN011",
+		"SOLA3DECSGEN011",
 		"Feature 依赖存在环",
 		"同程序集 Feature 依赖存在环：{0}",
 		Category,
@@ -445,7 +445,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		var builder = ImmutableArray.CreateBuilder<INamedTypeSymbol>();
 		for (int arity = 0; arity <= 5; arity++)
 		{
-			string metadataName = arity == 0 ? "Baize.Ecs.EcsSystem" : $"Baize.Ecs.EcsSystem`{arity}";
+			string metadataName = arity == 0 ? "Sola3d.Ecs.EcsSystem" : $"Sola3d.Ecs.EcsSystem`{arity}";
 			INamedTypeSymbol? symbol = compilation.GetTypeByMetadataName(metadataName);
 			if (symbol is not null)
 			{
@@ -595,7 +595,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 		AppendIndent(builder, indent);
 		builder.AppendLine("/// <summary>按集中式 Feature manifest 的词法顺序安装。</summary>");
 		AppendIndent(builder, indent);
-		builder.AppendLine("public void Install(global::Baize.Ecs.EcsWorld world)");
+		builder.AppendLine("public void Install(global::Sola3d.Ecs.EcsWorld world)");
 		AppendIndent(builder, indent);
 		builder.AppendLine("{");
 		indent++;
@@ -609,7 +609,7 @@ public sealed class FeatureManifestGenerator : IIncrementalGenerator
 				builder.Append("// ").Append(index + 1).Append(". System: ")
 					.Append(Display(action.Type)).Append(" | Phase: ").Append(action.PhaseName).AppendLine();
 				AppendIndent(builder, indent);
-				builder.Append("world.AddSystem(new ").Append(Display(action.Type)).Append("(), global::Baize.Ecs.Phase.")
+				builder.Append("world.AddSystem(new ").Append(Display(action.Type)).Append("(), global::Sola3d.Ecs.Phase.")
 					.Append(action.PhaseName).AppendLine(");");
 			}
 			else

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // PlayerSystems.cs —— 把输入事实翻译成玩家可控实体的速度
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 
 namespace Shooter.Gameplay;

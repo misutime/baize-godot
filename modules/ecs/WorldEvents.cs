@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// WorldEvents.cs —— baize-godot EcsWorld 事件（P2.1，借鉴 Bevy EventWriter/EventReader）
+// WorldEvents.cs —— sola3d-godot EcsWorld 事件（P2.1，借鉴 Bevy EventWriter/EventReader）
 //
 // 系统间通信用纯数据事件（替代 Action 回调——S1-2 反思）：
 // 写事件（EventWriter）与读事件（EventReader）显式分离。
@@ -10,7 +10,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>
 /// 世界事件总线：EventWriter 写入，EventReader 读取，Tick 切换时 Flush。
