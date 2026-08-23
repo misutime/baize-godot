@@ -5,15 +5,6 @@ using System.Collections.Generic;
 using Baize.GameObject;
 namespace Shooter.Objects;
 
-/// <summary>运动规划阶段：Step 在 Tick 前按此顺序让各控制器提交本帧运动计划。
-/// 顺序即游戏语义（玩家先规划，敌人据玩家本帧终点规划，子弹提交自身线段），
-/// 只用于编排，不构成全局排程器。</summary>
-public enum PlanPhase
-{
-	PlayerInput,
-	Enemy,
-	Projectile,
-}
 
 /// <summary>世界辅助（纯静态功能，不持有状态）。</summary>
 public static class ShooterWorldHelper

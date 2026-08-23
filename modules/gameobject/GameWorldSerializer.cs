@@ -5,7 +5,7 @@
 // - 对象遍历序：Roots 深度优先（父先子后）⇔ 快照索引稳定；Parent 用快照索引表达。
 // - 属性序：Schema SerializedProperties（[GameProperty]，声明序稳定）。
 // - hash：FNV-1a 64，顺序敏感；值用 InvariantCulture 规范字符串。
-// - 不含运行时 EntityId：两个内容相同的世界 hash 相同（确定性验证口径）。
+// - 不含运行时 ObjectId：两个内容相同的世界 hash 相同（确定性验证口径）。
 
 using System;
 using System.Collections.Generic;
@@ -27,11 +27,11 @@ public sealed class GameObjectRecord
 	public int ParentIndex = -1;
 
 	/// <summary>组件记录（插入序）。</summary>
-	public List<ComponentRecord> Components = new();
+	public List<GameComponentRecord> Components = new();
 }
 
 /// <summary>组件快照记录。</summary>
-public sealed class ComponentRecord
+public sealed class GameComponentRecord
 {
 	/// <summary>稳定类型名。</summary>
 	public string TypeName = string.Empty;
@@ -90,7 +90,7 @@ public static class GameWorldSerializer
 			var schemaCache = new Dictionary<Type, ComponentSchema>();
 			foreach (var comp in world.GetComponentList(obj))
 			{
-				var compRecord = new ComponentRecord
+				var compRecord = new GameComponentRecord
 				{
 					// 稳定全限定名（reviewer P1：与 Schema 注册键一致，防跨命名空间同名冲突）
 					TypeName = world.Schemas.Get(comp.GetType()).TypeName,

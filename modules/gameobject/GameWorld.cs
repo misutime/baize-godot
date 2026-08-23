@@ -2,7 +2,7 @@
 // GameWorld.cs —— 纯运行时世界（O1，方案 §4.6/§14.5 / 契约全篇）
 //
 // 纯 .NET、可测试、可服务器复用；不连接 Node、不连接编辑器（O5 才做 BaizeMainLoop/Host）。
-// 职责：对象 registry（EntityId 槽位 + Generation）、层级、关系、组件生命周期调度、
+// 职责：对象 registry（ObjectId 槽位 + Generation）、层级、关系、组件生命周期调度、
 //       variable/fixed tick、删除（同步，契约 §5）、Resources 端口。
 
 using System;
@@ -104,7 +104,7 @@ public sealed class GameWorld
 	public GameObject CreateGameObject(string name = "")
 	{
 		int index = AllocateIndex();
-		var id = new EntityId(index, _generations[index]);
+		var id = new ObjectId(index, _generations[index]);
 		var obj = new GameObject(this, id, name)
 		{
 			CreationIndex = ++_creationCounter,
@@ -174,7 +174,7 @@ public sealed class GameWorld
 	}
 
 	/// <summary>身份是否存活（Index 槽位有效且 Generation 匹配，契约 §6）。</summary>
-	public bool IsAlive(EntityId id)
+	public bool IsAlive(ObjectId id)
 	{
 		if (!id.IsValid || id.Index >= _slots.Count)
 		{
@@ -185,7 +185,7 @@ public sealed class GameWorld
 	}
 
 	/// <summary>按身份取对象（已销毁/无效返回 null，读安全）。</summary>
-	public GameObject? GetObject(EntityId id)
+	public GameObject? GetObject(ObjectId id)
 	{
 		if (!IsAlive(id))
 		{

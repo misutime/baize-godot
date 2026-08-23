@@ -171,7 +171,7 @@ private sealed class TargetRelation : GameRelation
 		Check("销毁：GetObject=null", world.GetObject(id) == null);
 	}
 
-	private static void Test_EntityId_Generation防复用()
+	private static void Test_ObjectId_Generation防复用()
 	{
 		var world = new GameWorld();
 		var a = world.CreateGameObject("A");
@@ -879,7 +879,7 @@ private sealed class TargetRelation : GameRelation
 		Console.WriteLine("gameobject-core-tests —— O1 GameObject 内核语义契约验证\n");
 
 		Test_创建与销毁();
-		Test_EntityId_Generation防复用();
+		Test_ObjectId_Generation防复用();
 		Test_组件添加查询移除();
 		Test_多实例与依赖();
 		Test_生命周期顺序();

@@ -2,7 +2,7 @@
 // RelationGraph.cs —— 对象关系图（O1，方案 §4.5/§14.1 / 契约 §9）
 //
 // Relation 是非父子语义关系（Target/Owner/TeamMember/Equipped/...）。
-// - Source/Target 均存 EntityId（身份安全，随销毁同步清理）。
+// - Source/Target 均存 ObjectId（身份安全，随销毁同步清理）。
 // - 双向索引（outgoing/incoming）；任一端点销毁自动移除该对象全部关系。
 // - 不做同级单例限制（同类型多关系允许）；查询返回插入序。
 // - 类型注册表：Add&lt;T&gt; 自动注册；Restore 依赖注册表（确定性，不反射扫描）。
@@ -11,6 +11,17 @@ using System;
 using System.Collections.Generic;
 
 namespace Baize.GameObject;
+/// <summary>关系（Relation）—— 非父子语义关系，一等数据（方案 §4.5/契约 §9）。</summary>
+public abstract class GameRelation
+{
+	/// <summary>源对象身份。</summary>
+	public ObjectId Source { get; internal set; }
+	/// <summary>目标对象身份。</summary>
+	public ObjectId Target { get; internal set; }
+
+	/// <summary>关系类型（人类可读，调试用）。</summary>
+	public virtual string RelationName => GetType().Name;
+}
 
 /// <summary>关系图：source/target 双向索引。世界内单例，绑定所属 GameWorld（拒跨世界端点）。</summary>
 public sealed class RelationGraph
@@ -18,8 +29,8 @@ public sealed class RelationGraph
 	private readonly GameWorld _world;
 
 	internal RelationGraph(GameWorld world) => _world = world;
-	private readonly Dictionary<EntityId, List<GameRelation>> _outgoing = new();
-	private readonly Dictionary<EntityId, List<GameRelation>> _incoming = new();
+	private readonly Dictionary<ObjectId, List<GameRelation>> _outgoing = new();
+	private readonly Dictionary<ObjectId, List<GameRelation>> _incoming = new();
 	private readonly List<GameRelation> _order = new();
 	private readonly Dictionary<string, Func<GameRelation>> _typeFactories = new();
 
@@ -67,7 +78,7 @@ public sealed class RelationGraph
 	internal static string StableTypeKey(Type type) => type.FullName ?? type.Name;
 
 	/// <summary>按类型名创建关系并登记（Restore 用；未注册抛异常）。</summary>
-	internal GameRelation RestoreTyped(string typeName, EntityId sourceId, EntityId targetId)
+	internal GameRelation RestoreTyped(string typeName, ObjectId sourceId, ObjectId targetId)
 	{
 		if (!_typeFactories.TryGetValue(typeName, out var factory))
 		{
@@ -98,7 +109,7 @@ public sealed class RelationGraph
 		return relation;
 	}
 
-	internal void AddCore(GameRelation relation, EntityId sourceId, EntityId targetId)
+	internal void AddCore(GameRelation relation, ObjectId sourceId, ObjectId targetId)
 	{
 		if (!_outgoing.TryGetValue(sourceId, out var outList))
 		{
@@ -192,7 +203,7 @@ public sealed class RelationGraph
 	}
 
 	/// <summary>移除对象全部进出关系（销毁时同步调用，契约 §9）。</summary>
-	internal void RemoveAll(EntityId id)
+	internal void RemoveAll(ObjectId id)
 	{
 		if (_outgoing.TryGetValue(id, out var outList))
 		{

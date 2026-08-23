@@ -136,15 +136,3 @@ public sealed class ObjectHierarchy
 	}
 }
 
-/// <summary>关系（Relation）—— 非父子语义关系，一等数据（方案 §1.1/§4.5/契约 §9）。</summary>
-public abstract class GameRelation
-{
-	/// <summary>源对象身份。</summary>
-	public EntityId Source { get; internal set; }
-
-	/// <summary>目标对象身份。</summary>
-	public EntityId Target { get; internal set; }
-
-	/// <summary>关系类型（人类可读，调试用）。</summary>
-	public virtual string RelationName => GetType().Name;
-}

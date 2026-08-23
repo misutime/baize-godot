@@ -380,7 +380,7 @@ Resources.cs
 | ECS | GameObject + Components |
 |---|---|
 | `Entity` | `GameObject` |
-| `IComponent` / `ITag` | `GameComponent`（`[GameComponent]` 数据组件 / 标记组件） |
+| `IComponent` / `ITag` | `GameComponent`（**Unity 式**：数据组件 / 行为组件（Action）/ 标记组件三种，见下方说明） |
 | `Resource` | `GameWorld` 资源（`AddResource` / `GetResource<T>()`） |
 | `System` | Action 组件（`OnTick` 规则；`PlanMotion` 控制器） |
 | `Bundle` | `ShooterFactory`（`SpawnXxx` 一行创建带全套组件） |
@@ -389,6 +389,15 @@ Resources.cs
 | `Event` | **无**（组件间直接调用，如 `enemy.Health.ApplyDamage`） |
 | 阶段/Phase | `RunFrame` 的规划阶段 + `world.Tick` |
 | （无直接对应物） | `MotionPlan`（本设计为「先全局移动，再碰撞」引入的唯一运动计划） |
+
+**⚠️ 一个关键区别：我们的 `GameComponent` 是 Unity 式（数据 + 行为共存），不是 Bevy 的纯数据 `Component`。**
+
+Bevy/Friflo 里 `Component` 是**纯数据 struct**（位置/血量），行为在**独立 `System`** 里。而我们 `GameComponent` 是**带生命周期的 C# 类**，可以同时承担：
+- **数据组件**（如 `Position`/`Health`/`MoveSpeed`，只存数据）；
+- **行为组件 / Action**（如 `MoveAction`/`BulletAction`，既有数据又有 `OnTick` 行为）；
+- **标记组件**（如 `PlayerFaction`/`EnemyFaction`，自动标，无数据）。
+
+这正对齐 **Unity 的 `MonoBehaviour` 模型**（数据 + 行为混合挂在对象上），而非 ECS 的"纯数据 Component + 独立 System"。作者创建时用 `[GameComponent]` 作数据/标记/行为标签，用 `AddComponent<T>()` 挂载；同一种 `GameComponent` 基类承载多种形态。如果你熟悉 Bevy，请把这里的 `Component` 理解成"对象上的一块"（数据或行为），而不是"纯数据字段"。
 
 两点**有意不同**：
 
