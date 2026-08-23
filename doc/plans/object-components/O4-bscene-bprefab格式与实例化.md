@@ -25,8 +25,8 @@
 
 | 层 | 载体 | 身份 | 引用 |
 |---|---|---|---|
-| O3 编码层 | `GameWorldSnapshot ↔ 文本` | 无 StableId（可空） | `#DFS序号`（运行时临时拓扑索引） |
-| O4 文件层 | `.bscene` / `.bprefab` | **StableId（`@<hex>`，稳定作者身份）** | `@id`（持久）/ `#序号`（本文件内快捷） |
+| O3 编码层 | `GameWorldSnapshot ↔ 文本` | 无 StableId（可空；Serialize 自动分配临时 uid） | `@uid`（唯一引用形态；无 # 序号） |
+| O4 文件层 | `.bscene` / `.bprefab` | **StableId（`@<hex>`，稳定作者身份）** | `@id`（持久，唯一形态） |
 
 - O3 层语义**不动**：DFS 前序校验、头部阶段化、strict token、幂等、hash 口径全部沿用。
 - O4 层 = O3 语法 + **对象级 StableId** + **prefab 引用行** + **override 区**。
@@ -34,13 +34,20 @@
 
 ## 3. StableId 双身份（文件层扩展）
 
-### 3.1 对象行扩展
+### 3.1 对象行（uid-only；无序号）
 
 ```text
 object @01a3c5e7 "Player" parent = @00b0b1          # 作者格式：@id 稳定引用
-object #3 "临时对象" parent = #2                     # 运行时格式：仍可用 # 序号（O3 兼容）
-object @5e "Cube" #4 parent = @01a3c5e7             # 混合：@id + #序号可并存（# 仅作 diff 参照）
+object "匿名对象"                                     # 无 @uid：不可被引用
+object @5e "Cube" parent = @01a3c5e7                # 物理顺序即索引（自上而下）
 ```
+
+- `@<hex16>`：`StableObjectId`（ulong 的 16 位 hex，`Identity.cs` 既有语义）；`@0`/缺省 = 无身份（匿名对象）。
+- **文件内 @id 必须唯一**（作者态身份）；重复 → 报错（带行号与重复值）。
+- `parent` 引用唯一形态：`parent = @<id>`（按 id 查映射）；**无 # 序号引用**（uid-only，用户裁定）。
+  **DFS 前序校验对引用一致**（解析成 ParentIndex 后共用祖先栈校验）。
+- `StableId` 写入 `GameObject.StableId`（O1 预留字段）；`StableObjectId` 参与
+  **快照记录**（`GameObjectRecord.StableId`，可空 0 = 无），但**不参与 hash**。
 
 - `@<hex16>`：`StableObjectId`（ulong 的 16 位 hex，`Identity.cs` 既有语义）；`@0`/缺省 = 无作者身份（运行时对象）。
 - **文件内 @id 必须唯一**（作者态身份）；重复 → 报错（带行号与重复值）。
@@ -49,18 +56,17 @@ object @5e "Cube" #4 parent = @01a3c5e7             # 混合：@id + #序号可�
 - `StableId` 写入 `GameObject.StableId`（O1 预留字段）；`StableObjectId` 参与
   **快照记录**（`GameObjectRecord.StableId` 新增，可空 0 = 无），但**不参与 hash**。
 
-### 3.2 关系行扩展
+### 3.2 关系行（@uid 端点）
 
 ```text
-relation MyGame.TargetRelation @01a3c5e7 -> #2       # 端点支持 @id 或 #序号（混用）
+relation MyGame.TargetRelation @01a3c5e7 -> @00b0b1
 ```
 
-- 端点解析同 3.1 映射；越界同 O3 报错。
-
+- 端点解析同 3.1 映射；未注册 @id → 报错。
 ### 3.3 编辑/合并语义（明确意图）
 
-- 重排对象 = 换行顺序，@id 引用**不受影响**（身份稳定）；`#序号` 引用重排后含义变化（运行时层特性，文件层建议用 @id 为主）。
-- 多人 merge 冲突按 @id 对齐，`#序号` 仅本文件内有效。
+- 重排对象 = 换行顺序（物理顺序改变），@id 引用**不受影响**（身份稳定）；**没有 # 序号概念**。
+- 多人 merge 冲突按 @id 对齐。
 
 ## 4. `.bprefab` 与实例化
 
@@ -103,13 +109,12 @@ object @f1 "敌人实例" prefab = "res://Enemy.bprefab" parent = @01a3c5e7
 [override]
     @f1 MyGame.Health.Max = 50
     @f1 MyGame.EnemyAI.Speed = 5.0
-    #7 MyGame.Health.Current = 10
+	@c3 MyGame.Health.Current = 10
 ```
 
 - 位置：文件尾部（`[override]` 标记行起），每条 = `<对象引用> <组件稳定名> <属性名> = <值 token>`。
-- 解析时机：实例化完成后、`Restore` 前，直接写入快照属性（覆盖模板/场景默认值）。
-- 引用对象：场景内任意对象（@id 或 #序号）。
-- **override 绝不用 # 定位持久说明**（O3 草案 §6.2 已定）；v1 支持 @id 为主，`#序号` 允许但仅本文件有效。
+	- 引用对象：场景内任意带 @uid 的对象。
+	- **override 一律用 @id 定位**（uid-only，O3 草案 §3.3/§6.2）；无 # 序号。
 - 未知组件/属性 → 走 R24（Throw/Skip，与 Deserialize/Restore 同链）。
 
 ## 5. Loader 链路
