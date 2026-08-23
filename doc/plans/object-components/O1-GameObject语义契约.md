@@ -2,7 +2,7 @@
 # O1 GameObject 语义契约 —— 纯 GameWorld 内核的实现规范
 
 > 方针文档：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§4/§14）
-> 阶段：O1（Headless GameObject Kernel，修订路线 §14.10：**GameObject 语义契约 + EntityId/RuntimeHandle + 纯 GameWorld**）
+> 阶段：O1（Headless GameObject Kernel，修订路线 §14.10：**GameObject 语义契约 + ObjectId/RuntimeHandle + 纯 GameWorld**）
 > 日期：2026-08-22
 > 约束：纯 .NET（net11）、不引用 Friflo/Baize.Ecs/Godot、不接触 Node、headless 可测、确定性。
 > 本文档回答 §14.8 的 10 个语义问题；**先定契约，再写代码**（§14.8：契约未定不前移）。
@@ -19,7 +19,7 @@ EditorPreviewHost         // 编辑器预览宿主（O7）
 ```
 
 - C# 类型名：`GameObject` / `GameWorld` / `GameComponent`；命名空间 `Baize.GameObject`；程序集 `Baize.GameObject`（模块 `modules/gameobject/`）。
-- 身份分层（§14.7）：`AuthoringObjectId`（.bscene/.bprefab 内稳定作者 ID，O4 用）与 `EntityId`（运行时身份 = Index + Generation，防 ID 复用）。`RuntimeGameObjectHandle` 即 `EntityId`。
+- 身份分层（§14.7）：`AuthoringObjectId`（.bscene/.bprefab 内稳定作者 ID，O4 用）与 `ObjectId`（运行时身份 = Index + Generation，防 ID 复用）。`RuntimeGameObjectHandle` 即 `ObjectId`。
 
 ## 1. Component 是否允许重复
 
@@ -72,7 +72,7 @@ Disable / 父链禁用 / Pause
 - `GameObject` 是托管引用：`Destroy` 后 `obj.IsDestroyed == true`、`world.IsAlive(id) == false`、`world.GetObject(id) == null`。
 - **读操作安全**：`GetComponent<T>()` 返回 `null`；`Enabled` 读取返回 false；不抛异常。
 - **结构操作拒绝**：对已销毁对象调用 `AddComponent/RemoveComponent/SetParent/Destroy` → `InvalidOperationException`（防静默误用）。
-- **EntityId 永不复活**：Index 槽位可复用但 Generation 递增，旧 `EntityId` 永不等同于新对象（§14.7 防"旧引用指到新对象"）。
+- **ObjectId 永不复活**：Index 槽位可复用但 Generation 递增，旧 `ObjectId` 永不等同于新对象（§14.7 防"旧引用指到新对象"）。
 
 ## 7. Parent/Children 承担什么
 
@@ -89,7 +89,7 @@ Disable / 父链禁用 / Pause
 
 ## 9. Relation 的序列化和清理
 
-- `GameRelation` 是一等数据：`Source`/`Target` 均存 `EntityId`（非裸引用，随身份安全）。
+- `GameRelation` 是一等数据：`Source`/`Target` 均存 `ObjectId`（非裸引用，随身份安全）。
 - `RelationGraph` 维护双向索引（outgoing/incoming）；`GameObject.Relations.Get<T>()` 便捷门面。
 - **任一端点销毁 → 自动移除该对象全部进出关系**（同步，随 Destroy 一起）。
 - Relation 数据进入 `GameWorldSnapshot`（见 §10），序列化/反序列化 round-trip 保真。
@@ -101,10 +101,10 @@ Disable / 父链禁用 / Pause
 - **Backend Observation**（O5/O6 详定）：Backend 只能通过显式 Port（Event/Command/Observation）回传；GameWorld 在 fixed tick 边界收集；Backend 永不隐式修改 Gameplay 状态（§14.6 权威矩阵）。O1 无 Backend，仅预留 `service` 端口。
 - 支持属性类型（O1 序列化白名单）：`int/float/double/bool/string` 及可空同族、`enum`（按底层值）、其他类型报错（防止隐性不确定序列化）。
 
-## 11. Services（§4.6 / §14.6 端口预留）
+## 11. Resources（§4.6 / §14.6 端口预留）
 
-- `world.AddService<T>(T)` / `world.GetService<T>()`：服务单例容器（输入帧、配置、后端端口等在 O2+ 挂入）。
-- Service 不属于任何 GameObject；销毁对象不影响 Service。
+- `world.AddResource<T>(T)` / `world.GetResource<T>()`：资源单例容器（输入帧、配置、后端端口等在 O2+ 挂入）。
+- Resource 不属于任何 GameObject；销毁对象不影响 Resource。
 
 ## 12. 本契约生效范围与验证
 
@@ -135,4 +135,4 @@ Disable / 父链禁用 / Pause
 | R18 | `Destroy` 阶段 2 **OnDisable/OnDestroy 分离捕获**：OnDisable 异常不吞同组件的 OnDestroy，两者均被尝试并聚合 | reviewer P1（第三轮） |
 | R19 | `Tick/FixedTick` 在 `EnsureStarted(OnStart)` **之后重新验证 Revision + IsTickable**：OnStart 内禁用/销毁/重挂自身则不再回调 | reviewer P1（第三轮） |
 | R20 | **社区借鉴决策**（对照 `doc/plans/object-components/社区对象模型对照与借鉴.md`）：B1 Required Components（O2 前）/*B2 DataContract 序列化对齐（O3）/*B3 prefab override 照 Unity（O4）/ 默认不借鉴 DOTS Archetype 存储与 EnTT 池布局（有意决策，非缺失） | 社区调研（Unity/Flecs/Bevy/EnTT/Stride/Wave/Defold） |
-| R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.SpawnTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `AuthoringId`（O1 契约） | O2 实施 + reviewer P1（第三轮） |
+| R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.CreatedAtTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `AuthoringId`（O1 契约） | O2 实施 + reviewer P1（第三轮） |
