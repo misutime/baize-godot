@@ -2,7 +2,7 @@
 // ObjectHierarchy.cs —— 对象层级（O1，契约 §7）
 //
 // Parent/Children 承担：场景组织、所有权、生命周期归属（销毁级联）、遍历；
-// 不承担空间继承（Transform 由 O6 TransformComponent/Backend 承担）。
+// 不承担空间继承（Transform 由 O6 TransformComponent/gateway 承担）。
 
 using System;
 using System.Collections.Generic;

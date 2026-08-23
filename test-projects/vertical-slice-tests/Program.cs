@@ -2,7 +2,7 @@
 // Program.cs —— vertical-slice-tests：O6 最小垂直切片验证（纯 .NET headless）
 //
 // 断言：① 数据组件生命周期（Add/Get/Remove）② 含 Vector3 属性组件往返（R27）③ SceneProjector
-// 从世界投影出 RenderCommand ④ backend 消费命令不反写 Gameplay（单向）。
+// 从世界投影出 RenderCommand ④ Gateway 消费命令不反写 Gameplay（单向）。
 
 using System;
 using System.Collections.Generic;
@@ -30,8 +30,8 @@ internal static class Program
 		}
 	}
 
-	/// <summary>渲染命令负载（Projector → Backend）。</summary>
-	private sealed record RenderCommand : BackendCommand
+	/// <summary>渲染命令负载（Projector → Gateway）。</summary>
+	private sealed record RenderCommand : GatewayCommand
 	{
 		public ObjectId ObjectId { get; init; }
 		public string MeshPath { get; init; } = "";
@@ -79,14 +79,14 @@ internal static class Program
 	}
 
 	/// <summary>headless 假渲染后端：记录收到的命令（验证投影流）。</summary>
-	private sealed class FakeRenderBackend : IRenderBackend
+	private sealed class FakeRenderGateway : IRenderGateway
 	{
 		public readonly List<RenderCommand> Received = new();
 
 		public void BeginFrame(float nowSeconds) { }
 		public void EndFrame(float nowSeconds) { }
 
-		public void Consume(IReadOnlyList<BackendCommand> commands)
+		public void Consume(IReadOnlyList<GatewayCommand> commands)
 		{
 			foreach (var c in commands)
 			{
@@ -145,21 +145,21 @@ internal static class Program
 		world.Schemas.Register<TransformComponent>();
 		world.Schemas.Register<MeshComponent>();
 		var loop = new Sola3dMainLoop(new Driver(world));
-		var render = new FakeRenderBackend();
-		loop.AddBackend(render);
+		var render = new FakeRenderGateway();
+		loop.AddGateway(render);
 
 		var cube = world.CreateGameObject("Cube");
 		cube.AddComponent<TransformComponent>().Position = new Vector3(0, 5, 0);
 		cube.AddComponent<MeshComponent>().MeshPath = "res://models/cube.mesh";
 
-		// Projector 每帧投影 → CommandBus → backend 消费。
+		// Projector 每帧投影 → CommandBus → Gateway 消费。
 		var projector = new SceneProjector();
 		int projected = projector.Project(world, loop.Commands);
 		var drained = loop.Commands.Drain();
 		render.Consume(drained);
 
 		Check("投影：Cube 被投影为 1 命令", projected == 1 && drained.Count == 1);
-		Check("投影：backend 收到 1 命令", render.Received.Count == 1);
+		Check("投影：Gateway 收到 1 命令", render.Received.Count == 1);
 		Check("投影：位置正确", render.Received[0].Position == new Vector3(0, 5, 0));
 		Check("投影：mesh 路径正确", render.Received[0].MeshPath == "res://models/cube.mesh");
 	}
@@ -178,13 +178,13 @@ internal static class Program
 		var projector = new SceneProjector();
 		var original = tf.Position;
 
-		// backend 消费后位置不变（单向投影）。
-		var render = new FakeRenderBackend();
-		loop.AddBackend(render);
+		// Gateway 消费后位置不变（单向投影）。
+		var render = new FakeRenderGateway();
+		loop.AddGateway(render);
 		projector.Project(world, loop.Commands);
 		render.Consume(loop.Commands.Drain());
 
-		Check("单向：backend 消费不反写 Gameplay", tf.Position == original && render.Received[0].Position == original);
+		Check("单向：Gateway 消费不反写 Gameplay", tf.Position == original && render.Received[0].Position == original);
 	}
 
 	/// <summary>极简 IWorldDriver（本测试只需 loop 存在；tick 不进投影路径）。</summary>
@@ -201,7 +201,7 @@ internal static class Program
 
 	private static int Main()
 	{
-		Console.WriteLine("vertical-slice-tests —— O6 最小垂直切片（Transform/Mesh/StaticCollider backend 投影）\n");
+		Console.WriteLine("vertical-slice-tests —— O6 最小垂直切片（Transform/Mesh/StaticCollider Gateway 投影）\n");
 
 		Test_组件生命周期();
 		Test_Vector3序列化往返();

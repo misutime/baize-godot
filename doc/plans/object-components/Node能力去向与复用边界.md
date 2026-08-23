@@ -17,7 +17,7 @@ Node 能力
 ```
 
 **关键量级感**：真正"从零重写"的只有 GameObject 内核本身（O1，已完成）。
-其余全是"接线"——把 Godot 已有的 Server 能力接到我们的组件上，每个域写一个 Backend。
+其余全是"接线"——把 Godot 已有的 Server 能力接到我们的组件上，每个域写一个 Gateway。
 
 ## 2. 三类能力明细
 
@@ -25,13 +25,13 @@ Node 能力
 
 | Godot 能力 | 我们怎么用 |
 |---|---|
-| RenderingServer | `MeshComponent` → RID（O6 `GodotRenderBackend` 已直连） |
+| RenderingServer | `MeshComponent` → RID（O6 `GodotRenderGateway` 已直连） |
 | PhysicsServer / Jolt | `ColliderComponent` → shape RID（物理域，O8 起） |
 | NavigationServer | 寻路域（O8 起） |
 | AudioServer | `AudioComponent` → 音频后端（O8 起） |
 | GPU 粒子后端 | 粒子域（O8 起） |
 | Mesh/Material/Texture 资源系统 | 资源层直接复用 |
-| 输入底层 / 平台窗口后端 | `InputBackend`/`WindowBackend` 复用 |
+| 输入底层 / 平台窗口后端 | `InputGateway`/`WindowGateway` 复用 |
 | C# Roslyn / Reload 基础设施 | 直接复用 |
 
 这些服务**不需要 GameObject 继承 Node**——组件直接持有 backend handle（§3.1）：
@@ -76,10 +76,10 @@ AudioComponent       → 音频后端
 
 ```text
 旧：StaticMesh3D（Node）→ 内部再调 RenderingServer
-新：MeshComponent（组件）→ RenderBackend → RenderingServer   ← 中间无 Node
+新：MeshComponent（组件）→ RenderGateway → RenderingServer   ← 中间无 Node
 ```
 
-这正是方案 §5.3 目标态（状态 C：Server-backed）——我们已经按此做（O6 `GodotRenderBackend`，
+这正是方案 §5.3 目标态（状态 C：Server-backed）——我们已经按此做（O6 `GodotRenderGateway`，
 从第一天就没有"挂 Node3D 的桥"，§15.1 已定不提供 Node 过渡路径）。
 
 ## 4. 工具类 Node 的处理原则（避免过度设计）
@@ -102,7 +102,7 @@ AudioComponent       → 音频后端
 | O3 | Schema 元数据 + 可读文本格式 | ②纵深 |
 | O4 | .bscene/.bprefab + 实例化 + override | ②纵深 |
 | O5 | `Sola3dMainLoop` + Backend 接口 + Port | ②+①接线 |
-| O6 | Transform/Mesh/StaticCollider 组件 + RenderBackend 直连 RenderingServer | ①复用接通（状态 C 第一块砖） |
+| O6 | Transform/Mesh/StaticCollider 组件 + RenderGateway 直连 RenderingServer | ①复用接通（状态 C 第一块砖） |
 | O7 | 编辑器第一切片（3D view 显示 Design World 对象） | ③ |
 | O8 | 按域迁移（物理/动画/UI/Nav/Audio） | ①逐个接通 |
 | O9 | 关闭 Node API，物理删除 | 收尾 |
@@ -110,6 +110,6 @@ AudioComponent       → 音频后端
 ## 6. 常见误解（FAQ）
 
 - **"我们要写 1000 个组件对应 1000 个 Node？"** 不是。只有承载语义的才组件化；工具类吸进服务；表现类直连 Server。
-- **"TransformComponent 是不是 Node3D 的重写？"** 是语义层的对应，但**不含** Node3D 的插值/可见性/gizmo 等表现聚合——那些归 backend 投影域（§2.3 拆解）。
-- **"Godot 的渲染物理还算数吗？"** 算。我们复用 RenderingServer/PhysicsServer 全部能力，只是调用入口从 Node 换成 Backend。
+- **"TransformComponent 是不是 Node3D 的重写？"** 是语义层的对应，但**不含** Node3D 的插值/可见性/gizmo 等表现聚合——那些归 Gateway 投影域（§2.3 拆解）。
+- **"Godot 的渲染物理还算数吗？"** 算。我们复用 RenderingServer/PhysicsServer 全部能力，只是调用入口从 Node 换成 Gateway。
 - **"迁移期要双写吗？"** 不。§15.1 已定：不提供 Node-first 过渡路径，用户可见模型一步到位 Object-first。

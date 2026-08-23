@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-// GodotRenderBackend.cs —— RenderingServer 真桥（O6，O6-GameWorldBackend与垂直切片.md §5）
+// GodotRenderGateway.cs —— RenderingServer 真桥（O6，O6-GameWorldGateway与垂直切片.md §5）
 //
 // 状态 C（Server-backed）第一块实体砖：不经过 Node3D/StaticMesh3D——直接
-// GameWorld 语义 → RenderCommand → 本 backend → RenderingServer RID。
+// GameWorld 语义 → RenderCommand → 本 Gateway → RenderingServer RID。
 // §14.6 方向唯一：只读投影到 Server，永不反写 Gameplay。
 
 using Godot;
@@ -16,7 +16,7 @@ namespace Sola3d.GodotSlice;
 /// RenderingServer 为静态 API；scenario 由外部注入（真实 Viewport 环境调用 Initialize，
 /// headless 测试不调用——保持 O6 纯 .NET 验证与 Godot 桥编译验证两层分离）。
 /// </summary>
-public sealed partial class GodotRenderBackend : IRenderBackend
+public sealed partial class GodotRenderGateway : IRenderGateway
 {
 	private Rid _scenario;
 	private readonly System.Collections.Generic.Dictionary<System.Numerics.Vector3, Rid> _meshCache = new();
@@ -32,7 +32,7 @@ public sealed partial class GodotRenderBackend : IRenderBackend
 	public void EndFrame(float nowSeconds) { }
 
 	/// <summary>消费投影命令：建实例 + 设 Transform（Godot 侧最小实现）。</summary>
-	public void Consume(System.Collections.Generic.IReadOnlyList<BackendCommand> commands)
+	public void Consume(System.Collections.Generic.IReadOnlyList<GatewayCommand> commands)
 	{
 		foreach (var c in commands)
 		{
@@ -60,7 +60,7 @@ public sealed partial class GodotRenderBackend : IRenderBackend
 }
 
 /// <summary>Godot 侧接收的渲染命令形态（跨模块最小共用；O6 后续随投影契约定型）。</summary>
-public sealed record VerticalSliceRenderCommand : BackendCommand
+public sealed record VerticalSliceRenderCommand : GatewayCommand
 {
 	public System.Numerics.Vector3 MeshPathKey { get; init; }
 	public System.Numerics.Vector3 Position { get; init; }

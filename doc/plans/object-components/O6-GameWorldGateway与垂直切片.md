@@ -2,10 +2,10 @@
 # O6 实施：Transform/Mesh/StaticCollider backend + 最小 vertical slice
 
 > 阶段：O6（§14.10 修订路线：O6 = Transform/Mesh/StaticCollider backend + 最小 vertical slice）。
-> 本文是 **O6 阶段权威**：backend 投影契约、组件定义、vertical slice 验收、§14.6 权威矩阵落地。
+> 本文是 **O6 阶段权威**：Gateway 投影契约、组件定义、vertical slice 验收、§14.6 权威矩阵落地。
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§14.6/§15.6/§4.7）。
-> 契约：`O1-GameObject语义契约.md` §10（Backend Observation）/§7（Transform 不属于层级内核，由 TransformComponent+TransformBackend 承担）。
-> 双世界：组件在 **Runtime World** 侧（GameObject 实例持有），backend 投影是其触碰 Godot 内核的全部触点（状态 C：Server-backed，无 Node）。
+> 契约：`O1-GameObject语义契约.md` §10（Backend Observation）/§7（Transform 不属于层级内核，由 TransformComponent+TransformGateway 承担）。
+> 双世界：组件在 **Runtime World** 侧（GameObject 实例持有），Gateway 投影是其触碰 Godot 内核的全部触点（状态 C：Server-backed，无 Node）。
 > 实现：`modules/gameobject/`（数据组件）+ `test-projects/vertical-slice-tests/`（纯 .NET headless 验证）+ `test-projects/godot-slice/`（Godot RenderingServer 真桥）。
 
 ## 1. 目标与非目标
@@ -13,8 +13,8 @@
 - **目标**：
   1. **数据组件**：`TransformComponent` / `MeshComponent` / `StaticColliderComponent`（纯 .NET，Schema 驱动，O4 格式可序列化）；
   2. **投影路径**：backend 从 GameWorld 读组件状态 → 投影到 Server（§14.6 矩阵：Kinematic Transform/Mesh = Command 下行）；
-  3. **最小 vertical slice**：一个带 Transform+Mesh+StaticCollider 的 GameObject 经 backend 投影可 headless 验证；
-  4. **Godot 真桥**：godot-slice 里 `IRenderBackend` 实现用 RenderingServer 建 RID（编译验证）。
+  3. **最小 vertical slice**：一个带 Transform+Mesh+StaticCollider 的 GameObject 经 Gateway 投影可 headless 验证；
+  4. **Godot 真桥**：godot-slice 里 `IRenderGateway` 实现用 RenderingServer 建 RID（编译验证）。
 - **非目标**：
   - Dynamic RigidBody（物理 Observation 上行留到 physics 域完整时）；
   - 编辑器显示（O7）；
@@ -41,7 +41,7 @@
 
 O1 序列化白名单（契约 §10）为 `int/float/double/bool/string/enum`。O6 需 `Vector3`/`Quaternion` 进白名单——**本文档先改契约 §10**：白名单增加 `Vector3`（x/y/z 各 float）与 `Quaternion`（x/y/z/w），序列化编码为 `Float Token × 分量`（确定性：分量序固定）。O1 契约 §14 增补 R27。
 
-## 3. Backend 投影路径（§14.6 矩阵落地）
+## 3. Gateway 投影路径（§14.6 矩阵落地）
 
 ```text
 GameWorld（语义权威）
@@ -49,7 +49,7 @@ GameWorld（语义权威）
     ▼
 CommandBus（下行：请把 Mesh 画出来/设 Transform）
     ▼
-IRenderBackend.Consume(commands)  →  RenderingServer.RID 建/改（Godot 侧真实现）
+IRenderGateway.Consume(commands)  →  RenderingServer.RID 建/改（Godot 侧真实现）
 ```
 
 - **方向唯一**（§14.6）：Kinematic Transform/Mesh 权威在 GameWorld → backend 只读投影，**永不隐式改 Gameplay**；
@@ -67,7 +67,7 @@ GameObject "Cube"
         ▼
 CommandBus: RenderCommand{Transform, MeshPath}
         ▼
-FakeRenderBackend（headless 测试）：记录收到的命令
+FakeRenderGateway（headless 测试）：记录收到的命令
 ```
 
 **验收清单**：
@@ -75,13 +75,13 @@ FakeRenderBackend（headless 测试）：记录收到的命令
 - [x] 白名单扩展：含 Vector3 属性的组件可 Capture→Serialize→Deserialize→Restore 往返（hash 相等）；
 - [x] `SceneProjector` 从世界投影出正确 RenderCommand（位置/缩放/mesh 路径）；
 - [x] backend 消费命令不反写 Gameplay（投影单向断言）；
-- [x] godot-slice `GodotRenderBackend` 编译通过（RenderingServer API 接入）；
+- [x] godot-slice `GodotRenderGateway` 编译通过（RenderingServer API 接入）；
 - [x] 全部既有基线（O1-O4 242 + O5 14）不回归。
 
 ## 5. Godot 真桥（godot-slice，状态 C 第一块实体砖）
 
 ```csharp
-public sealed class GodotRenderBackend : IRenderBackend {
+public sealed class GodotRenderGateway : IRenderGateway {
     // 每帧 Consume(commands)：
     //   RenderCommand.CreateMesh → RenderingServer.MeshCreate() 建 RID
     //   RenderCommand.SetTransform → RenderingServer.InstanceSetTransform(rid, ...)
