@@ -243,6 +243,18 @@ public static class BSceneLoader
 				rel.TargetIndex += templateCount - 1;
 			}
 		}
+
+		// 5) 复制模板关系（reviewer P1-3）：模板索引 t → 实例全局 rootIndex + t（DFS 连续块）。
+		//    须在 4) 平移之后追加，避免新增关系被平移循环二次偏移。
+		foreach (var trel in template.Relations)
+		{
+			snapshot.Relations.Add(new RelationRecord
+			{
+				TypeName = trel.TypeName,
+				SourceIndex = trel.SourceIndex >= 0 ? rootIndex + trel.SourceIndex : -1,
+				TargetIndex = trel.TargetIndex >= 0 ? rootIndex + trel.TargetIndex : -1,
+			});
+		}
 	}
 
 	// ---------- override 区 ----------

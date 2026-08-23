@@ -67,9 +67,10 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 			instance = RenderingServer.InstanceCreate2(meshRid, _scenario);
 			_instanceCache[rc.ObjectUid] = instance;
 		}
-		var basis = new Basis(new Quaternion(rc.Rotation.X, rc.Rotation.Y, rc.Rotation.Z, rc.Rotation.W));
-		var t = new Transform3D(basis, new Vector3(rc.Position.X, rc.Position.Y, rc.Position.Z))
-			.Scaled(new Vector3(rc.Scale.X, rc.Scale.Y, rc.Scale.Z)); // reviewer P1-4：应用 Scale（无则单位缩放）
+var basis = new Basis(new Quaternion(rc.Rotation.X, rc.Rotation.Y, rc.Rotation.Z, rc.Rotation.W));
+		// reviewer P1（第2轮）：用 ScaledLocal 仅缩放旋转/网格，不改 position（Scaled 是全局=连 origin 缩放）。
+		var scaledBasis = basis.Scaled(new Vector3(rc.Scale.X, rc.Scale.Y, rc.Scale.Z));
+		var t = new Transform3D(scaledBasis, new Vector3(rc.Position.X, rc.Position.Y, rc.Position.Z));
 		RenderingServer.InstanceSetTransform(instance, t);
 	}
 

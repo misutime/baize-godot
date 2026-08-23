@@ -125,9 +125,15 @@ internal static class Program
 		var a = session.CreateGameObject("A");
 		var b = session.CreateGameObject("B");
 		var c = session.CreateGameObject("C");
-		session.SetParent(a, b);     // A 挂到 B 下
+		// reviewer P1（第2轮）：关系端点随重挂重算——A→C 关系在重排后仍指向 A/C。
+		session.Document.Relations.Add(new RelationRecord { TypeName = "Test.Rel", SourceIndex = session.Document.Objects.IndexOf(a), TargetIndex = session.Document.Objects.IndexOf(c) });
+		session.SetParent(a, b);     // A 挂到 B 下（重排：A 及其子树移到 B 后，关系端点须跟随）
 		session.SetParent(c, a);     // C 挂到 A 下（链 B→A→C）
 		string before = session.SaveSceneText();
+		// 关系端点已按 A/C 新索引重算（reviewer P1-2：重挂同步关系）。
+		var rel = session.Document.Relations[0];
+		Check("重挂：关系端点跟随重排",
+			session.Document.Objects[rel.SourceIndex] == a && session.Document.Objects[rel.TargetIndex] == c);
 		session.Undo();              // 撤 SetParent(C,A)
 		session.Undo();              // 撤 SetParent(A,B)
 		string after = session.SaveSceneText();

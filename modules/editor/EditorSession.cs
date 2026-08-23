@@ -76,7 +76,7 @@ public sealed class EditorSession
 			return; // 无变化
 		}
 
-		// undo 快照：原列表顺序（引用序列）+ 每对象原父（引用身份）。
+		// 快照：原列表顺序、每对象原父、原关系端点（引用身份）——undo 用。
 		var beforeOrder = new List<GameObjectRecord>(Document.Objects);
 		var beforeParent = new Dictionary<GameObjectRecord, GameObjectRecord?>();
 		foreach (var o in beforeOrder)
@@ -84,8 +84,15 @@ public sealed class EditorSession
 			int pi = o.ParentIndex;
 			beforeParent[o] = pi >= 0 && pi < beforeOrder.Count ? beforeOrder[pi] : null;
 		}
+		var relSnapshot = new List<(GameObjectRecord? Src, GameObjectRecord? Dst)>();
+		foreach (var r in Document.Relations)
+		{
+			relSnapshot.Add((
+				r.SourceIndex >= 0 && r.SourceIndex < beforeOrder.Count ? beforeOrder[r.SourceIndex] : null,
+				r.TargetIndex >= 0 && r.TargetIndex < beforeOrder.Count ? beforeOrder[r.TargetIndex] : null));
+		}
 
-		// 1) obj 的 DFS 连续子树区间 [subStart, subEnd)。
+		// 1) obj 的 DFS 连续子树区间。
 		int subStart = objIdx;
 		int subEnd = subStart + SubtreeSpan(subStart);
 		var subtree = Document.Objects.GetRange(subStart, subEnd - subStart);
@@ -102,7 +109,7 @@ public sealed class EditorSession
 		else
 		{
 			int pIdx = Document.Objects.IndexOf(parent);
-			insertAt = pIdx + SubtreeSpan(pIdx); // 父子树末尾之后（Span 含父自身）
+			insertAt = pIdx + SubtreeSpan(pIdx);
 		}
 		Document.Objects.InsertRange(insertAt, subtree);
 
@@ -113,7 +120,10 @@ public sealed class EditorSession
 			o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
 		}
 
-		// undo：恢复原顺序与每对象原父索引。
+		// 5) 关系端点按引用重算（reviewer P1-2：重排对象必须同步关系索引）。
+		ApplyRelationSnapshot(relSnapshot);
+
+		// undo：恢复原顺序、原父、原关系端点。
 		_undoStack.Push(() =>
 		{
 			var current = new List<GameObjectRecord>(Document.Objects);
@@ -128,7 +138,19 @@ public sealed class EditorSession
 				var p = beforeParent[o];
 				o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
 			}
+			ApplyRelationSnapshot(relSnapshot);
 		});
+	}
+
+	/// <summary>按对象引用重写 Document.Relations 的端点索引（引用稳定，index 随重排变）。</summary>
+	private void ApplyRelationSnapshot(List<(GameObjectRecord? Src, GameObjectRecord? Dst)> relSnapshot)
+	{
+		for (int i = 0; i < Document.Relations.Count && i < relSnapshot.Count; i++)
+		{
+			var (src, dst) = relSnapshot[i];
+			Document.Relations[i].SourceIndex = src == null ? -1 : Document.Objects.IndexOf(src);
+			Document.Relations[i].TargetIndex = dst == null ? -1 : Document.Objects.IndexOf(dst);
+		}
 	}
 
 	/// <summary>判断 candidate 是否在 obj 的 DFS 子树内（Objects 序即 DFS 序）。</summary>

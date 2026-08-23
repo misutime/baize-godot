@@ -1254,10 +1254,11 @@ internal static class Program
 	{
 		// prefab 模板（单 root + 子树 + 组件）。
 		string prefabText =
-			"format = \"sola3d.v1\"\nkind = \"prefab\"\n\n" +
-"object @1a \"EnemyRoot\"\n" +
-			"[component " + typeof(Health).FullName + "]\n\tMax = 100\n\tCurrent = 100\n" +
-			"object @1b \"Mesh\" parent = @1a\n";
+					"format = \"sola3d.v1\"\nkind = \"prefab\"\n\n" +
+					"object @1a \"EnemyRoot\"\n" +
+					"[component " + typeof(Health).FullName + "]\n\tMax = 100\n\tCurrent = 100\n" +
+					"object @1b \"Mesh\" parent = @1a\n" +
+		"relation " + typeof(TargetRelation).FullName + " @1a -> @1b\n";
 
 		// 场景：两个实例 + override 区。
 		string sceneText =
@@ -1271,8 +1272,13 @@ internal static class Program
 
 		var world = new GameWorld();
 		world.Schemas.Register<Health>();
+		// 注册模板关系类型（Restore 需先 Add<T> 过——用临时对象注册工厂）。
+		var regA = world.CreateGameObject("__regA");
+		var regB = world.CreateGameObject("__regB");
+		world.Relations.Add<TargetRelation>(regA, regB);
+		world.Destroy(regA);
+		world.Destroy(regB);
 		var loaded = BSceneLoader.LoadSceneToWorld(sceneText, world.Schemas, world.Relations, path => path == "res://Enemy.bprefab" ? prefabText : null);
-
 		// 结构：主场景 + 2 实例（各 2 对象）→ 共 5 对象。
 		Check("O4：prefab 实例化展开对象数", loaded.AliveCount == 1 + 2 * 2);
 		var root = loaded.GetObject(loaded.Roots[0].Id)!;
@@ -1286,6 +1292,26 @@ internal static class Program
 		Check("O4：override 应用", enemyA.GetComponent<Health>()!.Max == 42 && enemyA.GetComponent<Health>()!.Current == 7);
 		Check("O4：override 不影响其他实例", enemyB.GetComponent<Health>()!.Current == 100);
 
+		// reviewer P1-3：模板关系复制——每实例各带 1 条模板关系（EnemyRoot → Mesh）。
+		var snapRel = BSceneLoader.LoadScene(sceneText, path => path == "res://Enemy.bprefab" ? prefabText : null);
+		Check("O4：模板关系复制（2 实例 × 1）", snapRel.Relations.Count == 2);
+		bool relsInSubtrees = true;
+		foreach (var rel in snapRel.Relations)
+		{
+			if (rel.SourceIndex < 0 || rel.TargetIndex < 0 ||
+				rel.SourceIndex >= snapRel.Objects.Count || rel.TargetIndex >= snapRel.Objects.Count)
+			{
+				relsInSubtrees = false;
+				break;
+			}
+			// 端点必须都是 prefab-derived 节点（索引 > 0，即主场景之后）。
+			if (rel.SourceIndex <= 0 || rel.TargetIndex <= 0)
+			{
+				relsInSubtrees = false;
+				break;
+			}
+		}
+		Check("O4：模板关系端点落在实例子树", relsInSubtrees);
 		// reviewer P1-2：双实例的子对象（模板 Mesh）Uid 不得共享——Capture 快照 uid 全唯一。
 		var snap = GameWorldSerializer.Capture(world);
 		var uidSet = new HashSet<ulong>();
