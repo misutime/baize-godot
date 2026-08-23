@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterFactory.cs —— O2 对象工厂（B1 Required Components 落地：创建即带全套组件，零样板）
-//
-// 对应 ECS 版 PlayerBundle/EnemyBundle/ProjectileBundle（IEntityBundle）——
-// Go 版没有"组件配方 struct"，用静态工厂方法：CreateGameObject + AddComponent 全套。
+// ShooterFactory.cs —— O2 对象工厂（B1 Required Components：创建即带全套组件，零样板）
 
 using Baize.GameObject;
 
@@ -11,7 +8,7 @@ namespace Shooter.Objects;
 /// <summary>对象工厂：一行创建即带全套组件与行为（借鉴 Bevy Bundle / B1 决策）。</summary>
 public static class ShooterFactory
 {
-	/// <summary>创建玩家对象（顶层；含移动/输入/武器/阵营/行为）。</summary>
+	/// <summary>创建玩家对象（移动 / 输入 / 武器 / 阵营 / 行为）。</summary>
 	public static GameObject SpawnPlayer(GameWorld world, float x, float z, float moveSpeed = 8.0f,
 		float fireCooldown = 0.3f, float projectileSpeed = 30.0f, float radius = 0.5f)
 	{
@@ -22,13 +19,13 @@ public static class ShooterFactory
 		obj.AddComponent<WeaponConfig>().CooldownSeconds = fireCooldown;
 		obj.GetComponent<WeaponConfig>()!.ProjectileSpeed = projectileSpeed;
 		obj.AddComponent<Cooldown>();
-		obj.AddComponent<PlayerInputBehavior>();
-		obj.AddComponent<FireWeaponBehavior>();
-		obj.AddComponent<MoveObjectBehavior>();
+		obj.AddComponent<PlayerControllerBehavior>();
+		obj.AddComponent<WeaponBehavior>();
+		obj.AddComponent<MoveBehavior>();
 		return obj;
 	}
 
-	/// <summary>创建敌人对象（寻敌 AI 内联移动+接触触发 GameOver）。</summary>
+	/// <summary>创建敌人对象（寻敌 AI 内联移动 + 接触触发 GameOver）。</summary>
 	public static GameObject SpawnEnemy(GameWorld world, float x, float z,
 		float moveSpeed = 3.5f, int health = 1, float radius = 0.5f)
 	{
@@ -38,7 +35,7 @@ public static class ShooterFactory
 		AddMoveStack(obj, x, z, moveSpeed, radius);
 		obj.AddComponent<Health>()!.Current = health;
 		obj.GetComponent<Health>()!.Max = health;
-		obj.AddComponent<EnemyAIBehavior>();
+		obj.AddComponent<EnemyControllerBehavior>();
 		return obj;
 	}
 
@@ -52,13 +49,14 @@ public static class ShooterFactory
 		obj.GetComponent<Position>()!.Z = z;
 		obj.AddComponent<PreviousPosition>()!.X = x;
 		obj.GetComponent<PreviousPosition>()!.Z = z;
+		obj.AddComponent<MotionPlan>();
 		obj.AddComponent<Velocity>()!.X = vx;
 		obj.GetComponent<Velocity>()!.Z = vz;
 		obj.AddComponent<ProjectileConfig>()!.Damage = damage;
 		obj.GetComponent<ProjectileConfig>()!.MaxRange = maxRange;
 		obj.AddComponent<TravelDistance>();
 		obj.AddComponent<CollisionRadius>()!.Value = radius;
-		obj.AddComponent<ProjectileBehavior>();
+		obj.AddComponent<BulletBehavior>();
 		return obj;
 	}
 
@@ -69,6 +67,7 @@ public static class ShooterFactory
 		obj.GetComponent<Position>()!.Z = z;
 		obj.AddComponent<PreviousPosition>()!.X = x;
 		obj.GetComponent<PreviousPosition>()!.Z = z;
+		obj.AddComponent<MotionPlan>();
 		obj.AddComponent<Velocity>();
 		obj.AddComponent<MoveSpeed>()!.Value = moveSpeed;
 		obj.AddComponent<CollisionRadius>()!.Value = radius;

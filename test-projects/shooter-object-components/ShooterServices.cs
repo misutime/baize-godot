@@ -1,185 +1,69 @@
 // SPDX-License-Identifier: MIT
-// ShooterServices.cs —— O2 全局服务（GameWorld.Services 承载：对局/输入/生成配置）
+// ShooterServices.cs —— O2 全局服务（GameWorld.Services 承载：对局控制器 / 输入 / 生成配置）
+//
+// 干净 GameObject-first：服务只做「全局状态持有者 + 阶段切换」，不做命中/计分仲裁。
+// - MatchController：持有 Phase/Score/AliveEnemies；RequestGameOver 设 GameWorld.Paused=true 全局冻结
+//   （O1 Paused 语义：所有组件 OnTick 停，等效 ECS RunInState(Playing) 门禁，组件无需自查）。
+// - 命中/死亡由组件间直接调用（bullet → Health.ApplyDamage → MatchController.OnEnemyKilled）。
 
-using System;
-using System.Collections.Generic;
 using Baize.GameObject;
 
 namespace Shooter.Objects;
 
-/// <summary>对局阶段（原 ECS GamePhase）。</summary>
+/// <summary>对局阶段。</summary>
 public enum GamePhase
 {
 	Playing,
 	GameOver,
 }
 
-/// <summary>对局状态（服务）：得分、存活敌人、阶段。命中/计分/销毁/射程清理全部帧末提交（FlushFrame），
-/// 仅 Phase 仍 Playing 时应用；GameOver 整帧丢弃（参考版 EndMatchSystem 先于 Resolve/Cleanup）。</summary>
-public sealed class MatchState
+/// <summary>对局控制器（服务）：全局状态 + 阶段切换。命中计分由组件触发（OnEnemyKilled），不自足仲裁。</summary>
+public sealed class MatchController
 {
-	public GamePhase Phase { get; set; } = GamePhase.Playing;
-	public int Score;
-	public int AliveEnemies;
+public GamePhase Phase { get; private set; } = GamePhase.Playing;
+	// Score/AliveEnemies 可写：正常由 OnEnemyKilled/OnEnemySpawned 改；测试可预设断言。
+	public int Score { get; set; }
+	public int AliveEnemies { get; set; }
 
-	// 去重：记录"本 Tick 已结算的目标"（实体句柄）。Tick 变化时清空。
-	private ulong _lastTick = ulong.MaxValue;
-	private readonly HashSet<GameObject> _hitTargetsThisTick = new();
+	private GameWorld? _world;
 
-	// 帧末待提交：命中源（投射物，删除）、目标伤害、投射物位移（TravelDistance）。
-	private readonly List<GameObject> _frameSources = new();
-	private readonly Dictionary<GameObject, int> _frameDamage = new();
-	private readonly Dictionary<GameObject, float> _frameProjectileTravel = new();
+	/// <summary>绑定世界（Install 时设置；Paused 冻结用）。</summary>
+	public void Bind(GameWorld world) => _world = world;
 
+	/// <summary>敌人出生：AliveEnemies++（由生成器调用）。</summary>
+	public void OnEnemySpawned() => AliveEnemies++;
+
+	/// <summary>敌人死亡：计分 + AliveEnemies--（由命中方调用）。</summary>
+	public void OnEnemyKilled()
+	{
+		Score++;
+		if (AliveEnemies > 0)
+		{
+			AliveEnemies--;
+		}
+	}
+
+	/// <summary>请求结束对局（幂等：Playing 才切；切后设世界 Paused 冻结全局）。</summary>
+	public void RequestGameOver()
+	{
+		if (Phase != GamePhase.Playing)
+		{
+			return;
+		}
+		Phase = GamePhase.GameOver;
+		// 冻结全局（O1 Paused：所有组件 OnTick 停，等效 ECS 阶段门禁）。
+		if (_world != null)
+		{
+			_world.Paused = true;
+		}
+	}
+
+	/// <summary>重置（重启一局用；Paused 由 GameWorld.Reset 归零）。</summary>
 	public void Reset()
 	{
 		Phase = GamePhase.Playing;
 		Score = 0;
 		AliveEnemies = 0;
-		_hitTargetsThisTick.Clear();
-		_lastTick = ulong.MaxValue;
-		_frameSources.Clear();
-		_frameDamage.Clear();
-		_frameProjectileTravel.Clear();
-	}
-
-	/// <summary>投射物命中（帧末提交模型）：过滤 + Tick 去重，登记到帧末队列（不立即改 Health/Score/销毁）。
-	/// 帧末由 ShooterGame.Step 调 FlushFrame——仅当 Phase 仍 Playing 才提交，GameOver 整帧丢弃。
-	/// 返回是否发生了命中登记（非去重命中）。</summary>
-	public bool HandleProjectileHit(GameObject source, GameObject target, int amount)
-	{
-		if (source.GetComponent<ProjectileTag>() == null || target.GetComponent<EnemyFaction>() == null)
-		{
-			return false;
-		}
-		// 命中源（投射物）帧末必被消费（命中即使去重/非致死，源也删除）。
-		if (!_frameSources.Contains(source))
-		{
-			_frameSources.Add(source);
-		}
-		// 同 Tick 同一目标只结算一次（防多个投射物重复消费同一次死亡）。
-		ulong tickNow = source.World.TickIndex;
-		if (_lastTick != tickNow)
-		{
-			_lastTick = tickNow;
-			_hitTargetsThisTick.Clear();
-		}
-		if (!_hitTargetsThisTick.Add(target))
-		{
-			return false;
-		}
-		var health = target.GetComponent<Health>();
-		if (health == null)
-		{
-			return false;
-		}
-		// 帧末提交：登记累计伤害。
-		_frameDamage[target] = (_frameDamage.TryGetValue(target, out var existing) ? existing : 0) + amount;
-		return true;
-	}
-
-	/// <summary>帧末清理投射物（越界未命中）：登记源，仅 Playing 提交（reviewer P1 第五轮：GameOver 帧不执行 Cleanup）。</summary>
-	public void ScheduleSourceCleanup(GameObject projectile)
-	{
-		if (!_frameSources.Contains(projectile))
-		{
-			_frameSources.Add(projectile);
-		}
-	}
-
-	/// <summary>帧末投射物位移：登记 TravelDistance 增量，仅 Playing 提交（reviewer P1 第六轮：GameOver 帧不累计距离）。</summary>
-	public void ScheduleProjectileTravel(GameObject projectile, float deltaTravel)
-	{
-		_frameProjectileTravel[projectile] = (_frameProjectileTravel.TryGetValue(projectile, out var existing) ? existing : 0) + deltaTravel;
-	}
-
-	/// <summary>本帧待提交的命中源数（投射物；帧末决定是否删除）。</summary>
-	public int PendingDestroyCount => _frameSources.Count;
-
-	/// <summary>帧末提交：Phase 仍 Playing 才应用距离/伤害/计分/销毁；GameOver 整帧丢弃。由 ShooterGame.Step 在 world.Tick 后调用。</summary>
-	public void FlushFrame(GameWorld world)
-	{
-		if (Phase != GamePhase.Playing)
-		{
-			// GameOver：丢弃整帧待提交命中 + 距离增量（参考版 EndMatchSystem 先于 Cleanup/Resolve）。
-			_frameSources.Clear();
-			_frameDamage.Clear();
-			_frameProjectileTravel.Clear();
-			return;
-		}
-
-		// 帧末应用于 TravelDistance 累计 + 越界清理（与 Cleanup 一起仅 Playing 提交）。
-		foreach (var projectile in _frameProjectileTravel.Keys)
-		{
-			if (projectile.IsDestroyed)
-			{
-				continue;
-			}
-			var travelled = projectile.GetComponent<TravelDistance>();
-			var config = projectile.GetComponent<ProjectileConfig>();
-			if (travelled == null || config == null)
-			{
-				continue;
-			}
-			travelled.Value += _frameProjectileTravel[projectile];
-			if (travelled.Value > config.MaxRange && !_frameSources.Contains(projectile))
-			{
-				_frameSources.Add(projectile);
-			}
-		}
-		_frameProjectileTravel.Clear();
-
-		// 销毁命中/越界源（投射物）。
-		foreach (var source in _frameSources)
-		{
-			if (!source.IsDestroyed)
-			{
-				source.Destroy();
-			}
-		}
-		_frameSources.Clear();
-
-		// 应用累计伤害。
-		var destroyed = new HashSet<GameObject>();
-		foreach (var target in _frameDamage.Keys)
-		{
-			if (target.IsDestroyed)
-			{
-				continue;
-			}
-			var health = target.GetComponent<Health>();
-			if (health == null)
-			{
-				continue;
-			}
-			health.Current -= _frameDamage[target];
-		}
-		_frameDamage.Clear();
-
-		// 只提交真正死亡的目标（应用累计伤害后 Current<=0 才销毁并计分；非致死保留不计分）。
-		foreach (var target in _hitTargetsThisTick)
-		{
-			if (target.IsDestroyed || destroyed.Contains(target))
-			{
-				continue;
-			}
-			var health = target.GetComponent<Health>();
-			if (health == null || health.Current > 0)
-			{
-				continue;
-			}
-			bool isEnemy = target.GetComponent<EnemyFaction>() != null;
-			target.Destroy();
-			destroyed.Add(target);
-			if (isEnemy)
-			{
-				Score++;
-				if (AliveEnemies > 0)
-				{
-					AliveEnemies--;
-				}
-			}
-		}
 	}
 }
 
@@ -222,7 +106,6 @@ public sealed class SpawnState
 	public float Remaining;
 }
 
-/// <summary>确定性随机（SplitMix64 风格，同 TickIndex 同结果——与 ECS 版口径一致）。</summary>
 internal static class DeterministicRandom
 {
 	public static ulong HashTick(ulong tickIndex)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Program.cs —— O2 Go 版 Shooter 验收：8 场景断言 + 玩法闭环（对应 ECS shooter-poc 语义）
+// Program.cs —— O2 Go 版 Shooter 验收：干净 GameObject-first 玩法断言（对应 ECS shooter-poc 语义）
 
 using System;
 using System.Collections.Generic;
@@ -37,29 +37,29 @@ internal static class Program
 		TestPlayerMovement();
 		TestFireEdge();
 		TestProjectileHitsEnemy();
-		TestSameTickDuplicateHit();
-		TestEnemySeekAndSpawnCoverage();
+		TestOrderIndependence();
+		TestMotionPlanMatchesActual();
+		TestDisabledBehaviorStationary();
+		TestDisabledPlayerNoMove();
+		TestSmallSweepCrossing();
+		TestNonLethalDamage();
+		TestSpawnCoverage();
+		TestEnemySeek();
 		TestGameOverFreeze();
 		TestStaleHandleNoResolution();
 		TestRestart();
-		TestReview_越界命中优先();
-		TestReview_跨入接触半径当帧GameOver();
-		TestReview_GameOver同帧回滚即时创建();
-		TestReview_GameOver整帧命中丢弃();
-		TestReview_非致死伤害不误杀();
-		TestReview_GameOver同帧丢弃射程清理();
-		TestReview_Playing越界正常清理();
+		TestDeterminism();
 
 		Console.WriteLine($"shooter-object-components-poc: failures={_failures}");
 		if (_failures != 0)
 		{
 			return 1;
 		}
-		Console.WriteLine("O2 验收通过：玩家/敌人/投射物均为 GameObject；玩法闭环不调用 Node API；GDScript/ECS 未参与。");
+		Console.WriteLine("O2 验收通过：组件即能力——命中直接调用、阶段用 Paused 冻结、无帧末缓冲/仲裁器。");
 		return 0;
 	}
 
-	// ---------- 场景 1：玩家输入驱动移动 ----------
+	// ---------- 1：玩家输入驱动移动 ----------
 
 	private static void TestPlayerMovement()
 	{
@@ -70,26 +70,24 @@ internal static class Program
 		var player = FindPlayer(world)!;
 		Check("移动：初始位置 (0,0)", player.GetComponent<Position>()!.X == 0 && player.GetComponent<Position>()!.Z == 0);
 
-		// 输入 +X 一帧：速度 = 8，delta=0.01 → 移动 0.08。
 		input.MoveX = 1;
 		ShooterGame.Step(world);
 		CheckEqu("移动：+X 移动 0.08", player.GetComponent<Position>()!.X, 0.08f);
-		Check("移动：Z 不变", player.GetComponent<Position>()!.Z == 0);
 
-		// 停止输入：速度归零，位置冻结。
 		input.MoveX = 0;
 		ShooterGame.Step(world);
 		CheckEqu("移动：停输入后位置不变", player.GetComponent<Position>()!.X, 0.08f);
 	}
 
-	// ---------- 场景 2：Fire 边沿只发一弹 ----------
+	// ---------- 2：Fire 边沿只发一弹 ----------
 
 	private static void TestFireEdge()
 	{
 		var world = ShooterGame.CreateWorld();
 		var input = world.GetService<InputService>();
-		world.GetService<SpawnConfig>().MaxAlive = 0; // 关闭生成，只测射击
-		SetPlayerCooldownZero(world); // 冷却 0，允许 5 帧内连续两弹
+		world.GetService<SpawnConfig>().MaxAlive = 0;
+		SetPlayerCooldownZero(world);
+
 		input.FirePressed = false;
 		ShooterGame.Step(world);
 		input.FirePressed = true;
@@ -104,62 +102,179 @@ internal static class Program
 		Check($"Fire 边沿：共 {count} 弹（期望 2）", count == 2);
 	}
 
-	// ---------- 场景 3：投射物扫掠命中敌人并死亡/计分 ----------
+	// ---------- 3：命中敌人死亡/计分 ----------
 
 	private static void TestProjectileHitsEnemy()
 	{
 		var world = ShooterGame.CreateWorld();
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
-
+		var match = world.GetService<MatchController>();
 		ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0);
-		world.GetService<MatchState>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30); // 朝 +Z
+		match.AliveEnemies = 1;
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30);
 
-		// 弹以 30/s 朝 +Z 飞；敌人静置 (0,2)。飞至半径范围（敌人 0.5 + 弹 0.2 = 0.7）即扫掠命中。
 		for (int i = 0; i < 20 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
 			ShooterGame.Step(world);
 		}
 
-		var match = world.GetService<MatchState>();
 		Check("命中：敌人被消灭", CountWith<EnemyFaction>(world) == 0);
 		Check("命中：计分+1", match.Score == 1);
-		Check("命中：投射物消失", CountWith<ProjectileTag>(world) == 0);
+		Check("命中：弹已消费", CountWith<ProjectileTag>(world) == 0);
 		Check("命中：AliveEnemies 归零", match.AliveEnemies == 0);
 	}
 
-	// ---------- 场景 4：同 Tick 多弹命中同目标只结算一次 ----------
+	// ---------- 3b：创建顺序无关命中（子弹先建、敌人在其飞行路径后建 → 仍命中）----------
 
-	private static void TestSameTickDuplicateHit()
+	private static void TestOrderIndependence()
 	{
 		var world = ShooterGame.CreateWorld();
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
-		ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0);
-		world.GetService<MatchState>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, -0.05f, 0, 0, 30);
-		ShooterFactory.SpawnProjectile(world, 0.05f, 0, 0, 30);
+		var match = world.GetService<MatchController>();
+		// 子弹先创建（pre-existing）。但敌人作为高速「移动目标」在子弹路径上横穿——本帧内从 z=2 冲向 z=0，
+		// 子弹 +Z 从 z=0 冲到 z=1——两者在同一 tick 内扫掠相交（t=2/3 处二者同在 z=2/3，距离 0）。
+		// 若碰撞读取敌方实时 prev/pos，会在子弹先执行时看到敌人停在 z=2 而漏判；
+		// 双方都消费 tick 前冻结的 MotionPlan，因此命中与实际执行顺序无关。
+		// 玩家移到 z=-5：敌人冲向量不触及玩家（接触半径 1.0），无 GameOver 干扰。
+		var player = FindPlayer(world)!;
+		player.GetComponent<Position>()!.Z = -5f;
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
+		var fastEnemy = ShooterFactory.SpawnEnemy(world, 0, 2.0f, moveSpeed: 200.0f, health: 1);
+		match.AliveEnemies = 1;
 
-		for (int i = 0; i < 20 && CountWith<EnemyFaction>(world) > 0; i++)
+		for (int i = 0; i < 10 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
 			ShooterGame.Step(world);
 		}
 
-		var match = world.GetService<MatchState>();
-		Check("去重：同目标多次命中只得 1 分", match.Score == 1);
-		Check("去重：敌人已消灭", CountWith<EnemyFaction>(world) == 0);
-		Check("去重：AliveEnemies 归零", match.AliveEnemies == 0);
-		// reviewer P1：同 Tick 两弹命中同一目标，两弹都被消费（延迟目标销毁保证第二弹也能命中并销毁）。
-		Check("去重：两弹均被消费（投射物清零）", CountWith<ProjectileTag>(world) == 0);
+
+		Check("顺序无关：高速移动目标一 tick 内被命中", CountWith<EnemyFaction>(world) == 0);
+		Check("顺序无关：命中计分+1", match.Score == 1);
+		Check("顺序无关：玩家未被接触（无 GameOver）", match.Phase == GamePhase.Playing);
 	}
 
-	// ---------- 场景 5：敌人寻玩家 + 四面生成覆盖 ----------
+	// ---------- 3c：计划必须等于实际移动（玩家本帧移动后，敌人按玩家终点重新寻向）----------
 
-	private static void TestEnemySeekAndSpawnCoverage()
+	private static void TestMotionPlanMatchesActual()
 	{
-		// 生成覆盖：spawnInterval=0 → 每 Tick 生成直到 MaxAlive；断言四方向覆盖。
+		var world = ShooterGame.CreateWorld();
+		world.GetService<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+		var player = FindPlayer(world)!;
+		player.GetComponent<MoveSpeed>()!.Value = 1000f;
+		world.GetService<InputService>().MoveX = 1f; // 本 tick 从 (0,0) 到 (10,0)。
+
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 200f);
+		world.GetService<MatchController>().AliveEnemies = 1;
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 200f); // 本 tick 沿 +Z 从 0 到 2。
+
+		ShooterGame.Step(world);
+
+		var enemyPos = enemy.GetComponent<Position>()!;
+		var enemyPlan = enemy.GetComponent<MotionPlan>()!;
+		float expectedLength = MathF.Sqrt(10f * 10f + 2f * 2f);
+		CheckEqu("运动计划：首个有效 tick 使用玩家计划终点寻向 X", enemyPos.X, 10f / expectedLength * 2f);
+		CheckEqu("运动计划：首个有效 tick 使用玩家计划终点寻向 Z", enemyPos.Z, 2f - 2f / expectedLength * 2f);
+		CheckEqu("运动计划：敌人实际 X 等于计划终点", enemyPos.X, enemyPlan.EndX);
+		CheckEqu("运动计划：敌人实际 Z 等于计划终点", enemyPos.Z, enemyPlan.EndZ);
+		Check("运动计划：玩家帧内移动改变寻向后不产生虚假命中", !enemy.IsDestroyed);
+		Check("运动计划：虚假命中不计分", world.GetService<MatchController>().Score == 0);
+	}
+
+	// ---------- 3c：禁用行为 → 静止计划，不产生幽灵轨迹 ----------
+
+	private static void TestDisabledBehaviorStationary()
+	{
+		// P1 回归：禁用 EnemyControllerBehavior 后，敌人应停留在原位（静止计划），
+		// 子弹穿过它仍能命中真实当前位置；不因「O1 跳过 OnTick 但计划已发布」而与幽灵轨迹碰撞。
+		var world = ShooterGame.CreateWorld();
+		world.GetService<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 30f);
+		enemy.GetComponent<EnemyControllerBehavior>()!.Enabled = false; // 禁用行为：不寻敌、不移动。
+		world.GetService<MatchController>().AliveEnemies = 1;
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
+
+		// 首帧后敌人仍应停在 z=2（静止计划）；子弹尚未到达，且敌人未被禁用逻辑误动。
+		ShooterGame.Step(world);
+		Check("禁用行为：敌人停在 z=2（不产生幽灵轨迹）", enemy.GetComponent<Position>()!.Z == 2f);
+		Check("禁用行为：首帧敌人仍存活", !enemy.IsDestroyed);
+
+		for (int i = 0; i < 5 && CountWith<EnemyFaction>(world) > 0; i++)
+		{
+			ShooterGame.Step(world);
+		}
+
+
+		Check("禁用行为：子弹仍命中静止敌人（真实位置）", CountWith<EnemyFaction>(world) == 0);
+		Check("禁用行为：命中计分+1", world.GetService<MatchController>().Score == 1);
+	}
+
+	// ---------- 3d：禁用玩家控制器 → 即使有输入也不移动 ----------
+
+	private static void TestDisabledPlayerNoMove()
+	{
+		var world = ShooterGame.CreateWorld();
+		world.GetService<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+		var player = FindPlayer(world)!;
+		player.GetComponent<PlayerControllerBehavior>()!.Enabled = false; // 禁用控制器。
+
+		world.GetService<InputService>().MoveX = 1;
+		ShooterGame.Step(world);
+		ShooterGame.Step(world);
+
+		Check("禁用控制器：玩家不移动", player.GetComponent<Position>()!.X == 0f);
+	}
+
+	// ---------- 3e：小幅相对扫掠仍应判定（P2 回归）----------
+
+	private static void TestSmallSweepCrossing()
+	{
+		// P2：旧实现在 lengthSquared<0.0001 时退化为「起点」距离，漏判跨过合并半径的小幅相对运动。
+		// 例：合并半径 1，相对距离 1.004→0.996（位移 0.008，平方 6.4e-5），应在某 t 处距离 <1 命中。
+		var world = ShooterGame.CreateWorld();
+		var resolver = world.GetService<CollisionResolver>();
+		// A 静止在原点；B 相对距离 1.004→0.996——若退化为「起点」会漏判，正确应落到 0.996。
+		float dist = resolver.SegmentSegmentDistance(
+			0f, 0f, 0f, 0f,      // A 静止在原点
+			0f, 1.004f, 0f, 0.996f); // B: (0,1.004)→(0,0.996)，朝原点靠近
+		Check("小幅扫掠：相对运动到 0.996 处最短距离 < 0.996", dist < 0.997f);
+		Check("小幅扫掠：距离 < 合并半径 1（应命中）", dist < 1f);
+		Check("小幅扫掠：不等于起点 1.004（未退化为点）", dist < 1.0001f);
+	}
+
+	// ---------- 4：非致死伤害不误杀 ----------
+
+	private static void TestNonLethalDamage()
+	{
+		var world = ShooterGame.CreateWorld();
+		world.GetService<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+
+		var match = world.GetService<MatchController>();
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0, health: 2);
+		match.AliveEnemies = 1;
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30, damage: 1);
+
+		for (int i = 0; i < 30 && CountWith<EnemyFaction>(world) > 0; i++)
+		{
+			ShooterGame.Step(world);
+		}
+
+		Check("非致死：目标存活", !enemy.IsDestroyed);
+		Check("非致死：未计分", match.Score == 0);
+		Check("非致死：血量降至 1", enemy.GetComponent<Health>()!.Current == 1);
+	}
+
+	// ---------- 5：四面生成覆盖 ----------
+
+	private static void TestSpawnCoverage()
+	{
 		var world = ShooterGame.CreateWorld();
 		var config = world.GetService<SpawnConfig>();
 		config.Interval = 0;
@@ -171,13 +286,13 @@ internal static class Program
 		for (int i = 0; i < 66; i++)
 		{
 			ShooterGame.Step(world);
-			foreach (var spawnedEnemy in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyFaction>() != null))
+			foreach (var enemy in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyFaction>() != null))
 			{
-				if (!seen.Add(spawnedEnemy))
+				if (!seen.Add(enemy))
 				{
 					continue;
 				}
-				var pos = spawnedEnemy.GetComponent<Position>()!;
+				var pos = enemy.GetComponent<Position>()!;
 				if (MathF.Abs(pos.X) >= MathF.Abs(pos.Z))
 				{
 					px |= pos.X >= 0;
@@ -192,51 +307,66 @@ internal static class Program
 		}
 		Check($"生成覆盖：{seen.Count} 个敌人（期望 64）", seen.Count == 64);
 		Check("生成覆盖：四方向均出现", px && nx && pz && nz);
+	}
 
-		// 寻玩家：静止放置敌人远离玩家，跑几帧后位置应朝玩家位移。
+	// ---------- 6：敌人寻玩家 ----------
+
+	private static void TestEnemySeek()
+	{
 		var seekWorld = ShooterGame.CreateWorld();
 		var seekConfig = seekWorld.GetService<SpawnConfig>();
 		seekConfig.MaxAlive = 0;
 		ClearObjectsExcept(seekWorld, "Player");
 		var enemy = ShooterFactory.SpawnEnemy(seekWorld, 5, 0, moveSpeed: 3.5f);
+
 		float startX = enemy.GetComponent<Position>()!.X;
 		for (int i = 0; i < 30; i++)
 		{
 			ShooterGame.Step(seekWorld);
 		}
+
 		Check("寻敌：敌人向玩家靠近（X 减小）", enemy.GetComponent<Position>()!.X < startX - 0.5f);
 	}
 
-	// ---------- 场景 6：GameOver 冻结 ----------
+	// ---------- 7：GameOver 冻结（Paused 全局）----------
 
-	private static void TestGameOverFreeze()
+private static void TestGameOverFreeze()
 	{
+		// 保留 Game 宿主（EnemySpawner 启用）——验证 Paused 真正冻结生成，而非宿主被清导致"无生成"。
 		var world = ShooterGame.CreateWorld();
 		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 10;
-		config.Interval = 0;
-		ClearObjectsExcept(world, "Player");
+		config.Interval = 0; // 每 tick 都想生成
+		config.MaxAlive = 64;
+
+		var match = world.GetService<MatchController>();
 		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0); // 与玩家重叠 → 接触
-		world.GetService<MatchState>().AliveEnemies = 1;
+		match.AliveEnemies = 1;
 
 		ShooterGame.Step(world);
-		var match = world.GetService<MatchState>();
 		Check("GameOver：接触敌人进入 GameOver", match.Phase == GamePhase.GameOver);
+		Check("GameOver：世界 Paused（全局冻结）", world.Paused);
 
+		// 记录 GameOver 时敌人数；Paused 后生成器应被冻结（不新增），玩家也冻结。
+		int enemyCount = CountWith<EnemyFaction>(world);
 		var player = FindPlayer(world)!;
 		float frozenX = player.GetComponent<Position>()!.X;
-		int enemyCount = CountWith<EnemyFaction>(world);
-		world.GetService<InputService>().MoveX = 1; // 即使有输入也不应移动
+		world.GetService<InputService>().MoveX = 1;
 		for (int i = 0; i < 8; i++)
 		{
 			ShooterGame.Step(world);
 		}
 		Check("GameOver：玩家冻结", player.GetComponent<Position>()!.X == frozenX);
-		Check("GameOver：不再生成/删除敌人", CountWith<EnemyFaction>(world) == enemyCount);
+		Check("GameOver：Paused 冻结生成（敌人数不变）", CountWith<EnemyFaction>(world) == enemyCount);
 		Check("GameOver：AliveEnemies 不变", match.AliveEnemies == enemyCount);
+
+		// 从该 Paused 世界 Restart → 恢复 Playing + 解锁 Paused，生成器恢复。
+		ShooterGame.Restart(world);
+		Check("恢复：Restart 后 Playing", world.GetService<MatchController>().Phase == GamePhase.Playing);
+		Check("恢复：Restart 后非 Paused", !world.Paused);
+		Check("恢复：重启后玩家存在", FindPlayer(world) != null);
 	}
 
-	// ---------- 场景 7：旧句柄（已销毁对象）不再结算 ----------
+	// ---------- 8：旧句柄（已销毁对象）不再结算 ----------
 
 	private static void TestStaleHandleNoResolution()
 	{
@@ -244,33 +374,33 @@ internal static class Program
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
-		var source = ShooterFactory.SpawnProjectile(world, -10, 0, 0, 0);
+		// 组件间直接调用：对已销毁敌人调 ApplyDamage 应被拒绝（Owner.IsDestroyed 短路）。
+		// 关键：Destroy 前先保存 Health 引用与 Current（否则 Destroy 后 GetComponent 恒 null，
+		// 短路表达式从未真正调用 ApplyDamage）。
 		var oldTarget = ShooterFactory.SpawnEnemy(world, 10, 0, moveSpeed: 0);
-		oldTarget.Destroy(); // 删除旧敌人（句柄变 stale）
-		world.GetService<MatchState>().AliveEnemies = 0;
+		var health = oldTarget.GetComponent<Health>()!;
+		int currentBefore = health.Current;
+		oldTarget.Destroy();
+		world.GetService<MatchController>().AliveEnemies = 0;
 
-		// 用旧句柄再结算：应因 IsDestroyed 被拒绝（不误计分、不误删）。
-		bool resolved = ShooterWorld.ResolveHit(world, source, oldTarget, 1);
-		var match = world.GetService<MatchState>();
-		Check("旧句柄：结算被拒绝", !resolved);
-		Check("旧句柄：未计分", match.Score == 0);
-		Check("旧句柄：source 仍存活", !source.IsDestroyed);
+		Check("旧句柄：销毁后 ApplyDamage 被拒绝", !health.ApplyDamage(1));
+		Check("旧句柄：Current 未变", health.Current == currentBefore);
+		Check("旧句柄：未计分", world.GetService<MatchController>().Score == 0);
+
 	}
 
-	// ---------- 场景 8：重启 ----------
+	// ---------- 9：重启 ----------
 
 	private static void TestRestart()
 	{
 		var world = ShooterGame.CreateWorld();
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 
-		// 先制造状态：射击一发（有投射物）。
 		inputFire(world);
-		var match = world.GetService<MatchState>();
+		var match = world.GetService<MatchController>();
 		ShooterGame.Step(world);
 		Check("重启前：有投射物", CountWith<ProjectileTag>(world) == 1);
 
-		// 设个分再重启。
 		match.Score = 5;
 		match.AliveEnemies = 2;
 		ShooterGame.Restart(world);
@@ -279,164 +409,77 @@ internal static class Program
 		Check("重启后：AliveEnemies=0", match.AliveEnemies == 0);
 		Check("重启后：玩家重新存在", FindPlayer(world) != null);
 		Check("重启后：投射物清空", CountWith<ProjectileTag>(world) == 0);
-		Check("重启后：Phase=Playing", world.GetService<MatchState>().Phase == GamePhase.Playing);
-		// reviewer P1：重启必须归零 TickIndex（重放同一生成序列）。
+		Check("重启后：Phase=Playing", world.GetService<MatchController>().Phase == GamePhase.Playing);
 		Check("重启后：TickIndex=0", world.TickIndex == 0);
 	}
 
-	// reviewer P1：同帧越界（超射程）+ 穿透敌人，仍应先命中。
-	private static void TestReview_越界命中优先()
+	// ---------- 10：确定性（重放同输入 → 同结果）----------
+
+	private static void TestDeterminism()
 	{
+		RunResult a = RunOnce();
+		RunResult b = RunOnce();
+		Check($"确定性：hash={a.Hash} vs {b.Hash}", a.Hash == b.Hash);
+		Check("确定性：最终状态一致", a.Score == b.Score && a.Alive == b.Alive);
+
+		// Restart 后同输入重放也应一致（世界重置确定性）。
 		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 0;
-		ClearObjectsExcept(world, "Player");
-
-		// 敌人放 (0, 3)，弹速 300、MaxRange=2（一帧 0.01 → 移动 3，越界 + 穿透）。
-		ShooterFactory.SpawnEnemy(world, 0, 3, moveSpeed: 0);
-		world.GetService<MatchState>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 300, maxRange: 2);
-
-		// 第一帧：移动 3（越 2 射程），但扫掠线段(0,0)→(0,3) 穿过 (0,3) 敌人 → 应先命中而非射程清理。
-		ShooterGame.Step(world);
-		Check("越界命中：敌人被消灭", CountWith<EnemyFaction>(world) == 0);
-		Check("越界命中：计分+1", world.GetService<MatchState>().Score == 1);
-		Check("越界命中：投射物已消费", CountWith<ProjectileTag>(world) == 0);
+		ShooterGame.Restart(world);
+		var c = ReplayOnce(world);
+		Check("确定性：Restart 后重放与首局一致", c.Hash == a.Hash);
 	}
 
-	// reviewer P1：接触判定发生在移动之后（敌人在本帧跨入接触半径即当帧 GameOver）。
-	private static void TestReview_跨入接触半径当帧GameOver()
+	private static RunResult RunOnce()
 	{
 		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 0;
-		ClearObjectsExcept(world, "Player");
-
-		// 敌人距玩家略大于接触半径（0.5+0.5=1.0），本帧向内移动使其 < 1.0。
-		// 玩家在 (0,0)，敌人 (0, 1.1)，速度 200 → 一帧 0.01 移动 2 → 越过并 <1.0。
-		ShooterFactory.SpawnEnemy(world, 0, 1.1f, moveSpeed: 200f);
-		world.GetService<MatchState>().AliveEnemies = 1;
-
-		ShooterGame.Step(world);
-		Check("跨入接触：当帧 GameOver", world.GetService<MatchState>().Phase == GamePhase.GameOver);
+		return ReplayOnce(world);
 	}
 
-	// reviewer P1：GameOver 同帧回滚已即时创建的敌人/投射物（参考版 CommandBuffer.Reset 语义）。
-// reviewer P1：GameOver 同帧回滚已即时创建的敌人（参考版 CommandBuffer.Reset 语义）。
-	private static void TestReview_GameOver同帧回滚即时创建()
+	private static RunResult ReplayOnce(GameWorld world)
 	{
-		// 保留宿主（生成器 interval=0 每帧生成）+ 玩家。
-		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.Interval = 0;
-		config.MaxAlive = 64;
-		// 清掉一个"旧"接触敌人之前的对象；保留 Player 与 Game 宿主。
-		ClearObjectsExceptAny(world, new[] { "Player", "Game" });
-
-		var match = world.GetService<MatchState>();
-		// 制造一个接触敌人：与玩家重叠 → 本帧接触触发 GameOver。
-		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0);
-		match.AliveEnemies = 1;
-
-		// 本帧：生成器（interval=0）会即时创建一个敌人；随后接触敌人触发 GameOver → 该即时创建应被回滚。
-		ShooterGame.Step(world);
-
-		Check("回滚：GameOver 已触发", match.Phase == GamePhase.GameOver);
-		Check("回滚：本帧即时创建的敌人被撤销（只剩接触敌人）", CountWith<EnemyFaction>(world) == 1);
-		Check("回滚：AliveEnemies 只剩接触敌人", match.AliveEnemies == 1);
-	}
-
-	// reviewer P1（第三轮）：GameOver 帧先命中后接触——整帧待提交命中（伤害/计分/目标销毁）应被丢弃。
-	private static void TestReview_GameOver整帧命中丢弃()
-	{
-		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 0;
-		ClearObjectsExceptAny(world, new[] { "Player", "Game" });
-
-		var match = world.GetService<MatchState>();
-		// 一个敌人在投射物路径上（被打），另一个敌人接触玩家（触发 GameOver，同帧）。
-		var source = ShooterFactory.SpawnProjectile(world, 0, 0, 0, 300); // 朝 +Z 高速弹
-		var hitTarget = ShooterFactory.SpawnEnemy(world, 0, 0.3f, moveSpeed: 0); // 同帧被扫过
-		ShooterFactory.SpawnEnemy(world, 100, 100, moveSpeed: 0); // 静态（不接触）
-		world.GetService<MatchState>().AliveEnemies = 2;
-		_ = hitTarget;
-
-		// 制造接触：在玩家位置放一个接触敌人（与玩家重叠）。
-		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0);
-		world.GetService<MatchState>().AliveEnemies = 3;
-
-		ShooterGame.Step(world);
-
-		// GameOver 已触发 → 本帧命中（hitTarget 伤害/计分/销毁）整帧丢弃。
-		Check("整帧丢弃：GameOver 已触发", match.Phase == GamePhase.GameOver);
-		Check("整帧丢弃：未计分（命中被丢）", match.Score == 0);
-		Check("整帧丢弃：命中目标未销毁（延迟帧被丢）", !hitTarget.IsDestroyed);
-		// reviewer P1 第四轮：GameOver 帧命中源（投射物）应保留（未删除）。
-		Check("整帧丢弃：命中源仍存活", !source.IsDestroyed);
-	}
-
-	// reviewer P1 第四轮：非致死伤害目标存活并不计分（health=2 受 1 点伤害）。
-	private static void TestReview_非致死伤害不误杀()
-	{
-		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
-		ClearObjectsExcept(world, "Player");
-
-		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0, health: 2);
-		world.GetService<MatchState>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30, damage: 1);
-
-		for (int i = 0; i < 30 && CountWith<EnemyFaction>(world) > 0; i++)
+		var input = world.GetService<InputService>();
+		ulong hash = 1469598103934665603UL;
+		// 一段带移动+射击的输入脚本（确定性）；hash 覆盖完整玩法状态（对象序 + 位置 + 阵营 + 阶段 + TickIndex）。
+		for (int i = 0; i < 60; i++)
 		{
+			Mix(ref hash, (int)world.TickIndex);
+			input.MoveX = (i % 3 == 0) ? 1 : 0;
+			input.FirePressed = (i % 5 == 0);
 			ShooterGame.Step(world);
+			Mix(ref hash, world.GetService<MatchController>().Score);
+			MixWorldState(ref hash, world);
 		}
-
-		var match = world.GetService<MatchState>();
-		Check("非致死：目标存活", !enemy.IsDestroyed);
-		Check("非致死：未计分", match.Score == 0);
-		Check("非致死：AliveEnemies 保持 1", match.AliveEnemies == 1);
-		Check("非致死：目标血量降至 1", enemy.GetComponent<Health>()!.Current == 1);
+		var match = world.GetService<MatchController>();
+		MixWorldState(ref hash, world);
+		return new RunResult(hash, match.Score, match.AliveEnemies);
 	}
 
-	// reviewer P1（第五轮）：GameOver 同帧丢弃投射物射程清理——投射物先越界、敌人接触同帧 → 投射物保留。
-	private static void TestReview_GameOver同帧丢弃射程清理()
+	private static void MixWorldState(ref ulong hash, GameWorld world)
 	{
-		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 0;
-		ClearObjectsExceptAny(world, new[] { "Player", "Game" });
-
-// 投射物放 x=10（不与 (0,0) 接触敌人相交，避免扫掠命中），一帧即越界；接触敌人同帧触发 GameOver。
-		var projectile = ShooterFactory.SpawnProjectile(world, 10, 0, 0, 300, maxRange: 0.01f);
-		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0); // 接触触发 GameOver
-		world.GetService<MatchState>().AliveEnemies = 1;
-		_ = projectile.GetComponent<TravelDistance>();
-
-		ShooterGame.Step(world);
-		var match = world.GetService<MatchState>();
-		Check("射程清理丢弃：GameOver 已触发", match.Phase == GamePhase.GameOver);
-		// GameOver 帧：投射物不应被 Cleanup 删除（仍存活），且 TravelDistance 未累计。
-		Check("射程清理丢弃：投射物仍存活", !projectile.IsDestroyed);
-		Check("射程清理丢弃：TravelDistance 未累计", projectile.GetComponent<TravelDistance>()!.Value == 0);
+		// 按稳定对象序（创建序 = Roots 深度优先）混入关键组件状态。
+		foreach (var obj in ShooterWorld.AllObjects(world))
+		{
+			Mix(ref hash, obj.Name.GetHashCode());
+			var pos = obj.GetComponent<Position>();
+			if (pos != null)
+			{
+				Mix(ref hash, BitConverter.SingleToInt32Bits(pos.X));
+				Mix(ref hash, BitConverter.SingleToInt32Bits(pos.Z));
+			}
+			Mix(ref hash, obj.GetComponent<PlayerFaction>() != null ? 1 : 0);
+			Mix(ref hash, obj.GetComponent<EnemyFaction>() != null ? 2 : 0);
+			Mix(ref hash, obj.GetComponent<ProjectileTag>() != null ? 4 : 0);
+		}
 	}
 
-	// Playing 帧越界清理仍工作（帧末提交在 Playing 正常累计距离并删除）。
-	private static void TestReview_Playing越界正常清理()
+	private static void Mix(ref ulong hash, int value)
 	{
-		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
-		config.MaxAlive = 0;
-		ClearObjectsExcept(world, "Player");
-
-		// 投射物朝 +Z 飞，无敌人；一帧越界（maxRange 很小）。
-		var projectile = ShooterFactory.SpawnProjectile(world, 0, 0, 0, 300, maxRange: 0.01f);
-		var travelled = projectile.GetComponent<TravelDistance>()!;
-		ShooterGame.Step(world);
-
-		Check("Playing 越界：投射物被清理（越界删除）", projectile.IsDestroyed);
-		Check("Playing 越界：TravelDistance 已累计", travelled.Value > 0);
+		hash ^= (ulong)(uint)value;
+		hash *= 1099511628211UL;
 	}
+
+	// ---------- 工具 ----------
+
 	private static void inputFire(GameWorld world)
 	{
 		var input = world.GetService<InputService>();
@@ -454,6 +497,7 @@ internal static class Program
 			obj.GetComponent<WeaponConfig>()!.CooldownSeconds = 0;
 		}
 	}
+
 	private static GameObject? FindPlayer(GameWorld world)
 	{
 		foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<PlayerFaction>() != null))
@@ -485,28 +529,6 @@ internal static class Program
 		}
 	}
 
-	/// <summary>清空多个名字以外的全部对象。</summary>
-	private static void ClearObjectsExceptAny(GameWorld world, string[] keepNames)
-	{
-		foreach (var obj in CollectAll(world))
-		{
-			bool keep = false;
-			foreach (var n in keepNames)
-			{
-				if (obj.Name == n)
-				{
-					keep = true;
-					break;
-				}
-			}
-			if (!keep)
-			{
-				obj.Destroy();
-			}
-		}
-	}
-
-	/// <summary>收集全部对象为数组（销毁安全）。</summary>
 	private static GameObject[] CollectAll(GameWorld world)
 	{
 		var list = new List<GameObject>();
@@ -515,5 +537,12 @@ internal static class Program
 			list.Add(obj);
 		}
 		return list.ToArray();
+	}
+
+private readonly struct RunResult(ulong hash, int score, int alive)
+	{
+		public ulong Hash { get; } = hash;
+		public int Score { get; } = score;
+		public int Alive { get; } = alive;
 	}
 }

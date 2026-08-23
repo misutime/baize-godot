@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterWorld.cs —— O2 世界级辅助：对象遍历查询、命中结算、GameOver 仲裁
-//
-// Gameplay 通过 world.Roots/Children 遍历访问对象（O1 内核无全局 Query API；
-// O2 规模小、遍历足够，批量查询留给 O6 可选后端——方案 §14.2）。
+// ShooterWorld.cs —— O2 世界级查询辅助（纯静态遍历；无命中/计分仲裁——逻辑都在组件里）
 
 using System.Collections.Generic;
 using Baize.GameObject;
@@ -35,61 +32,25 @@ public static class ShooterWorld
 			}
 		}
 	}
-
-	/// <summary>投射物命中结算：伤害 → 死亡 → 计分（原 ResolveDamageSystem 语义）。去重由 MatchState 按 Tick 处理。</summary>
-	public static bool ResolveHit(GameWorld world, GameObject source, GameObject target, int amount)
+	/// <summary>组件本帧是否应参与规划（等效 O1 IsTickable：对象存活 + 对象与父链有效启用 + 组件启用）。</summary>
+	public static bool CanTick(GameComponent comp)
 	{
-		var match = world.GetService<MatchState>();
-		return match.HandleProjectileHit(source, target, amount);
-	}
-
-	/// <summary>帧末清理投射物（越界）：登记到 MatchState 帧末源队列，仅 Playing 提交（reviewer P1 第五轮）。</summary>
-public static void ScheduleProjectileCleanup(GameWorld world, GameObject projectile)
-	{
-		world.GetService<MatchState>().ScheduleSourceCleanup(projectile);
-	}
-
-	/// <summary>帧末投射物位移（TravelDistance 累计 + 越界清理）：登记，仅 Playing 提交（reviewer P1 第六轮）。</summary>
-	public static void ScheduleProjectileUpdate(GameWorld world, GameObject projectile, float deltaTravel)
-	{
-		world.GetService<MatchState>().ScheduleProjectileTravel(projectile, deltaTravel);
-	}
-	/// <summary>GameOver 请求：回滚本 Tick 已即时创建的敌人/投射物，再切换阶段（原 CommandBuffer.Reset 语义）。</summary>
-	public static void RequestGameOver(GameWorld world)
-	{
-		var match = world.GetService<MatchState>();
-		if (match.Phase != GamePhase.Playing)
+		if (comp.Owner == null || comp.Owner.IsDestroyed)
 		{
-			return;
+			return false;
 		}
-		var rollback = new List<GameObject>();
-		foreach (var obj in AllObjects(world))
+		if (!comp.Enabled)
 		{
-			if (obj.SpawnTickIndex == world.TickIndex &&
-				(obj.GetComponent<EnemyFaction>() != null || obj.GetComponent<ProjectileTag>() != null))
+			return false;
+		}
+		for (GameObject? obj = comp.Owner; obj != null; obj = obj.Parent)
+		{
+			if (obj.IsDestroyed || !obj.Enabled)
 			{
-				rollback.Add(obj);
+				return false;
 			}
 		}
-		foreach (var obj in rollback)
-		{
-			if (!obj.IsDestroyed)
-			{
-				// 回滚的即时创建敌人需同步销毁状态（AliveEnemies 递减）。
-				if (obj.GetComponent<EnemyFaction>() != null)
-				{
-					match.AliveEnemies = match.AliveEnemies > 0 ? match.AliveEnemies - 1 : 0;
-				}
-				obj.Destroy();
-			}
-		}
-		match.Phase = GamePhase.GameOver;
-	}
-
-	/// <summary>当前是否 Playing（GameOver 冻结门禁，行为组件 OnTick 首行检查）。</summary>
-	public static bool IsPlaying(GameWorld world)
-	{
-		return world.GetService<MatchState>().Phase == GamePhase.Playing;
+		return true;
 	}
 
 	private static IEnumerable<GameObject> Walk(GameObject obj)

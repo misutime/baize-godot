@@ -17,10 +17,15 @@ public static class ShooterGame
 
 	public static void Install(GameWorld world, bool withPlayer = true)
 	{
-		world.AddService(new MatchState());
+		// 全局服务：对局控制器（阶段/计分/冻结）、输入、生成配置、碰撞几何。
+		var match = new MatchController();
+		match.Bind(world);
+		world.AddService(match);
 		world.AddService(new InputService());
 		world.AddService(new SpawnConfig());
 		world.AddService(new SpawnState());
+		world.AddService(new CollisionResolver());
+
 		SetupScene(world, withPlayer);
 	}
 
@@ -34,17 +39,35 @@ public static class ShooterGame
 		}
 	}
 
-/// <summary>一帧步进：Tick 后帧末统一 flush 延迟目标销毁（reviewer P1：同 Tick 多弹命中同一目标 → 帧末销毁）。</summary>
+	/// <summary>步进：控制器先提交本 tick 的不可变运动计划，再统一执行移动与碰撞。</summary>
 	public static void Step(GameWorld world, float delta = 0.01f)
 	{
+		if (!world.Paused)
+		{
+			ulong tickIndex = world.TickIndex + 1;
+
+			// 玩家先规划：敌人据玩家本帧终点寻敌，等价于玩家先移动，但不依赖实际 tick 顺序。
+			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<PlayerControllerBehavior>() != null))
+			{
+				obj.GetComponent<PlayerControllerBehavior>()!.PlanMotion(delta, tickIndex);
+			}
+			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyControllerBehavior>() != null))
+			{
+				obj.GetComponent<EnemyControllerBehavior>()!.PlanMotion(delta, tickIndex);
+			}
+			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<BulletBehavior>() != null))
+			{
+				obj.GetComponent<BulletBehavior>()!.PlanMotion(delta, tickIndex);
+			}
+		}
+
 		world.Tick(delta);
-		world.GetService<MatchState>().FlushFrame(world); // 帧末提交命中（GameOver 整帧丢弃）
 	}
-	/// <summary>重启一局：Reset 清空对象并归零 TickIndex，Services 保留，再重建场景。</summary>
+
 	public static void Restart(GameWorld world)
 	{
 		world.Reset();
-		world.GetService<MatchState>().Reset();
+		world.GetService<MatchController>().Reset();
 		world.GetService<InputService>().Reset();
 		world.GetService<SpawnState>().Remaining = 0;
 		SetupScene(world, withPlayer: true);

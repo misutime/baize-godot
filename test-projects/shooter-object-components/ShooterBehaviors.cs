@@ -1,68 +1,68 @@
 // SPDX-License-Identifier: MIT
-// ShooterBehaviors.cs —— O2 行为组件（替代 ECS System：组件挂对象，OnTick 自驱）
+// ShooterBehaviors.cs —— O2 行为组件（控制器先规划，OnTick 消费；组件只操作 Owner 能力）
 //
-// 每个行为组件 = 原 ECS System 逻辑的组件化。宿主对象：
-// - MoveObjectBehavior / PlayerInputBehavior / FireWeaponBehavior：玩家/敌人/投射物行为
-// - ProjectileBehavior：投射物生命周期（移动 + 扫掠命中 + 射程清理）
-// - EnemyAIBehavior：寻敌 + 接触判定（GameOver 请求）
-// - EnemySpawnerBehavior：挂"世界宿主"对象（Game）
-//
-// GameOver 冻结：所有玩法行为 OnTick 首行检查 IsPlaying（原 ECS RunInState(Playing) 的等价）。
-// 硬门禁：Gameplay 零 Node API、零 Friflo/Baize.Ecs；对象经 world.Roots/Children 遍历访问。
+// 干净 GameObject-first 模型：
+// - 组件直接读/改自己的 Owner 组件，组件间直接调用（如 bullet → enemy.Health.ApplyDamage）。
+// - 阶段控制用 GameWorld.Paused（GameOver 时由 MatchController 设 Paused=true → O1 全局冻结），
+//   组件不再逐帧检查 IsPlaying。
+// - 无 ECS CommandBuffer：创建/命中/死亡都即时、直接（同步销毁 + 对象创建序 tick 天然去重）。
 
 using System;
 using Baize.GameObject;
 
 namespace Shooter.Objects;
 
-/// <summary>移动：previous=current，current += velocity * delta（原 MoveSystem）。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity) })]
-public sealed class MoveObjectBehavior : GameComponent
+/// <summary>移动：把 PreviousPosition/Position 精确提交为本 tick MotionPlan 的起点/终点。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(MotionPlan) })]
+public sealed class MoveBehavior : GameComponent
 {
 	public override void OnTick(float delta)
 	{
-		// GameOver 冻结（原 ECS RunInState(Playing) 的 Go 版等价）。
-		if (!ShooterWorld.IsPlaying(World!))
-		{
-			return;
-		}
 		var pos = Owner!.GetComponent<Position>()!;
 		var prev = Owner!.GetComponent<PreviousPosition>()!;
-		var vel = Owner!.GetComponent<Velocity>()!;
-		prev.X = pos.X;
-		prev.Z = pos.Z;
-		pos.X += vel.X * delta;
-		pos.Z += vel.Z * delta;
+		var plan = Owner!.GetComponent<MotionPlan>()!;
+		prev.X = plan.StartX;
+		prev.Z = plan.StartZ;
+		pos.X = plan.EndX;
+		pos.Z = plan.EndZ;
 	}
 }
 
-/// <summary>玩家输入 → 速度（原 ApplyPlayerInputSystem）。InputService 由测试/回放注入。</summary>
-[GameComponent(Requires = new[] { typeof(Velocity), typeof(MoveSpeed), typeof(PlayerInputMarker) })]
-public sealed class PlayerInputBehavior : GameComponent
+/// <summary>玩家输入控制器：在 tick 前提交本帧唯一运动计划。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(PlayerInputMarker) })]
+public sealed class PlayerControllerBehavior : GameComponent
 {
 	private InputService? _input;
 
-	public override void OnStart()
+	public override void OnCreate()
 	{
 		_input = World!.GetService<InputService>();
 	}
 
-	public override void OnTick(float delta)
+	public void PlanMotion(float delta, ulong tickIndex)
 	{
-		if (!ShooterWorld.IsPlaying(World!))
-		{
-			return;
-		}
+		var pos = Owner!.GetComponent<Position>()!;
 		var vel = Owner!.GetComponent<Velocity>()!;
 		var speed = Owner!.GetComponent<MoveSpeed>()!;
+		var plan = Owner!.GetComponent<MotionPlan>()!;
+		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——不因 MoveBehavior 仍启用而误动。
+		if (!ShooterWorld.CanTick(this))
+		{
+			vel.X = 0;
+			vel.Z = 0;
+			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
+			return;
+		}
 		vel.X = _input!.MoveX * speed.Value;
-		vel.Z = _input!.MoveZ * speed.Value;
+		vel.Z = _input.MoveZ * speed.Value;
+		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
 	}
+
 }
 
-/// <summary>射击：冷却计时 + FirePressed 边沿 → 生成投射物（原 FireWeaponSystem）。</summary>
+/// <summary>射击：冷却计时 + Fire 边沿 → 生成一颗子弹对象（直接调 ShooterFactory，非命令缓冲）。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(WeaponConfig), typeof(Cooldown), typeof(PlayerInputMarker) })]
-public sealed class FireWeaponBehavior : GameComponent
+public sealed class WeaponBehavior : GameComponent
 {
 	private InputService? _input;
 	private GameWorld? _world;
@@ -75,10 +75,6 @@ public sealed class FireWeaponBehavior : GameComponent
 
 	public override void OnTick(float delta)
 	{
-		if (!ShooterWorld.IsPlaying(World!))
-		{
-			return;
-		}
 		var pos = Owner!.GetComponent<Position>()!;
 		var weapon = Owner!.GetComponent<WeaponConfig>()!;
 		var cooldown = Owner!.GetComponent<Cooldown>()!;
@@ -88,31 +84,44 @@ public sealed class FireWeaponBehavior : GameComponent
 		{
 			return;
 		}
-
 		cooldown.Remaining = weapon.CooldownSeconds;
-		// 固定朝 +Z 发射（与 ECS 参考版一致）。
 		ShooterFactory.SpawnProjectile(_world!, pos.X, pos.Z, 0, weapon.ProjectileSpeed);
 	}
 }
 
-/// <summary>投射物生命周期：移动 + 扫掠命中敌人（Previous→Current 线段 vs 敌人圆）+ 射程清理。
-/// 命中即对目标结算伤害（伤害/死亡/计分由 MatchState 去重）。原 SweptProjectileHitSystem + CleanupProjectilesSystem。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(ProjectileConfig), typeof(TravelDistance), typeof(CollisionRadius), typeof(ProjectileTag) })]
-public sealed class ProjectileBehavior : GameComponent
+/// <summary>子弹生命周期：移动 + 扫掠命中敌人（线段-圆距离）。命中 → enemy.Health.ApplyDamage（直接调用），
+/// 若致死则 owner 已销毁、本弹也销毁；越界销毁（即时，非帧末）。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(ProjectileConfig), typeof(TravelDistance), typeof(CollisionRadius), typeof(ProjectileTag) })]
+public sealed class BulletBehavior : GameComponent
 {
 	private GameWorld? _world;
+	private MatchController? _match;
+	private CollisionResolver? _resolver;
 
 	public override void OnStart()
 	{
 		_world = World;
+		_match = _world!.GetService<MatchController>();
+		_resolver = _world!.GetService<CollisionResolver>();
 	}
 
-public override void OnTick(float delta)
+	public void PlanMotion(float delta, ulong tickIndex)
 	{
-		if (!ShooterWorld.IsPlaying(World!))
+		var pos = Owner!.GetComponent<Position>()!;
+		var vel = Owner!.GetComponent<Velocity>()!;
+		var plan = Owner!.GetComponent<MotionPlan>()!;
+		// 未启用：静止计划（不移动；若仍作为可碰撞对象存在则保留在当前位置，避免幽灵轨迹）。
+		if (!ShooterWorld.CanTick(this))
 		{
+			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
 			return;
 		}
+		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
+	}
+
+
+	public override void OnTick(float delta)
+	{
 		var pos = Owner!.GetComponent<Position>()!;
 		var prev = Owner!.GetComponent<PreviousPosition>()!;
 		var vel = Owner!.GetComponent<Velocity>()!;
@@ -120,103 +129,110 @@ public override void OnTick(float delta)
 		var travelled = Owner!.GetComponent<TravelDistance>()!;
 		var radius = Owner!.GetComponent<CollisionRadius>()!;
 
-		// 移动（先记录 previous）。
-		prev.X = pos.X;
-		prev.Z = pos.Z;
-		pos.X += vel.X * delta;
-		pos.Z += vel.Z * delta;
+		var plan = Owner!.GetComponent<MotionPlan>()!;
 
-		// 扫掠命中：对每个存活敌人做线段-圆距离。hit 即结算并销毁**本投射物**；
-		// 目标销毁由 MatchState 延迟到本 Tick 末（同 Tick 多弹都能命中同一目标，reviewer P1）。
+		// 移动与碰撞共同消费控制器在 tick 前提交的同一计划。
+		prev.X = plan.StartX;
+		prev.Z = plan.StartZ;
+		pos.X = plan.EndX;
+		pos.Z = plan.EndZ;
+
+		// 命中只读双方冻结的本帧计划；不会观察到对方执行到一半的实时位置。
+		var self = plan;
 		foreach (var enemy in ShooterWorld.QueryObjects(_world!, o => o.GetComponent<EnemyFaction>() != null))
 		{
-			var enemyPos = enemy.GetComponent<Position>();
-			var enemyRadius = enemy.GetComponent<CollisionRadius>();
-			if (enemyPos == null || enemyRadius == null || enemy.IsDestroyed)
+			if (enemy.IsDestroyed)
 			{
 				continue;
 			}
+			var enemyRadius = enemy.GetComponent<CollisionRadius>();
+			if (enemyRadius == null)
+			{
+				continue;
+			}
+			var enemyPlan = enemy.GetComponent<MotionPlan>();
+			if (enemyPlan == null || enemyPlan.TickIndex != _world!.TickIndex)
+			{
+				continue; // 本 tick 内新建的对象按 O1 快照语义从下一 tick 才参与。
+			}
 			float combined = radius.Value + enemyRadius.Value;
-			float distance = SegmentPointDistance(
-				prev.X, prev.Z, pos.X, pos.Z, enemyPos.X, enemyPos.Z);
+			float distance = _resolver!.SegmentSegmentDistance(
+				self.StartX, self.StartZ, self.EndX, self.EndZ,
+				enemyPlan.StartX, enemyPlan.StartZ, enemyPlan.EndX, enemyPlan.EndZ);
 			if (distance > combined)
 			{
 				continue;
 			}
-// 命中：登记伤害（目标延迟销毁 + 源删除，由 FlushFrame 帧末仅 Playing 提交）。本帧退出，不立即销毁。
-			ShooterWorld.ResolveHit(_world!, Owner!, enemy, config.Damage);
+
+
+			// 命中：敌人 Health.ApplyDamage；致死则敌人自动销毁并计分（MatchController.OnEnemyKilled）。
+			var health = enemy.GetComponent<Health>();
+			if (health != null && health.ApplyDamage(config.Damage))
+			{
+				_match!.OnEnemyKilled();
+			}
+			Owner!.Destroy();
 			return;
 		}
-// 射程累计 + 越界删除：登记到帧末（reviewer P1 第五/六轮：TravelDistance 与 Cleanup 一起仅 Playing 提交）。
-		float frameTravel = MathF.Sqrt(vel.X * vel.X + vel.Z * vel.Z) * delta;
-		ShooterWorld.ScheduleProjectileUpdate(_world!, Owner!, frameTravel);
-	}
 
-	private static float SegmentPointDistance(
-		float x1, float z1, float x2, float z2, float pointX, float pointZ)
-	{
-		float dx = x2 - x1;
-		float dz = z2 - z1;
-		float lengthSquared = dx * dx + dz * dz;
-		if (lengthSquared < 0.0001f)
+
+		// 射程清理（即时；受 world 冻结控制——GameOver 时 Paused 停 tick 不执行）。
+		float moveX = plan.EndX - plan.StartX;
+		float moveZ = plan.EndZ - plan.StartZ;
+		travelled.Value += MathF.Sqrt(moveX * moveX + moveZ * moveZ);
+		if (travelled.Value > config.MaxRange)
 		{
-			float pointDx = pointX - x1;
-			float pointDz = pointZ - z1;
-			return MathF.Sqrt(pointDx * pointDx + pointDz * pointDz);
+			Owner!.Destroy();
 		}
-		float projection = ((pointX - x1) * dx + (pointZ - z1) * dz) / lengthSquared;
-		projection = MathF.Max(0, MathF.Min(1, projection));
-		float closestX = x1 + projection * dx;
-		float closestZ = z1 + projection * dz;
-		float closestDx = pointX - closestX;
-		float closestDz = pointZ - closestZ;
-		return MathF.Sqrt(closestDx * closestDx + closestDz * closestDz);
 	}
 }
 
-/// <summary>敌人 AI：一次完成「寻路→移动→接触」——保证接触判定基于**移动后**的位置（reviewer P1：参考版 Collision 在 Simulation 之后）。
-/// Requires 含 SeekTargetMarker（能力标记，reviewer P2）。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(Velocity), typeof(MoveSpeed), typeof(CollisionRadius), typeof(EnemyFaction), typeof(SeekTargetMarker) })]
-public sealed class EnemyAIBehavior : GameComponent
+/// <summary>敌人控制器：tick 前唯一生成寻敌运动计划；OnTick 只消费该计划并做接触判定。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(CollisionRadius), typeof(EnemyFaction), typeof(SeekTargetMarker) })]
+public sealed class EnemyControllerBehavior : GameComponent
 {
 	private GameWorld? _world;
+	private MatchController? _match;
+	private GameObject? _plannedPlayer;
 
-	public override void OnStart()
+	public override void OnCreate()
 	{
 		_world = World;
+		_match = _world!.GetService<MatchController>();
 	}
 
-	public override void OnTick(float delta)
+	/// <summary>基于玩家本帧计划终点生成敌人的唯一运动计划，并同步提交本帧速度。</summary>
+	public void PlanMotion(float delta, ulong tickIndex)
 	{
-		if (!ShooterWorld.IsPlaying(World!))
-		{
-			return;
-		}
 		var pos = Owner!.GetComponent<Position>()!;
-		var prev = Owner!.GetComponent<PreviousPosition>()!;
-		var vel = Owner!.GetComponent<Velocity>()!;
-		var speed = Owner!.GetComponent<MoveSpeed>()!;
-		var radius = Owner!.GetComponent<CollisionRadius>()!;
-
-		// 1) 寻路：目标方向速度。
-		GameObject? player = null;
-		foreach (var candidate in ShooterWorld.QueryObjects(_world!, o => o.GetComponent<PlayerFaction>() != null))
-		{
-			player = candidate;
-			break;
-		}
-		if (player == null)
+		var vel = Owner.GetComponent<Velocity>()!;
+		var plan = Owner.GetComponent<MotionPlan>()!;
+		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——保持可碰撞但不再移动，
+		// 子弹命中仍按它真实当前位置判定，避免与「O1 跳过 OnTick 的幽灵轨迹」碰撞。
+		if (!ShooterWorld.CanTick(this))
 		{
 			vel.X = 0;
 			vel.Z = 0;
+			_plannedPlayer = null;
+			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
 			return;
 		}
-		var playerPos = player.GetComponent<Position>()!;
-		var playerRadius = player.GetComponent<CollisionRadius>()!;
-
-		float dx = playerPos.X - pos.X;
-		float dz = playerPos.Z - pos.Z;
+		_plannedPlayer = FindPlayer();
+		if (_plannedPlayer == null)
+		{
+			vel.X = 0;
+			vel.Z = 0;
+			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
+			return;
+		}
+		var playerPos = _plannedPlayer.GetComponent<Position>()!;
+		var playerPlan = _plannedPlayer.GetComponent<MotionPlan>();
+		float targetX = playerPlan != null && playerPlan.TickIndex == tickIndex ? playerPlan.EndX : playerPos.X;
+		float targetZ = playerPlan != null && playerPlan.TickIndex == tickIndex ? playerPlan.EndZ : playerPos.Z;
+		float dx = targetX - pos.X;
+		float dz = targetZ - pos.Z;
 		float length = MathF.Sqrt(dx * dx + dz * dz);
+		var speed = Owner.GetComponent<MoveSpeed>()!;
 		if (length > 0.01f)
 		{
 			vel.X = dx / length * speed.Value;
@@ -227,54 +243,78 @@ public sealed class EnemyAIBehavior : GameComponent
 			vel.X = 0;
 			vel.Z = 0;
 		}
+		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
+	}
 
-		// 2) 移动（使用上一帧速度——参考版 MoveSystem 消费 SeekPlayerSystem 写入的速度）。
-		prev.X = pos.X;
-		prev.Z = pos.Z;
-		pos.X += vel.X * delta;
-		pos.Z += vel.Z * delta;
 
-		// 3) 接触判定（移动后位置）。
-		float newDx = playerPos.X - pos.X;
-		float newDz = playerPos.Z - pos.Z;
+	public override void OnTick(float delta)
+	{
+		var pos = Owner!.GetComponent<Position>()!;
+		var prev = Owner.GetComponent<PreviousPosition>()!;
+		var plan = Owner.GetComponent<MotionPlan>()!;
+		var radius = Owner.GetComponent<CollisionRadius>()!;
+
+		prev.X = plan.StartX;
+		prev.Z = plan.StartZ;
+		pos.X = plan.EndX;
+		pos.Z = plan.EndZ;
+
+		if (_plannedPlayer == null || _plannedPlayer.IsDestroyed)
+		{
+			return;
+		}
+		var playerRadius = _plannedPlayer.GetComponent<CollisionRadius>()!;
+		var playerPlan = _plannedPlayer.GetComponent<MotionPlan>();
+		float playerX = playerPlan != null && playerPlan.TickIndex == _world!.TickIndex
+			? playerPlan.EndX : _plannedPlayer.GetComponent<Position>()!.X;
+		float playerZ = playerPlan != null && playerPlan.TickIndex == _world!.TickIndex
+			? playerPlan.EndZ : _plannedPlayer.GetComponent<Position>()!.Z;
+		float newDx = playerX - pos.X;
+		float newDz = playerZ - pos.Z;
 		float newDist = MathF.Sqrt(newDx * newDx + newDz * newDz);
 		if (newDist <= playerRadius.Value + radius.Value)
 		{
-			ShooterWorld.RequestGameOver(_world!);
+			_match!.RequestGameOver();
 		}
+	}
+
+	private GameObject? FindPlayer()
+	{
+		foreach (var candidate in ShooterWorld.QueryObjects(_world!, o => o.GetComponent<PlayerFaction>() != null))
+		{
+			return candidate;
+		}
+		return null;
 	}
 }
 
-/// <summary>敌人生成器（挂世界宿主）：固定节拍 + TickIndex 确定性 HashTick（原 SpawnEnemiesSystem）。</summary>
+
+/// <summary>敌人生成器（挂世界宿主 "Game"）：固定节拍 + TickIndex 确定性 HashTick。</summary>
 [GameComponent]
 public sealed class EnemySpawnerBehavior : GameComponent
 {
 	private GameWorld? _world;
-	private MatchState? _match;
+	private MatchController? _match;
 	private SpawnConfig? _config;
 	private SpawnState? _state;
 
 	public override void OnStart()
 	{
 		_world = World;
-		_match = _world!.GetService<MatchState>();
+		_match = _world!.GetService<MatchController>();
 		_config = _world!.GetService<SpawnConfig>();
 		_state = _world!.GetService<SpawnState>();
 	}
 
 	public override void OnTick(float delta)
 	{
-		if (_match!.Phase != GamePhase.Playing)
-		{
-			return;
-		}
 		_state!.Remaining -= delta;
 		if (_state.Remaining > 0)
 		{
 			return;
 		}
 		_state.Remaining = _config!.Interval;
-		if (_match.AliveEnemies >= _config.MaxAlive)
+		if (_match!.AliveEnemies >= _config.MaxAlive)
 		{
 			return;
 		}
@@ -290,6 +330,49 @@ public sealed class EnemySpawnerBehavior : GameComponent
 			_ => (edgeOffset, -_config.SpawnRadius),
 		};
 		ShooterFactory.SpawnEnemy(_world!, x, z);
-		_match.AliveEnemies++;
+		_match.OnEnemySpawned();
+	}
+}
+
+/// <summary>碰撞几何：顺序无关的扫掠距离（共享，避免重复代码；作为 Service 注入保持组件自包含）。</summary>
+public sealed class CollisionResolver
+{
+	/// <summary>两条运动轨迹 (a1→a2) 与 (b1→b2) 的同步扫掠最短距离。
+	/// 各点沿线段匀速运动（同为 tick 时间参数 t），相对位置 r(t)=(A0-B0)+t*((A1-A0)-(B1-B0))；
+	/// 所以最短距离 = 原点到线段 [(A0-B0),(A1-B1)] 的距离。与 tick 执行顺序无关，且正确处理内部相交/异时误报。</summary>
+	public float SegmentSegmentDistance(
+		float a1x, float a1z, float a2x, float a2z,
+		float b1x, float b1z, float b2x, float b2z)
+	{
+		// 相对运动端点：t=0 与 t=1 时的 (A-B)。线段另一端直接相减即得（见推导）。
+		float r0x = a1x - b1x;
+		float r0z = a1z - b1z;
+		float r1x = a2x - b2x;
+		float r1z = a2z - b2z;
+		// 原点到相对运动线段的最短距离（复用点到线段函数）。
+		return PointSegment(r0x, r0z, r1x, r1z, 0f, 0f);
+	}
+
+
+	/// <summary>点 (px,pz) 到线段 (x1,z1)-(x2,z2) 的最短距离。</summary>
+	private float PointSegment(float x1, float z1, float x2, float z2, float px, float pz)
+	{
+		float dx = x2 - x1;
+		float dz = z2 - z1;
+		float lengthSquared = dx * dx + dz * dz;
+		// 仅真正零长度（接近 float 精度）才退化为点；小幅相对位移仍走投影，避免漏判跨过碰撞半径的运动。
+		if (lengthSquared < 1e-12f)
+		{
+			float pointDx = px - x1;
+			float pointDz = pz - z1;
+			return MathF.Sqrt(pointDx * pointDx + pointDz * pointDz);
+		}
+		float projection = ((px - x1) * dx + (pz - z1) * dz) / lengthSquared;
+		projection = MathF.Max(0, MathF.Min(1, projection));
+		float closestX = x1 + projection * dx;
+		float closestZ = z1 + projection * dz;
+		float closestDx = px - closestX;
+		float closestDz = pz - closestZ;
+		return MathF.Sqrt(closestDx * closestDx + closestDz * closestDz);
 	}
 }
