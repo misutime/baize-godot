@@ -24,9 +24,8 @@ public sealed class GameObject
 
 	public ObjectId Id { get; }
 	public uint CreationIndex { get; internal set; }
-	/// <summary>作者/静态场景稳定 ID（O1/O4 契约；O4 起由 .bscene/.bprefab 解析器填充）。</summary>
-	/// <summary>作者/静态场景稳定 ID（O1/O4 契约；O4 起由 .bscene/.bprefab 解析器填充）。</summary>
-	public AuthoringObjectId AuthoringId { get; internal set; }
+	/// <summary>文件层稳定身份（O4：.bscene/.bprefab 内 @hex）；0 = 运行时无文件层身份。</summary>
+	public StableObjectId StableId { get; internal set; }
 
 	/// <summary>prefab 来源模板引用（O4，契约 §8 预留）：实例对象指向 .bprefab 路径；非实例 = 空。</summary>
 	public string SourceTemplate { get; internal set; } = string.Empty;

@@ -3,7 +3,7 @@
 
 > 阶段：O4（§14.10 修订路线：O4 = `.bscene/.bprefab` 最小格式和实例化计划）。
 > 本文是 **O4 阶段权威**：格式编码规则引用 `O3-可读格式契约草案.md`（R26，不改动其确定性/校验语义）；
-> 本阶段在此基础上定义**文件层扩展**：AuthoringId 双身份、prefab 引用与实例化、override 记录、loader 链路。
+> 本阶段在此基础上定义**文件层扩展**：StableId 双身份、prefab 引用与实例化、override 记录、loader 链路。
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§6.1/6.2/6.3/§8、§14.10）。
 > 实现：`modules/gameobject/`（`GameWorldTextSerializer` @id 扩展 + `BSceneLoader`）；验证：`test-projects/gameobject-core-tests/`。
 
@@ -25,14 +25,14 @@
 
 | 层 | 载体 | 身份 | 引用 |
 |---|---|---|---|
-| O3 编码层 | `GameWorldSnapshot ↔ 文本` | 无 AuthoringId（可空） | `#DFS序号`（运行时临时拓扑索引） |
-| O4 文件层 | `.bscene` / `.bprefab` | **AuthoringId（`@<hex>`，稳定作者身份）** | `@AuthoringId`（持久）/ `#序号`（本文件内快捷） |
+| O3 编码层 | `GameWorldSnapshot ↔ 文本` | 无 StableId（可空） | `#DFS序号`（运行时临时拓扑索引） |
+| O4 文件层 | `.bscene` / `.bprefab` | **StableId（`@<hex>`，稳定作者身份）** | `@id`（持久）/ `#序号`（本文件内快捷） |
 
 - O3 层语义**不动**：DFS 前序校验、头部阶段化、strict token、幂等、hash 口径全部沿用。
-- O4 层 = O3 语法 + **对象级 AuthoringId** + **prefab 引用行** + **override 区**。
-- AuthoringId **不进入 `ComputeHash`**（运行时 hash 口径不变）；只服务作者文件的稳定引用与 diff。
+- O4 层 = O3 语法 + **对象级 StableId** + **prefab 引用行** + **override 区**。
+- StableId **不进入 `ComputeHash`**（运行时 hash 口径不变）；只服务作者文件的稳定引用与 diff。
 
-## 3. AuthoringId 双身份（文件层扩展）
+## 3. StableId 双身份（文件层扩展）
 
 ### 3.1 对象行扩展
 
@@ -42,12 +42,12 @@ object #3 "临时对象" parent = #2                     # 运行时格式：仍
 object @5e "Cube" #4 parent = @01a3c5e7             # 混合：@id + #序号可并存（# 仅作 diff 参照）
 ```
 
-- `@<hex16>`：`AuthoringObjectId`（ulong 的 16 位 hex，`Identity.cs` 既有语义）；`@0`/缺省 = 无作者身份（运行时对象）。
+- `@<hex16>`：`StableObjectId`（ulong 的 16 位 hex，`Identity.cs` 既有语义）；`@0`/缺省 = 无作者身份（运行时对象）。
 - **文件内 @id 必须唯一**（作者态身份）；重复 → 报错（带行号与重复值）。
 - `parent` 引用两种形态：`parent = @<id>`（按 id 查映射）或 `parent = #<序号>`（O3 原样）。
   **DFS 前序校验对两种形态一致**（解析成 ParentIndex 后共用祖先栈校验）。
-- `authoringId` 写入 `GameObject.AuthoringId`（O1 预留字段）；`AuthoringObjectId` 参与
-  **快照记录**（`GameObjectRecord.AuthoringId` 新增，可空 0 = 无），但**不参与 hash**。
+- `StableId` 写入 `GameObject.StableId`（O1 预留字段）；`StableObjectId` 参与
+  **快照记录**（`GameObjectRecord.StableId` 新增，可空 0 = 无），但**不参与 hash**。
 
 ### 3.2 关系行扩展
 
@@ -93,8 +93,8 @@ object @f1 "敌人实例" prefab = "res://Enemy.bprefab" parent = @01a3c5e7
 - `prefab = "<路径>"`（对象级字段，映射 `SourceTemplate`）：loader 解析 → 复制模板树到该位置。
 - **实例化语义**（v1 最小）：
   - 模板树**整棵复制**（深拷贝快照记录 + 属性值），模板内 @id 需**重影射为唯一 id**（防与场景内其它对象撞 id）；
-  - root 对象：名字/启用状态用场景行覆盖；`AuthoringId` 用场景行声明（模板 root 的 @id 不保留）；
-  - 非 root：保留模板相对层级，AuthoringId 由 loader 生成或复用模板（重映射后唯一）；
+  - root 对象：名字/启用状态用场景行覆盖；`StableId` 用场景行声明（模板 root 的 @id 不保留）；
+  - 非 root：保留模板相对层级，StableId 由 loader 生成或复用模板（重映射后唯一）；
   - 实例 root 记录 `SourceTemplate = prefab 路径`（运行时只读元数据，序列化时保留）。
 
 ### 4.3 override 区（B3 借鉴）
@@ -157,5 +157,5 @@ public static class BSceneLoader
 - [x] override 应用：实例组件属性被覆盖（模板值 → 场景 override 值）；
 - [x] @id 唯一性校验、未知 @ref / 越界报错（带上下文）；
 - [x] 未知组件的 override → R24 Throw/Skip 生效；
-- [x] `GameObject.AuthoringId` 经 Restore 写回、Capture 再导出（round-trip 保真）；
+- [x] `GameObject.StableId` 经 Restore 写回、Capture 再导出（round-trip 保真）；
 - [x] 全部既有 O1–O3 测试不回归（223 项基线）。

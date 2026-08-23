@@ -42,10 +42,10 @@ public static class GameWorldTextSerializer
 		for (int i = 0; i < snapshot.Objects.Count; i++)
 		{
 			var record = snapshot.Objects[i];
-			// O4：@authoringId 前缀（作者格式，O4 文档 §3）；快照无作者身份则省略。
-			if (record.AuthoringId != 0)
+			// O4：@stableId 前缀（文件层稳定身份，O4 文档 §3）；快照无则省略。
+			if (record.StableId != 0)
 			{
-				sb.Append("object @").Append(record.AuthoringId.ToString("x16", CultureInfo.InvariantCulture));
+				sb.Append("object @").Append(record.StableId.ToString("x16", CultureInfo.InvariantCulture));
 				// 无 # 序号（作者格式）：名字直接跟随。
 				sb.Append(" \"").Append(Escape(record.Name)).Append('"');
 			}
@@ -55,8 +55,8 @@ public static class GameWorldTextSerializer
 			}
 			if (record.ParentIndex >= 0 && record.ParentIndex < i) // 父索引 < 子索引（DFS 序契约 + 引用校验）
 			{
-				// O4：父有作者身份 → @id 引用（文件层稳定）；否则 # 序号。
-				ulong pid = snapshot.Objects[record.ParentIndex].AuthoringId;
+				// O4：父有稳定身份 → @id 引用（文件层稳定）；否则 # 序号。
+				ulong pid = snapshot.Objects[record.ParentIndex].StableId;
 				if (pid != 0)
 				{
 					sb.Append(" parent = @").Append(pid.ToString("x16", CultureInfo.InvariantCulture));
@@ -95,9 +95,9 @@ public static class GameWorldTextSerializer
 			{
 				throw new InvalidOperationException($"快照关系索引越界（{rel.TypeName}）。");
 			}
-			// O4：端点有作者身份 → @id 引用；否则 # 序号。
-			ulong sId = snapshot.Objects[rel.SourceIndex].AuthoringId;
-			ulong tId = snapshot.Objects[rel.TargetIndex].AuthoringId;
+			// O4：端点有稳定身份 → @id 引用；否则 # 序号。
+			ulong sId = snapshot.Objects[rel.SourceIndex].StableId;
+			ulong tId = snapshot.Objects[rel.TargetIndex].StableId;
 			sb.Append("relation ").Append(rel.TypeName)
 				.Append(sId != 0 ? " @" + sId.ToString("x16", CultureInfo.InvariantCulture) : " #" + rel.SourceIndex.ToString(CultureInfo.InvariantCulture))
 				.Append(" -> ")
@@ -194,18 +194,18 @@ public static class GameWorldTextSerializer
 				throw Error(lineNo, $"头部行重复或出现在正文之后：{line}");
 			}
 
-			// 对象行：object [@<authoringId>] #<DFS序号> "<名字>" [parent = @<id>|#<序号>] [enabled = false]
+			// 对象行：object [@<stableId>] #<DFS序号> "<名字>" [parent = @<id>|#<序号>] [enabled = false]
 			if (line.StartsWith("object ", StringComparison.Ordinal))
 			{
 				string rest = line.Substring("object ".Length).Trim();
-				ulong authoringId = 0;
+				ulong stableId = 0;
 				if (rest.StartsWith('@'))
 				{
 					int atEnd = rest.IndexOf(' ');
 					string idText = atEnd < 0 ? rest.Substring(1) : rest.Substring(1, atEnd - 1);
-					if (!TryParseAuthoringId(idText, out authoringId))
+					if (!TryParseStableId(idText, out stableId))
 					{
-						throw Error(lineNo, $"对象行 @authoringId 格式错误（期望 hex16）：{rest}");
+						throw Error(lineNo, $"对象行 @stableId 格式错误（期望 hex16）：{rest}");
 					}
 					rest = atEnd < 0 ? "" : rest.Substring(atEnd).Trim();
 				}
@@ -256,9 +256,9 @@ public static class GameWorldTextSerializer
 						{
 							int pEnd = remaining.IndexOfAny(new[] { ' ', '\t' }, "parent = @".Length);
 							string pText = pEnd < 0 ? remaining.Substring("parent = @".Length) : remaining.Substring("parent = @".Length, pEnd - "parent = @".Length);
-							if (!TryParseAuthoringId(pText, out ulong pid) || !idToIndex.TryGetValue(pid, out parentIndex))
+							if (!TryParseStableId(pText, out ulong pid) || !idToIndex.TryGetValue(pid, out parentIndex))
 							{
-								throw Error(lineNo, $"parent = @{pText} 引用了不存在或尚未出现的作者ID（O4 §3 映射）。");
+								throw Error(lineNo, $"parent = @{pText} 引用了不存在或尚未出现的稳定ID（O4 §3 映射）。");
 							}
 							remaining = pEnd < 0 ? "" : remaining.Substring(pEnd).Trim();
 						}
@@ -327,14 +327,14 @@ public static class GameWorldTextSerializer
 					Name = name,
 					Enabled = enabled,
 					ParentIndex = parentIndex,
-					AuthoringId = authoringId, // O4：作者身份随快照（不参与 hash）
+					StableId = stableId, // O4：文件层稳定身份随快照（不参与 hash）
 					SourceTemplate = sourceTemplate, // O4：prefab 来源模板
 					Components = new List<GameComponentRecord>(),
 				});
-				// O4：注册 @id → 索引映射（唯一性校验：重复作者 ID 报错）。
-				if (authoringId != 0 && !idToIndex.TryAdd(authoringId, currentObject))
+				// O4：注册 @id → 索引映射（唯一性校验：重复稳定 ID 报错）。
+				if (stableId != 0 && !idToIndex.TryAdd(stableId, currentObject))
 				{
-					throw Error(lineNo, $"作者ID @{authoringId.ToString("x16", CultureInfo.InvariantCulture)} 重复（O4 §3 唯一性约束）。");
+					throw Error(lineNo, $"稳定ID @{stableId.ToString("x16", CultureInfo.InvariantCulture)} 重复（O4 §3 唯一性约束）。");
 				}
 				continue;
 			}
@@ -573,8 +573,8 @@ public static class GameWorldTextSerializer
 int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 		double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
 
-	/// <summary>解析 @hex16 作者ID（O4 §3；@0 视为无身份）。</summary>
-	private static bool TryParseAuthoringId(string text, out ulong value)
+	/// <summary>解析 @hex16 稳定ID（O4 §3；@0 视为无身份）。</summary>
+	private static bool TryParseStableId(string text, out ulong value)
 	{
 		value = 0;
 		return ulong.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
@@ -586,7 +586,7 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 		index = -1;
 		if (refText.StartsWith('@'))
 		{
-			return TryParseAuthoringId(refText.Substring(1), out ulong pid) && idToIndex.TryGetValue(pid, out index);
+			return TryParseStableId(refText.Substring(1), out ulong pid) && idToIndex.TryGetValue(pid, out index);
 		}
 		if (refText.StartsWith('#'))
 		{
