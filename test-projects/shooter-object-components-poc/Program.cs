@@ -286,7 +286,7 @@ internal static class Program
 		for (int i = 0; i < 66; i++)
 		{
 			ShooterGame.RunFrame(world);
-			foreach (var enemy in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyFaction>() != null))
+			foreach (var enemy in ShooterWorldHelper.QueryObjects(world, o => o.GetComponent<EnemyFaction>() != null))
 			{
 				if (!seen.Add(enemy))
 				{
@@ -457,7 +457,7 @@ private static void TestGameOverFreeze()
 	private static void MixWorldState(ref ulong hash, GameWorld world)
 	{
 		// 按稳定对象序（创建序 = Roots 深度优先）混入关键组件状态。
-		foreach (var obj in ShooterWorld.AllObjects(world))
+		foreach (var obj in ShooterWorldHelper.AllObjects(world))
 		{
 			Mix(ref hash, obj.Name.GetHashCode());
 			var pos = obj.GetComponent<Position>();
@@ -492,7 +492,7 @@ private static void TestGameOverFreeze()
 
 	private static void SetPlayerCooldownZero(GameWorld world)
 	{
-		foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<WeaponConfig>() != null))
+		foreach (var obj in ShooterWorldHelper.QueryObjects(world, o => o.GetComponent<WeaponConfig>() != null))
 		{
 			obj.GetComponent<WeaponConfig>()!.CooldownSeconds = 0;
 		}
@@ -500,7 +500,7 @@ private static void TestGameOverFreeze()
 
 	private static GameObject? FindPlayer(GameWorld world)
 	{
-		foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<PlayerFaction>() != null))
+		foreach (var obj in ShooterWorldHelper.QueryObjects(world, o => o.GetComponent<PlayerFaction>() != null))
 		{
 			return obj;
 		}
@@ -510,7 +510,7 @@ private static void TestGameOverFreeze()
 	private static int CountWith<T>(GameWorld world) where T : GameComponent
 	{
 		int count = 0;
-		foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<T>() != null))
+		foreach (var obj in ShooterWorldHelper.QueryObjects(world, o => o.GetComponent<T>() != null))
 		{
 			count++;
 		}
@@ -532,7 +532,7 @@ private static void TestGameOverFreeze()
 	private static GameObject[] CollectAll(GameWorld world)
 	{
 		var list = new List<GameObject>();
-		foreach (var obj in ShooterWorld.AllObjects(world))
+		foreach (var obj in ShooterWorldHelper.AllObjects(world))
 		{
 			list.Add(obj);
 		}

@@ -54,7 +54,7 @@ public static class ShooterGame
 			// 玩家先规划，敌人据玩家本帧终点寻敌，子弹提交自身线段——顺序即游戏语义，不依赖 tick 顺序。
 			foreach (var phase in _planPhases)
 			{
-				ShooterWorld.PlanMotion(world, delta, tickIndex, phase);
+				ShooterWorldHelper.PlanMotion(world, delta, tickIndex, phase);
 			}
 		}
 

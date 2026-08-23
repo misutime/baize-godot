@@ -46,7 +46,7 @@ public sealed class PlayerControllerAction : GameComponent
 		var speed = Owner!.GetComponent<MoveSpeed>()!;
 		var plan = Owner!.GetComponent<MotionPlan>()!;
 		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——不因 MoveAction 仍启用而误动。
-		if (!ShooterWorld.CanTick(this))
+		if (!ShooterWorldHelper.CanTick(this))
 		{
 			vel.X = 0;
 			vel.Z = 0;
@@ -111,7 +111,7 @@ public sealed class BulletAction : GameComponent
 		var vel = Owner!.GetComponent<Velocity>()!;
 		var plan = Owner!.GetComponent<MotionPlan>()!;
 		// 未启用：静止计划（不移动；若仍作为可碰撞对象存在则保留在当前位置，避免幽灵轨迹）。
-		if (!ShooterWorld.CanTick(this))
+		if (!ShooterWorldHelper.CanTick(this))
 		{
 			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
 			return;
@@ -139,7 +139,7 @@ public sealed class BulletAction : GameComponent
 
 		// 命中只读双方冻结的本帧计划；不会观察到对方执行到一半的实时位置。
 		var self = plan;
-		foreach (var enemy in ShooterWorld.QueryObjects(_world!, o => o.GetComponent<EnemyFaction>() != null))
+		foreach (var enemy in ShooterWorldHelper.QueryObjects(_world!, o => o.GetComponent<EnemyFaction>() != null))
 		{
 			if (enemy.IsDestroyed)
 			{
@@ -209,7 +209,7 @@ public sealed class EnemyControllerAction : GameComponent
 		var plan = Owner.GetComponent<MotionPlan>()!;
 		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——保持可碰撞但不再移动，
 		// 子弹命中仍按它真实当前位置判定，避免与「O1 跳过 OnTick 的幽灵轨迹」碰撞。
-		if (!ShooterWorld.CanTick(this))
+		if (!ShooterWorldHelper.CanTick(this))
 		{
 			vel.X = 0;
 			vel.Z = 0;
@@ -280,7 +280,7 @@ public sealed class EnemyControllerAction : GameComponent
 
 	private GameObject? FindPlayer()
 	{
-		foreach (var candidate in ShooterWorld.QueryObjects(_world!, o => o.GetComponent<PlayerFaction>() != null))
+		foreach (var candidate in ShooterWorldHelper.QueryObjects(_world!, o => o.GetComponent<PlayerFaction>() != null))
 		{
 			return candidate;
 		}

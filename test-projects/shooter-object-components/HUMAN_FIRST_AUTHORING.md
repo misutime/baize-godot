@@ -194,7 +194,7 @@ Shooter 示例：
 RunFrame(world)：
   1) 若未 Paused：tickIndex = world.TickIndex + 1
      按 PlanPhase 声明序遍历（PlayerInput → Enemy → Projectile）：
-        ShooterWorld.PlanMotion(world, delta, tickIndex, phase)
+        ShooterWorldHelper.PlanMotion(world, delta, tickIndex, phase)
         - PlayerInput → 每个 PlayerControllerAction.PlanMotion   // 玩家先规划
         - Enemy       → 每个 EnemyControllerAction.PlanMotion    // 敌人读玩家本帧终点
         - Projectile  → 每个 BulletAction.PlanMotion             // 子弹提交自身线段
@@ -353,7 +353,7 @@ shooter-object-components/
 ├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
 ├─ ShooterGame.cs                 # 唯一装配根 + RunFrame（规划阶段 + world.Tick）
-├─ ShooterWorld.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
+├─ ShooterWorldHelper.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
 └─ HUMAN_FIRST_AUTHORING.md
 
 shooter-object-components-poc/

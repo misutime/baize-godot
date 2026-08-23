@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterWorld.cs —— O2 世界级查询辅助（纯静态遍历；无命中/计分仲裁——逻辑都在组件里）
+// ShooterWorldHelper.cs —— O2 世界级查询辅助（纯静态遍历；无命中/计分仲裁——逻辑都在组件里）
 
 using System.Collections.Generic;
 using Baize.GameObject;
@@ -16,7 +16,7 @@ public enum PlanPhase
 }
 
 /// <summary>世界辅助（纯静态功能，不持有状态）。</summary>
-public static class ShooterWorld
+public static class ShooterWorldHelper
 {
 	/// <summary>深度优先遍历全部对象（含子树）。</summary>
 	public static IEnumerable<GameObject> AllObjects(GameWorld world)
