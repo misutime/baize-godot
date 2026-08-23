@@ -6,9 +6,9 @@
 
 一句总纲：
 
-> **Object + Components ≈ ECS。对象不是「某种类的实例」，它只是若干独立组件挂在同一个 Id 上；规则围绕组件复用，而不是围绕实体类型树写 if/else。**
+> **Object + Components ≈ ECS。`Object`（对象）不是「某种类的实例」，它只是若干独立组件挂在同一个 Id 上；规则围绕组件复用，而不是围绕实体类型树写 if/else。**
 
-先锚定名称：**「对象」= `GameObject`（≈ ECS 的 Entity），「组件」= `GameComponent`（≈ ECS 的 Component）**——对象承载 Id，组件是挂在 Id 上的那块数据。
+先锚定名称：**`Object`/对象 = `GameObject`（≈ ECS 的 Entity），组件 = `GameComponent`（≈ ECS 的 Component）**——对象承载 Id，组件是挂在 Id 上的那块数据。
 
 本项目沿用既定命名：
 
