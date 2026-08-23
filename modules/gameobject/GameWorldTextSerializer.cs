@@ -40,15 +40,15 @@ public static class GameWorldTextSerializer
 		sb.Append('\n');
 
 		// uid-only（用户裁定，O3 草案 §2.1）：为每个对象确定文本身份——
-		// 已有 StableId 直接用；无（匿名/运行时快照）则按出现序自动分配临时 uid（跳过已用值，保证唯一）。
+		// 已有 Uid 直接用；无（匿名/运行时快照）则按出现序自动分配临时 uid（跳过已用值，保证唯一）。
 		var effectiveUid = new ulong[snapshot.Objects.Count];
 		var used = new HashSet<ulong>();
 		for (int i = 0; i < snapshot.Objects.Count; i++)
 		{
-			if (snapshot.Objects[i].StableId != 0)
+			if (snapshot.Objects[i].Uid != 0)
 			{
-				effectiveUid[i] = snapshot.Objects[i].StableId;
-				used.Add(snapshot.Objects[i].StableId);
+				effectiveUid[i] = snapshot.Objects[i].Uid;
+				used.Add(snapshot.Objects[i].Uid);
 			}
 		}
 		ulong nextAuto = 1;
@@ -199,18 +199,18 @@ public static class GameWorldTextSerializer
 				throw Error(lineNo, $"头部行重复或出现在正文之后：{line}");
 			}
 
-			// 对象行：object [@<stableId>] "<名字>" [parent = @<id>] [enabled = false] [prefab = "..."]（uid-only）
+			// 对象行：object [@<uid>] "<名字>" [parent = @<id>] [enabled = false] [prefab = "..."]（uid-only）
 			if (line.StartsWith("object ", StringComparison.Ordinal))
 			{
 				string rest = line.Substring("object ".Length).Trim();
-				ulong stableId = 0;
+				ulong uid = 0;
 				if (rest.StartsWith('@'))
 				{
 					int atEnd = rest.IndexOf(' ');
 					string idText = atEnd < 0 ? rest.Substring(1) : rest.Substring(1, atEnd - 1);
-					if (!TryParseStableId(idText, out stableId))
+					if (!TryParseUid(idText, out uid))
 					{
-						throw Error(lineNo, $"对象行 @stableId 格式错误（期望 hex16）：{rest}");
+						throw Error(lineNo, $"对象行 @uid 格式错误（期望 hex16）：{rest}");
 					}
 					rest = atEnd < 0 ? "" : rest.Substring(atEnd).Trim();
 				}
@@ -246,7 +246,7 @@ public static class GameWorldTextSerializer
 						{
 							int pEnd = remaining.IndexOfAny(new[] { ' ', '\t' }, "parent = @".Length);
 							string pText = pEnd < 0 ? remaining.Substring("parent = @".Length) : remaining.Substring("parent = @".Length, pEnd - "parent = @".Length);
-							if (!TryParseStableId(pText, out ulong pid) || !idToIndex.TryGetValue(pid, out parentIndex))
+							if (!TryParseUid(pText, out ulong pid) || !idToIndex.TryGetValue(pid, out parentIndex))
 							{
 								throw Error(lineNo, $"parent = @{pText} 引用了不存在或尚未出现的稳定ID（O4 §3 映射）。");
 							}
@@ -307,14 +307,14 @@ public static class GameWorldTextSerializer
 					Name = name,
 					Enabled = enabled,
 					ParentIndex = parentIndex,
-					StableId = stableId, // O4：文件层稳定身份随快照（不参与 hash）
+					Uid = uid, // O4：文件层稳定身份随快照（不参与 hash）
 					SourceTemplate = sourceTemplate, // O4：prefab 来源模板
 					Components = new List<GameComponentRecord>(),
 				});
 				// O4：注册 @id → 索引映射（唯一性校验：重复稳定 ID 报错）。
-				if (stableId != 0 && !idToIndex.TryAdd(stableId, currentObject))
+				if (uid != 0 && !idToIndex.TryAdd(uid, currentObject))
 				{
-					throw Error(lineNo, $"稳定ID @{stableId.ToString("x16", CultureInfo.InvariantCulture)} 重复（O4 §3 唯一性约束）。");
+					throw Error(lineNo, $"稳定ID @{uid.ToString("x16", CultureInfo.InvariantCulture)} 重复（O4 §3 唯一性约束）。");
 				}
 				continue;
 			}
@@ -553,7 +553,7 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 		double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
 
 	/// <summary>解析 @hex16 稳定ID（O4 §3；@0 视为无身份）。</summary>
-	private static bool TryParseStableId(string text, out ulong value)
+	private static bool TryParseUid(string text, out ulong value)
 	{
 		value = 0;
 		return ulong.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
@@ -565,7 +565,7 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 		index = -1;
 		if (refText.StartsWith('@'))
 		{
-			return TryParseStableId(refText.Substring(1), out ulong pid) && idToIndex.TryGetValue(pid, out index);
+			return TryParseUid(refText.Substring(1), out ulong pid) && idToIndex.TryGetValue(pid, out index);
 		}
 		return false;
 	}

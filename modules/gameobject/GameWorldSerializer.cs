@@ -21,7 +21,7 @@ public sealed class GameObjectRecord
 	public string Name = string.Empty;
 
 	/// <summary>文件层稳定身份（O4 @hex）；0 = 无。不参与 ComputeHash（O4 文档 §2）。</summary>
-	public ulong StableId;
+	public ulong Uid;
 
 	/// <summary>prefab 来源模板引用（O4；空 = 非实例）。随快照序列化，不参与 hash。</summary>
 	public string SourceTemplate = string.Empty;
@@ -110,7 +110,7 @@ public static class GameWorldSerializer
 			{
 				Name = obj.Name,
 				Enabled = obj.Enabled,
-				StableId = obj.StableId.Value, // O4：文件层稳定身份随快照（不参与 hash）
+				Uid = obj.Uid.Value, // O4：文件层稳定身份随快照（不参与 hash）
 				SourceTemplate = obj.SourceTemplate, // O4：prefab 来源模板（不参与 hash）
 			};
 			var schemaCache = new Dictionary<Type, ComponentSchema>();
@@ -216,9 +216,9 @@ public static class GameWorldSerializer
 			created[i] = world.CreateGameObject(snapshot.Objects[i].Name);
 			world.SetEnabled(created[i], snapshot.Objects[i].Enabled);
 			// O4：文件层稳定身份与 prefab 来源随快照写回（不参与 hash，契约 §8/§10 口径不变）。
-			if (snapshot.Objects[i].StableId != 0)
+			if (snapshot.Objects[i].Uid != 0)
 			{
-				created[i].StableId = new StableObjectId(snapshot.Objects[i].StableId);
+				created[i].Uid = new Uid(snapshot.Objects[i].Uid);
 			}
 			if (snapshot.Objects[i].SourceTemplate.Length > 0)
 			{

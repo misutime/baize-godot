@@ -19,7 +19,7 @@ EditorPreviewHost         // 编辑器预览宿主（O7）
 ```
 
 - C# 类型名：`GameObject` / `GameWorld` / `GameComponent`；命名空间 `Sola3d.GameObject`；程序集 `Sola3d.GameObject`（模块 `modules/gameobject/`）。
-- 身份分层（§14.7）：`StableObjectId`（.bscene/.bprefab 内稳定作者 ID，O4 用）与 `ObjectId`（运行时身份 = Index + Generation，防 ID 复用）。`RuntimeGameObjectHandle` 即 `ObjectId`。
+- 身份分层（§14.7）：`Uid`（.bscene/.bprefab 内稳定作者 ID，O4 用）与 `ObjectId`（运行时身份 = Index + Generation，防 ID 复用）。`RuntimeGameObjectHandle` 即 `ObjectId`。
 
 ## 1. Component 是否允许重复
 
@@ -135,7 +135,7 @@ Disable / 父链禁用 / Pause
 | R18 | `Destroy` 阶段 2 **OnDisable/OnDestroy 分离捕获**：OnDisable 异常不吞同组件的 OnDestroy，两者均被尝试并聚合 | reviewer P1（第三轮） |
 | R19 | `Tick/FixedTick` 在 `EnsureStarted(OnStart)` **之后重新验证 Revision + IsTickable**：OnStart 内禁用/销毁/重挂自身则不再回调 | reviewer P1（第三轮） |
 | R20 | **社区借鉴决策**（对照 `doc/plans/object-components/社区对象模型对照与借鉴.md`）：B1 Required Components（O2 前）/*B2 DataContract 序列化对齐（O3）/*B3 prefab override 照 Unity（O4）/ 默认不借鉴 DOTS Archetype 存储与 EnTT 池布局（有意决策，非缺失） | 社区调研（Unity/Flecs/Bevy/EnTT/Stride/Wave/Defold） |
-| R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.CreatedAtTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `StableId`（O1 契约） | O2 实施 + reviewer P1（第三轮） |
+| R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.CreatedAtTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `Uid`（O1 契约） | O2 实施 + reviewer P1（第三轮） |
 
 ## 14. O3 补充：Schema 驱动元数据层与校验整合（2026-08-23，实施中）
 
@@ -147,6 +147,6 @@ O3（修订路线 §14.10）= **GameObject C# bindings + Component Schema**。�
 | R23 | **Inspector 元数据与序列化共用同一 Schema（B2）**：`[GameComponent(DisplayName=, Group=)]`、`[GameProperty(DisplayName=, Group=, ReadOnly=, DefaultValue=)]`；缺省显示名 = 属性名/类名。`ComponentSchema` 暴露 `DisplayName/Group`，`PropertySchema` 暴露 `DisplayName/Group/IsReadOnly/DefaultValue`——编辑器 O7 直接读 Schema，不再另立一份元数据。 |
 | R24 | **未知组件/未知属性容错策略**：`Restore` 支持 `RestoreOptions`（`UnknownComponentPolicy` / `UnknownPropertyPolicy` = `Throw`（默认，保持现状）\| `Skip`）。`Skip` = 丢弃该条记录继续恢复，用于格式演进/插件缺装时宽容加载；`Throw` 的**报错必须带上下文**：对象名 + 快照索引 + 组件类型名 + 属性名，杜绝「只说未注册」的盲错。 |
 | R25 | **Schema 实例化收拢**：`ComponentSchema.CreateInstance()`（无参构造，Restore 与编辑器共用）；`ComponentSchemaRegistry.CreateInstance(typeName)` 按稳定名创建，未注册时报错并列出已注册类型数——杜绝各调用点自行 `Activator.CreateInstance`。 |
-| R26 | **可读文本格式契约草案（O3 工件 2，供 O4 `.bscene/.bprefab` 落地引用）**：`GameWorldTextSerializer` 做 `GameWorldSnapshot ↔ 文本` 双向编码，`Capture→Serialize→Deserialize→Restore→Capture` 后 hash 相等、同快照 Serialize 两次字节相等、Serialize→Deserialize→Serialize 幂等（可 diff、Git 友好）。格式头强制 `format = "sola3d.v1"` + `kind = "scene"`（方案 §6.3；评审修订：首条有效行 format、次条 kind、各一次、正文前，任一违反报错）。**形态 = 平铺 + @uid 引用（uid-only，用户裁定）**（选型见 O3 草案 §2.1）：对象行 `object [@<stableId>] "<名字>"`（**无序号字段**，物理顺序即索引）、`parent = @<父stableId>`、`[component]` 块头切块、关系 `relation <稳定名> @<源> -> @<目标>`；**对象名仅作展示标签可重复、不参与引用**（任意合法快照含重名对象都可序列化；无 @uid 快照序列化时按出现序自动分配临时 uid，跳过已用值）；**DFS 前序严格校验**（祖先栈）+ Serialize 前置 ValidateSnapshot（非法 ParentIndex 抛错）+ 引用未注册/自引用校验。**类型键**沿用 R7 稳定全限定名；**属性行** `名 = 值`，值编码 = **token 系统**：`null`→Null / `true|false`→Bool / 整数→Int / 含小数点或指数→Float / 带引号严格转义（未知转义/悬空反斜杠/未转义内部引号 → 语法错误）→String / 裸词→Bare（enum 名，冲突时输出底层数值）；**非有限浮点 NaN/±Infinity → Serialize 拒绝**；Restore 按 **strict 转换矩阵**（int 只收 Int、string 只收 String、bool 只收 Bool、enum 收 Bare/数值/String、float/double 收 Int/Float 超范围报错、null 只允许可空/引用），错误带对象+组件+属性+目标类型+原字面量上下文；重复属性名 → Deserialize 报错；关系行/对象行/头部转移重置组件上下文（属性不得归属旧组件）；未知关系类型恒为错误（R24 Skip 不适用关系）。O4 落地指引（StableId 稳定身份/document model 未知数据保留/资源引用/迁移版本/性能限额）见草案 §6。 |
+| R26 | **可读文本格式契约草案（O3 工件 2，供 O4 `.bscene/.bprefab` 落地引用）**：`GameWorldTextSerializer` 做 `GameWorldSnapshot ↔ 文本` 双向编码，`Capture→Serialize→Deserialize→Restore→Capture` 后 hash 相等、同快照 Serialize 两次字节相等、Serialize→Deserialize→Serialize 幂等（可 diff、Git 友好）。格式头强制 `format = "sola3d.v1"` + `kind = "scene"`（方案 §6.3；评审修订：首条有效行 format、次条 kind、各一次、正文前，任一违反报错）。**形态 = 平铺 + @uid 引用（uid-only，用户裁定）**（选型见 O3 草案 §2.1）：对象行 `object [@<uid>] "<名字>"`（**无序号字段**，物理顺序即索引）、`parent = @<父uid>`、`[component]` 块头切块、关系 `relation <稳定名> @<源> -> @<目标>`；**对象名仅作展示标签可重复、不参与引用**（任意合法快照含重名对象都可序列化；无 @uid 快照序列化时按出现序自动分配临时 uid，跳过已用值）；**DFS 前序严格校验**（祖先栈）+ Serialize 前置 ValidateSnapshot（非法 ParentIndex 抛错）+ 引用未注册/自引用校验。**类型键**沿用 R7 稳定全限定名；**属性行** `名 = 值`，值编码 = **token 系统**：`null`→Null / `true|false`→Bool / 整数→Int / 含小数点或指数→Float / 带引号严格转义（未知转义/悬空反斜杠/未转义内部引号 → 语法错误）→String / 裸词→Bare（enum 名，冲突时输出底层数值）；**非有限浮点 NaN/±Infinity → Serialize 拒绝**；Restore 按 **strict 转换矩阵**（int 只收 Int、string 只收 String、bool 只收 Bool、enum 收 Bare/数值/String、float/double 收 Int/Float 超范围报错、null 只允许可空/引用），错误带对象+组件+属性+目标类型+原字面量上下文；重复属性名 → Deserialize 报错；关系行/对象行/头部转移重置组件上下文（属性不得归属旧组件）；未知关系类型恒为错误（R24 Skip 不适用关系）。O4 落地指引（Uid 稳定身份/document model 未知数据保留/资源引用/迁移版本/性能限额）见草案 §6。 |
 
 设计约束沿用 §3/§4/§6：Schema 不变更行为契约；新增条目不得破坏 R1–R21 既有断言（默认策略保持 Throw 即与旧行为等价）。

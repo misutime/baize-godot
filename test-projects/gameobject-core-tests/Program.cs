@@ -1194,7 +1194,7 @@ internal static class Program
 			golden.Objects.Count == 5 && golden.Objects[1].ParentIndex == 0 && golden.Objects[2].Components[0].Enabled == false);
 	}
 
-	private static void Test_O4_StableId与混合引用()
+	private static void Test_O4_Uid与混合引用()
 	{
 		// @id 对象行 + parent=@id 引用 + 关系 @id 端点 + round-trip。
 		string text =
@@ -1206,8 +1206,8 @@ internal static class Program
 				"object @c3 \"敌人\"\n" +                          // 顶层（关闭 CubeA 子树；@c3 与哨兵 @d4 不冲突）
 				"relation " + typeof(TargetRelation).FullName + " @b2 -> @c3\n";
 		var snap = GameWorldTextSerializer.Deserialize(text);
-		Check("O4：@id 解析进快照 StableId",
-			snap.Objects[0].StableId == 0xa1 && snap.Objects[1].StableId == 0xb2 && snap.Objects[2].StableId == 0xd4);
+		Check("O4：@id 解析进快照 Uid",
+			snap.Objects[0].Uid == 0xa1 && snap.Objects[1].Uid == 0xb2 && snap.Objects[2].Uid == 0xd4);
 		Check("O4：parent=@id 解析为索引", snap.Objects[1].ParentIndex == 0 && snap.Objects[2].ParentIndex == 1);
 		Check("O4：关系 @id 端点解析", snap.Relations.Count == 1 && snap.Relations[0].SourceIndex == 1 && snap.Relations[0].TargetIndex == 3);
 
@@ -1219,25 +1219,25 @@ internal static class Program
 
 		// hash 不含稳定ID（运行时口径不变）：同结构不同 @id → hash 相同（在快照层注入 @id 验证）。
 		var snapA = GameWorldSerializer.Capture(CreateO4World("o"));
-		snapA.Objects[0].StableId = 0x1111;
+		snapA.Objects[0].Uid = 0x1111;
 		var snapB = GameWorldSerializer.Capture(CreateO4World("o"));
-		snapB.Objects[0].StableId = 0x2222;
+		snapB.Objects[0].Uid = 0x2222;
 		var h1 = GameWorldSerializer.ComputeHash(snapA);
 		var h2 = GameWorldSerializer.ComputeHash(snapB);
-		Check("O4：StableId 不参与 hash", h1 == h2);
+		Check("O4：Uid 不参与 hash", h1 == h2);
 
-		// Restore 写回 → Capture 再导出（StableId round-trip 保真）。
+		// Restore 写回 → Capture 再导出（Uid round-trip 保真）。
 		var wR = new GameWorld();
 		wR.CreateGameObject("o");
 		var sR = GameWorldSerializer.Capture(wR);
-		sR.Objects[0].StableId = 0xabcd;
+		sR.Objects[0].Uid = 0xabcd;
 		var rR = GameWorldSerializer.Restore(sR, wR.Schemas, wR.Relations);
-		Check("O4：Restore 写回 StableId", rR.Roots[0].StableId.Value == 0xabcd && rR.Roots[0].StableId.IsValid);
+		Check("O4：Restore 写回 Uid", rR.Roots[0].Uid.Value == 0xabcd && rR.Roots[0].Uid.IsValid);
 		var sR2 = GameWorldSerializer.Capture(rR);
-		Check("O4：Capture 再导出 StableId", sR2.Objects[0].StableId == 0xabcd);
+		Check("O4：Capture 再导出 Uid", sR2.Objects[0].Uid == 0xabcd);
 	}
 
-	private static void Test_O4_StableId_唯一性与Prefab字段()
+	private static void Test_O4_Uid_唯一性与Prefab字段()
 	{
 		// @id 唯一性约束。
 		Check("O4：@id 重复拒绝",
@@ -1391,8 +1391,8 @@ internal static class Program
 		Test_O3_文本格式往返与可读性();
 		Test_O3_文本格式语法与容错();
 		Test_O3_评审修订回归();
-		Test_O4_StableId与混合引用();
-		Test_O4_StableId_唯一性与Prefab字段();
+		Test_O4_Uid与混合引用();
+		Test_O4_Uid_唯一性与Prefab字段();
 		Test_O4_Prefab实例化与Override();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");

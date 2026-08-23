@@ -114,7 +114,7 @@ public static class BSceneLoader
 		int parentIndex = snapshot.Objects[rootIndex].ParentIndex;
 		string name = snapshot.Objects[rootIndex].Name;
 		bool enabled = snapshot.Objects[rootIndex].Enabled;
-		ulong stableId = snapshot.Objects[rootIndex].StableId;
+		ulong uid = snapshot.Objects[rootIndex].Uid;
 		string source = snapshot.Objects[rootIndex].SourceTemplate;
 
 		// 1) 深拷贝模板记录（属性值装箱引用可共享——值类型/string 安全）。
@@ -127,7 +127,7 @@ public static class BSceneLoader
 				Name = src.Name,
 				Enabled = src.Enabled,
 				ParentIndex = src.ParentIndex,
-				StableId = src.StableId,
+				Uid = src.Uid,
 				SourceTemplate = src.SourceTemplate,
 			};
 			dst.Components = new List<GameComponentRecord>(src.Components.Count);
@@ -147,7 +147,7 @@ public static class BSceneLoader
 		// 2) root 继承场景声明；其余节点 ParentIndex 整体右移 rootIndex（模板 DFS 序 ⇒ 插入到 rootIndex 起连续块）。
 		copied[0].Name = name;
 		copied[0].Enabled = enabled;
-		copied[0].StableId = stableId;
+		copied[0].Uid = uid;
 		copied[0].SourceTemplate = source;
 		copied[0].ParentIndex = parentIndex;
 		for (int t = 1; t < templateCount; t++)
@@ -292,7 +292,7 @@ public static class BSceneLoader
 			}
 			for (int i = 0; i < snapshot.Objects.Count; i++)
 			{
-				if (snapshot.Objects[i].StableId == id)
+				if (snapshot.Objects[i].Uid == id)
 				{
 					return i;
 				}

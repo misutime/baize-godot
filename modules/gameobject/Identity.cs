@@ -3,7 +3,7 @@
 //
 // 两层身份，禁止混用：
 // - ObjectId                运行时身份 = Index + Generation；防删除后 ID 复用（Generation 递增）。
-// - StableObjectId          文件层稳定身份（.bscene/.bprefab 内 @hex，不随重排/合并变化）；O4 启用。
+// - Uid          文件层稳定身份（.bscene/.bprefab 内 @hex，不随重排/合并变化）；O4 启用。
 // RuntimeGameObjectHandle == ObjectId（含 Generation 的运行时句柄）。
 
 namespace Sola3d.GameObject;
@@ -29,10 +29,10 @@ public readonly record struct ObjectId(int Index, uint Generation)
 /// 与 ObjectId（运行时）/#序号（快照）区分：跨编辑/重排/多人合并稳定，是人读层引用的识别号。
 /// O4 起由 .bscene/.bprefab 解析器生成；不参与 ComputeHash（确定性口径不变）。
 /// </summary>
-public readonly record struct StableObjectId(ulong Value)
+public readonly record struct Uid(ulong Value)
 {
 	/// <summary>无效稳定 ID。</summary>
-	public static readonly StableObjectId Invalid = new(0);
+	public static readonly Uid Invalid = new(0);
 
 	public bool IsValid => Value != 0;
 
