@@ -26,12 +26,12 @@ public sealed partial class GodotDesignPreview
 	/// <summary>注入渲染 scenario（真实 Viewport 环境调用；headless 编译验证不调）。</summary>
 	public void Initialize(Rid scenario) => _renderGateway.Initialize(scenario);
 
-/// <summary>把 Design 文档投影到 RenderingServer（每次调用重建预演世界——文档是权威）。</summary>
+	/// <summary>把 Design 文档投影到 RenderingServer（每次调用重建预演世界——文档是权威）。</summary>
 	public int Refresh(GameWorldSnapshot document)
 	{
 		var world = _host.BuildPreviewWorld(document);
 		var commands = _host.ProjectToCommands(world);
-// PreviewRenderCommand : GatewayCommand（Sola3d.MainLoop 命名空间的抽象基类）。
+		// PreviewRenderCommand : GatewayCommand（Sola3d.MainLoop 命名空间的抽象基类）。
 		System.Collections.Generic.List<Sola3d.MainLoop.GatewayCommand> cmdList = new();
 		cmdList.AddRange(commands);
 		_renderGateway.Consume(cmdList);

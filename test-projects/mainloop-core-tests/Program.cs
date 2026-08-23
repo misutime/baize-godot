@@ -160,6 +160,30 @@ internal static class Program
 	private sealed record TestCommand : GatewayCommand { }
 	private sealed record TestObservation : GatewayObservation { }
 
+	private static void Test_Cube几何()
+	{
+		var verts = Sola3d.Host.CubeGeometry.Vertices;
+		var idx = Sola3d.Host.CubeGeometry.Indices;
+		Check("Cube：24 顶点（每面 4 独立法线）", verts.Length == 24);
+		Check("Cube：36 索引（12 三角形）", idx.Length == 36);
+		bool allInRange = true;
+		foreach (var i in idx)
+		{
+			if (i < 0 || i >= 24) { allInRange = false; break; }
+		}
+		Check("Cube：索引范围合法（0..23）", allInRange);
+		// 法线：6 个面各 4 顶点同法线（硬边）。
+		bool normPerFace = true;
+		for (int f = 0; f < 6; f++)
+		{
+			var n = Sola3d.Host.CubeGeometry.Normals[f * 4];
+			for (int k = 1; k < 4; k++)
+			{
+				if (Sola3d.Host.CubeGeometry.Normals[f * 4 + k] != n) { normPerFace = false; break; }
+			}
+		}
+		Check("Cube：每面 4 顶点同法线（硬边）", normPerFace);
+	}
 	private static int Main()
 	{
 		Console.WriteLine("mainloop-core-tests —— O5 MainLoop/Gateway 抽象层契约验证\n");
@@ -168,7 +192,7 @@ internal static class Program
 		Test_输入注入();
 		Test_Port三通道();
 		Test_Gateway生命周期序();
-
+		Test_Cube几何();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{
