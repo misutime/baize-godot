@@ -10,8 +10,14 @@ using System.Collections.Generic;
 
 namespace Baize.GameObject;
 
-/// <summary>纯运行时游戏世界（Headless GameObject Kernel）。</summary>
-	/// 线程亲和（reviewer P3）：单线程模型——Tick/Paused/结构操作均无锁访问内部集合，
+/// <summary>纯运行时游戏世界（Headless GameObject Kernel）。
+/// <para><b>粒度</b>：一个 <c>GameWorld</c> 代表<b>一场对局 / 一个关卡</b>的可运行模拟容器——
+/// 持有这一局的对象注册表、层级、关系、组件生命周期调度、全局 tick（<c>TickIndex</c>/<c>FixedTickIndex</c>）、
+/// 服务（计分/阶段/输入/生成配置）与 <c>Paused</c> 冻结。多关卡游戏 = <b>多个 GameWorld 实例</b>，
+/// 而非一个世界塞多个关卡。</para>
+/// <para><b>关卡切换</b>：销毁旧 <c>GameWorld</c>、新建一个，再用该关卡的场景/预置体快照
+/// （<c>GameWorldSerializer</c> 导出的 <c>GameWorldSnapshot</c>）填充；<c>Reset()</c> 只用于<b>重开同一局</b>
+/// （清对象 + tick 归零），不用于切换不同内容。</para></summary>
 	/// 服务器并发复用前需单线程命令队列或统一同步边界。
 public sealed class GameWorld
 {

@@ -27,7 +27,23 @@
 
 游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 15 项断言把关。
 
----
+#### World 的粒度：一局 = 一个 GameWorld
+
+`GameWorld` 不是"整个游戏的全局世界"，而是**一场对局 / 一个关卡的可运行模拟容器**。它持有这一局的对象注册表、层级、关系、组件生命周期调度、全局 tick（`TickIndex`/`FixedTickIndex`）、服务（计分/阶段/输入/生成配置）与 `Paused` 冻结。
+
+所以：
+
+```text
+关卡 A ──> 自己的 GameWorld（加载关卡 A 的场景/预置体快照）
+关卡 B ──> 自己的 GameWorld（加载关卡 B 的场景/预置体快照）
+```
+
+- **多关卡游戏 = 多个 GameWorld 实例**，不是把多个关卡塞进一个世界。
+- **切关卡** = 销毁旧 `GameWorld`、新建一个，再用该关卡的内容快照（`GameWorldSerializer` 导出的 `GameWorldSnapshot`）填充。
+- **`Reset()`** 只用于**重开同一局**（清对象 + tick 归零），不用于切换不同的关卡内容。
+- `var world = ShooterGame.CreateWorld()` 每次都会生成一个**全新的、独立的**世界（新 `MatchController`/`InputService`/玩家）。
+
+
 
 ## 1. 开发者先看什么
 
