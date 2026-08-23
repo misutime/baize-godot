@@ -69,21 +69,21 @@ public static class ShooterWorld
 		switch (phase)
 		{
 			case PlanPhase.PlayerInput:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<PlayerControllerBehavior>() != null))
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<PlayerControllerAction>() != null))
 				{
-					obj.GetComponent<PlayerControllerBehavior>()!.PlanMotion(delta, tickIndex);
+					obj.GetComponent<PlayerControllerAction>()!.PlanMotion(delta, tickIndex);
 				}
 				break;
 			case PlanPhase.Enemy:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<EnemyControllerBehavior>() != null))
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<EnemyControllerAction>() != null))
 				{
-					obj.GetComponent<EnemyControllerBehavior>()!.PlanMotion(delta, tickIndex);
+					obj.GetComponent<EnemyControllerAction>()!.PlanMotion(delta, tickIndex);
 				}
 				break;
 			case PlanPhase.Projectile:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletBehavior>() != null))
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletAction>() != null))
 				{
-					obj.GetComponent<BulletBehavior>()!.PlanMotion(delta, tickIndex);
+					obj.GetComponent<BulletAction>()!.PlanMotion(delta, tickIndex);
 				}
 				break;
 		}

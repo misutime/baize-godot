@@ -36,7 +36,7 @@
 1. `ShooterGame.cs`：这一局装了什么全局服务、初始对象和宿主；
 2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些组件（B1 工厂，一行创建带全套组件）；
 3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记、`MotionPlan`；
-4. `ShooterBehaviors.cs`：规则按什么顺序运行（先是各控制器的 `PlanMotion`，再是 `OnTick` 消费计划）；
+4. `ShooterActions.cs`：规则按什么顺序运行（先是各控制器的 `PlanMotion`，再是 `OnTick` 消费计划）；
 5. `ShooterServices.cs`：全局状态持有者（对局控制器/输入/生成配置）；
 6. 最后才看 `shooter-object-components-poc/Program.cs` 的 15 项断言。
 
@@ -75,9 +75,9 @@ ShooterGame.Step(world);   // 1) 所有控制器先提交本帧运动计划  2) 
 
 对象不是 `Player`/`Enemy` 继承树，也不承载大段行为。在 Shooter 里：
 
-- 玩家对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + PlayerFaction + PlayerInputMarker + WeaponConfig + Cooldown + PlayerControllerBehavior + WeaponBehavior + MoveBehavior`；
-- 敌人对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + EnemyFaction + SeekTargetMarker + Health + EnemyControllerBehavior`；
-- 投射物对象 = `Position + PreviousPosition + MotionPlan + Velocity + ProjectileConfig + TravelDistance + CollisionRadius + ProjectileTag + BulletBehavior`。
+- 玩家对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + PlayerFaction + PlayerInputMarker + WeaponConfig + Cooldown + PlayerControllerAction + WeaponAction + MoveAction`；
+- 敌人对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + EnemyFaction + SeekTargetMarker + Health + EnemyControllerAction`；
+- 投射物对象 = `Position + PreviousPosition + MotionPlan + Velocity + ProjectileConfig + TravelDistance + CollisionRadius + ProjectileTag + BulletAction`。
 
 「玩家/敌人/投射物」是人对组件组合的称呼，不是必须存在的基类。
 
@@ -85,7 +85,7 @@ ShooterGame.Step(world);   // 1) 所有控制器先提交本帧运动计划  2) 
 
 ### 2.2 GameComponent：关于某个对象的一小块数据
 
-组件是挂在对象上的小块数据。行为组件（Behavior）是「这个组件对应的一小段规则」——它们读/改自己的 `Owner` 组件，组件间直接调用（如子弹命中直接调 `enemy.Health.ApplyDamage`）。
+组件是挂在对象上的小块数据。行为组件（Action）是「这个组件对应的一小段规则」——它们读/改自己的 `Owner` 组件，组件间直接调用（如子弹命中直接调 `enemy.Health.ApplyDamage`）。
 
 Shooter 示例：
 
@@ -158,7 +158,7 @@ Shooter 示例：
 | **store**（全局容器） | `GameWorld` 的服务注册表（`AddService`/`GetService`） | 装所有「这一局唯一」状态的容器 |
 | **state**（容器里的一块） | `MatchController`/`InputService`/`SpawnConfig` | 具体的某个全局状态 |
 | **set/getState** | `AddService` / `GetService<T>()` | 读/写某个全局状态 |
-| **action / 纯函数更新** | 各 Behavior 的 `OnTick` / `OnEnemyKilled` | 修改状态的方式（规则） |
+| **action / 纯函数更新** | 各 Action 的 `OnTick` / `OnEnemyKilled` | 修改状态的方式（规则） |
 
 **注意**：对象存储（`GameWorld` 的对象注册表）与 `Services`（全局状态）是两件事——一个管对象+组件，一个管全局状态。
 
@@ -179,17 +179,17 @@ Step(world)：
   1) 若未 Paused：tickIndex = world.TickIndex + 1
      按 PlanPhase 声明序遍历（PlayerInput → Enemy → Projectile）：
         ShooterWorld.PlanMotion(world, delta, tickIndex, phase)
-        - PlayerInput → 每个 PlayerControllerBehavior.PlanMotion   // 玩家先规划
-        - Enemy       → 每个 EnemyControllerBehavior.PlanMotion    // 敌人读玩家本帧终点
-        - Projectile  → 每个 BulletBehavior.PlanMotion             // 子弹提交自身线段
+        - PlayerInput → 每个 PlayerControllerAction.PlanMotion   // 玩家先规划
+        - Enemy       → 每个 EnemyControllerAction.PlanMotion    // 敌人读玩家本帧终点
+        - Projectile  → 每个 BulletAction.PlanMotion             // 子弹提交自身线段
   2) world.Tick(delta)                                              // 统一执行所有 OnTick
 ```
 
-`MotionPlan` 组件保存本 tick 的 `(StartX, StartZ, EndX, EndZ)` 与 `TickIndex`。移动（`MoveBehavior`/子弹/敌人的 `OnTick`）只把 `Position` 设成 `plan.End`，把 `PreviousPosition` 设成 `plan.Start`。
+`MotionPlan` 组件保存本 tick 的 `(StartX, StartZ, EndX, EndZ)` 与 `TickIndex`。移动（`MoveAction`/子弹/敌人的 `OnTick`）只把 `Position` 设成 `plan.End`，把 `PreviousPosition` 设成 `plan.Start`。
 
 **为什么玩家先规划？** 因为敌人要「寻玩家」。如果敌人读玩家**实时**位置，而玩家在同一个 tick 里移动了，两者会分叉。玩家先在 tick 前提交「本帧终点」，敌人的 `PlanMotion` 就直接把玩家的 `plan.End` 当作寻向目标——等价于「玩家先移动」，但不依赖实际 tick 顺序。
 
-**为什么 tickIndex 门禁？** `BulletBehavior.OnTick` 命中时检查 `enemyPlan.TickIndex == world.TickIndex` 才参与；本 tick 内新建的对象（例如刚生成的敌人）其计划属于下一 tick，按 O1「tick 内新建对象下一轮参与」快照语义自然地从下一帧开始参与。
+**为什么 tickIndex 门禁？** `BulletAction.OnTick` 命中时检查 `enemyPlan.TickIndex == world.TickIndex` 才参与；本 tick 内新建的对象（例如刚生成的敌人）其计划属于下一 tick，按 O1「tick 内新建对象下一轮参与」快照语义自然地从下一帧开始参与。
 
 **一句话记忆**：控制器负责「决定本帧去哪」，`MotionPlan` 是「决定好了的组件」，执行与碰撞只消费这个组件——所以顺序无关、且无「快照重算 vs 实际移动」分叉。
 
@@ -205,7 +205,7 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
     obj.AddComponent<PlayerInputMarker>();
     AddMoveStack(obj, x, z, moveSpeed, radius);   // Position + Previous + MotionPlan + Velocity + MoveSpeed + CollisionRadius
     obj.AddComponent(new WeaponConfig { CooldownSeconds = fireCooldown, ProjectileSpeed = projectileSpeed });
-    obj.AddComponent<PlayerControllerBehavior>();  // 行为组件
+    obj.AddComponent<PlayerControllerAction>();  // 行为组件
     ...
     return obj;
 }
@@ -215,33 +215,33 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
 
 工厂允许重复：玩家和敌人都有 `Position`、`Velocity`、`MoveSpeed`、`CollisionRadius`、`MotionPlan`——这种重复恰好说明组件是可组合数据，不是实体类型字段表。
 
-### 2.7 Behavior：依赖可见的数据变换规则
+### 2.7 Action：依赖可见的数据变换规则
 
-Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读服务/输入，然后改写明确的数据。Shooter 示例：
+Action（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读服务/输入，然后改写明确的数据。Shooter 示例：
 
-- `PlayerControllerBehavior.PlanMotion`：`InputService + MoveSpeed → Velocity → MotionPlan`；
-- `EnemyControllerBehavior.PlanMotion`：`玩家 MotionPlan.End + MoveSpeed → Velocity → MotionPlan`；
-- `MoveBehavior.OnTick`：`MotionPlan → Position/PreviousPosition`；
-- `BulletBehavior.OnTick`：`自身+敌方 MotionPlan → 扫掠命中 → enemy.Health.ApplyDamage → 计分；越界销毁`；
-- `WeaponBehavior.OnTick`：`Fire 边沿 + Cooldown → SpawnProjectile`；
-- `EnemySpawnerBehavior.OnTick`：`TickIndex 确定 HashTick → 生成敌人`。
+- `PlayerControllerAction.PlanMotion`：`InputService + MoveSpeed → Velocity → MotionPlan`；
+- `EnemyControllerAction.PlanMotion`：`玩家 MotionPlan.End + MoveSpeed → Velocity → MotionPlan`；
+- `MoveAction.OnTick`：`MotionPlan → Position/PreviousPosition`；
+- `BulletAction.OnTick`：`自身+敌方 MotionPlan → 扫掠命中 → enemy.Health.ApplyDamage → 计分；越界销毁`；
+- `WeaponAction.OnTick`：`Fire 边沿 + Cooldown → SpawnProjectile`；
+- `EnemySpawnerAction.OnTick`：`TickIndex 确定 HashTick → 生成敌人`。
 
 一眼可见的依赖是：`Requires` 里声明的组件、`World!.GetService<T>()` 取的服务、以及它读写的 `Owner` 组件。`OnStart`（或 `OnCreate`）只缓存这些引用，`OnTick` 只做变换。
 
-#### Behavior 纯函数约束
+#### Action 纯函数约束
 
-这里的「纯」不是说 Behavior 不修改世界，而是：**相同输入数据产生相同输出数据，Behavior 实例本身不暗藏跨帧的玩法状态。**
+这里的「纯」不是说 Action 不修改世界，而是：**相同输入数据产生相同输出数据，Action 实例本身不暗藏跨帧的玩法状态。**
 
 - 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入组件或服务；
-- 倒计时、输入边沿、随机种子、累计分数不能藏在 Behavior 字段；
+- 倒计时、输入边沿、随机种子、累计分数不能藏在 Action 字段；
 - 允许保存安装期不变配置，以及每次 `OnTick` 开头清空的临时工作区；
-- 如果删掉 Behavior 再重建会改变下一帧玩法结果，说明它藏了状态，应把那份数据搬回组件/服务。
+- 如果删掉 Action 再重建会改变下一帧玩法结果，说明它藏了状态，应把那份数据搬回组件/服务。
 
 ---
 
 ## 3. 做一个游戏怎么下手：六步心智模型
 
-下面六步按顺序做。不要先创建 `Components.cs`、`Behaviors.cs` 两个大文件。
+下面六步按顺序做。不要先创建 `Components.cs`、`Actions.cs` 两个大文件。
 
 ### 第一步：写玩法闭环
 
@@ -265,7 +265,7 @@ Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对
 逐条问：
 
 1. 每对象还是全世界一份？决定 `GameComponent` 或 Service；
-2. 长期数据还是瞬时发生？决定组件/服务或由某个 Behavior 瞬时触发；
+2. 长期数据还是瞬时发生？决定组件/服务或由某个 Action 瞬时触发；
 3. 是「有没有这项能力」「现在的值」「作者设置的参数」还是「属于谁」？决定能力/状态/参数/标签四类之一。
 
 例如：
@@ -277,7 +277,7 @@ Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对
 
 ### 第四步：写数据变换
 
-每个 Behavior 先写成公式，再写 C#：
+每个 Action 先写成公式，再写 C#：
 
 ```text
 InputService + MoveSpeed -> Velocity -> MotionPlan
@@ -297,7 +297,7 @@ TickIndex -> HashTick -> SpawnEnemy
 ```text
 PlayerController.PlanMotion   // 玩家先规划
   -> EnemyController.PlanMotion   // 敌人据玩家本帧终点规划
-  -> BulletBehavior.PlanMotion    // 子弹提交自身线段
+  -> BulletAction.PlanMotion    // 子弹提交自身线段
   -> world.Tick                    // 统一执行移动 + 命中 + 生成 + 接触
 ```
 
@@ -323,7 +323,7 @@ public static void Install(GameWorld world, bool withPlayer = true)
 }
 ```
 
-这段代码先表达游戏概念，底层对象注册表与查询细节退到各 Behavior 内部。
+这段代码先表达游戏概念，底层对象注册表与查询细节退到各 Action 内部。
 
 ---
 
@@ -333,7 +333,7 @@ public static void Install(GameWorld world, bool withPlayer = true)
 shooter-object-components/
 ├─ Shooter.Objects.csproj         # 纯 .NET 共享类库，只引用 modules/gameobject（O1）
 ├─ ShooterComponents.cs           # 组件类型：数据组件 / 状态 / 参数 / 标签 / MotionPlan / Health
-├─ ShooterBehaviors.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
+├─ ShooterActions.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
 ├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
 ├─ ShooterGame.cs                 # 唯一装配根 + Step（规划阶段 + world.Tick）
@@ -349,11 +349,11 @@ shooter-object-components-poc/
 
 ```text
 Components.cs
-Behaviors.cs
+Actions.cs
 Services.cs
 ```
 
-按「组合」组织后，改「伤害」主要停留在 `Health` 组件 + `BulletBehavior`+`MatchController`；跨功能的依赖通过组件、服务或直接调用明说。
+按「组合」组织后，改「伤害」主要停留在 `Health` 组件 + `BulletAction`+`MatchController`；跨功能的依赖通过组件、服务或直接调用明说。
 
 ---
 
@@ -366,7 +366,7 @@ Services.cs
 | `Entity` | `GameObject` |
 | `IComponent` / `ITag` | `GameComponent`（`[GameComponent]` 数据组件 / 标记组件） |
 | `Resource` | `GameWorld` 服务（`AddService` / `GetService<T>()`） |
-| `System` | Behavior 组件（`OnTick` 规则；`PlanMotion` 控制器） |
+| `System` | Action 组件（`OnTick` 规则；`PlanMotion` 控制器） |
 | `Bundle` | `ShooterFactory`（`SpawnXxx` 一行创建带全套组件） |
 | `CommandBuffer` | **无**（创建/命中/死亡都即时、直接；同步销毁） |
 | `RunInState(Playing)` | `GameWorld.Paused`（全局冻结，组件不再自查） |
@@ -416,8 +416,8 @@ Services.cs
 - [ ] 每份数据的拥有者是对象还是世界（Service）？
 - [ ] 每个组件只属于能力、状态、参数、标签关系中的一个主要类别吗？
 - [ ] 配置里是否偷偷混入倒计时、当前位置、累计值？
-- [ ] Behavior 能否写成「读取 A，更新 B」，且类字段没有藏跨帧玩法状态？
-- [ ] Behavior 的 `Requires`（依赖组件）、取的服务、读写的 Owner 组件是否一眼可见？
+- [ ] Action 能否写成「读取 A，更新 B」，且类字段没有藏跨帧玩法状态？
+- [ ] Action 的 `Requires`（依赖组件）、取的服务、读写的 Owner 组件是否一眼可见？
 - [ ] 互斥世界阶段是否用 `GameWorld.Paused` 集中冻结（而非逐帧自查）？
 - [ ] 一个 tick 的运动是否统一先规划成 `MotionPlan`，移动与碰撞能否消费同一条线段？
 - [ ] 是否仍依赖「谁先执行」？测试里是否覆盖了「子弹先建/敌人后建」的顺序无关场景？

@@ -102,7 +102,7 @@ public bool ApplyDamage(int amount)
 	}
 }
 
-/// <summary>武器冷却（运行状态；由 WeaponBehavior 写）。</summary>
+/// <summary>武器冷却（运行状态；由 WeaponAction 写）。</summary>
 [GameComponent]
 public sealed class Cooldown : GameComponent
 {
@@ -132,7 +132,7 @@ public sealed class ProjectileConfig : GameComponent
 	public float MaxRange { get; set; } = 50.0f;
 }
 
-/// <summary>已飞行距离（BulletBehavior 累计；越界销毁）。</summary>
+/// <summary>已飞行距离（BulletAction 累计；越界销毁）。</summary>
 [GameComponent]
 public sealed class TravelDistance : GameComponent
 {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterBehaviors.cs —— O2 行为组件（控制器先规划，OnTick 消费；组件只操作 Owner 能力）
+// ShooterActions.cs —— O2 行为组件（控制器先规划，OnTick 消费；组件只操作 Owner 能力）
 //
 // 干净 GameObject-first 模型：
 // - 组件直接读/改自己的 Owner 组件，组件间直接调用（如 bullet → enemy.Health.ApplyDamage）。
@@ -14,7 +14,7 @@ namespace Shooter.Objects;
 
 /// <summary>移动：把 PreviousPosition/Position 精确提交为本 tick MotionPlan 的起点/终点。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(MotionPlan) })]
-public sealed class MoveBehavior : GameComponent
+public sealed class MoveAction : GameComponent
 {
 	public override void OnTick(float delta)
 	{
@@ -30,7 +30,7 @@ public sealed class MoveBehavior : GameComponent
 
 /// <summary>玩家输入控制器：在 tick 前提交本帧唯一运动计划。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(PlayerInputMarker) })]
-public sealed class PlayerControllerBehavior : GameComponent
+public sealed class PlayerControllerAction : GameComponent
 {
 	private InputService? _input;
 
@@ -45,7 +45,7 @@ public sealed class PlayerControllerBehavior : GameComponent
 		var vel = Owner!.GetComponent<Velocity>()!;
 		var speed = Owner!.GetComponent<MoveSpeed>()!;
 		var plan = Owner!.GetComponent<MotionPlan>()!;
-		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——不因 MoveBehavior 仍启用而误动。
+		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——不因 MoveAction 仍启用而误动。
 		if (!ShooterWorld.CanTick(this))
 		{
 			vel.X = 0;
@@ -62,7 +62,7 @@ public sealed class PlayerControllerBehavior : GameComponent
 
 /// <summary>射击：冷却计时 + Fire 边沿 → 生成一颗子弹对象（直接调 ShooterFactory，非命令缓冲）。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(WeaponConfig), typeof(Cooldown), typeof(PlayerInputMarker) })]
-public sealed class WeaponBehavior : GameComponent
+public sealed class WeaponAction : GameComponent
 {
 	private InputService? _input;
 	private GameWorld? _world;
@@ -92,7 +92,7 @@ public sealed class WeaponBehavior : GameComponent
 /// <summary>子弹生命周期：移动 + 扫掠命中敌人（线段-圆距离）。命中 → enemy.Health.ApplyDamage（直接调用），
 /// 若致死则 owner 已销毁、本弹也销毁；越界销毁（即时，非帧末）。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(ProjectileConfig), typeof(TravelDistance), typeof(CollisionRadius), typeof(ProjectileTag) })]
-public sealed class BulletBehavior : GameComponent
+public sealed class BulletAction : GameComponent
 {
 	private GameWorld? _world;
 	private MatchController? _match;
@@ -189,7 +189,7 @@ public sealed class BulletBehavior : GameComponent
 
 /// <summary>敌人控制器：tick 前唯一生成寻敌运动计划；OnTick 只消费该计划并做接触判定。</summary>
 [GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(CollisionRadius), typeof(EnemyFaction), typeof(SeekTargetMarker) })]
-public sealed class EnemyControllerBehavior : GameComponent
+public sealed class EnemyControllerAction : GameComponent
 {
 	private GameWorld? _world;
 	private MatchController? _match;
@@ -291,7 +291,7 @@ public sealed class EnemyControllerBehavior : GameComponent
 
 /// <summary>敌人生成器（挂世界宿主 "Game"）：固定节拍 + TickIndex 确定性 HashTick。</summary>
 [GameComponent]
-public sealed class EnemySpawnerBehavior : GameComponent
+public sealed class EnemySpawnerAction : GameComponent
 {
 	private GameWorld? _world;
 	private MatchController? _match;

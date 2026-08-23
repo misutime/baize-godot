@@ -39,7 +39,7 @@ internal static class Program
 		TestProjectileHitsEnemy();
 		TestOrderIndependence();
 		TestMotionPlanMatchesActual();
-		TestDisabledBehaviorStationary();
+		TestDisabledActionStationary();
 		TestDisabledPlayerNoMove();
 		TestSmallSweepCrossing();
 		TestNonLethalDamage();
@@ -186,16 +186,16 @@ internal static class Program
 
 	// ---------- 3c：禁用行为 → 静止计划，不产生幽灵轨迹 ----------
 
-	private static void TestDisabledBehaviorStationary()
+	private static void TestDisabledActionStationary()
 	{
-		// P1 回归：禁用 EnemyControllerBehavior 后，敌人应停留在原位（静止计划），
+		// P1 回归：禁用 EnemyControllerAction 后，敌人应停留在原位（静止计划），
 		// 子弹穿过它仍能命中真实当前位置；不因「O1 跳过 OnTick 但计划已发布」而与幽灵轨迹碰撞。
 		var world = ShooterGame.CreateWorld();
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
 		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 30f);
-		enemy.GetComponent<EnemyControllerBehavior>()!.Enabled = false; // 禁用行为：不寻敌、不移动。
+		enemy.GetComponent<EnemyControllerAction>()!.Enabled = false; // 禁用行为：不寻敌、不移动。
 		world.GetService<MatchController>().AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
 
@@ -222,7 +222,7 @@ internal static class Program
 		world.GetService<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 		var player = FindPlayer(world)!;
-		player.GetComponent<PlayerControllerBehavior>()!.Enabled = false; // 禁用控制器。
+		player.GetComponent<PlayerControllerAction>()!.Enabled = false; // 禁用控制器。
 
 		world.GetService<InputService>().MoveX = 1;
 		ShooterGame.Step(world);

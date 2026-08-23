@@ -36,7 +36,7 @@ public static class ShooterGame
 	private static void SetupScene(GameWorld world, bool withPlayer)
 	{
 		var host = world.CreateGameObject("Game");
-		host.AddComponent<EnemySpawnerBehavior>();
+		host.AddComponent<EnemySpawnerAction>();
 		if (withPlayer)
 		{
 			ShooterFactory.SpawnPlayer(world, 0, 0);

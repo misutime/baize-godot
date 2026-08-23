@@ -18,9 +18,9 @@ public static class ShooterFactory
 		AddMoveStack(obj, x, z, moveSpeed, radius);
 		obj.AddComponent(new WeaponConfig { CooldownSeconds = fireCooldown, ProjectileSpeed = projectileSpeed });
 		obj.AddComponent<Cooldown>();
-		obj.AddComponent<PlayerControllerBehavior>();
-		obj.AddComponent<WeaponBehavior>();
-		obj.AddComponent<MoveBehavior>();
+		obj.AddComponent<PlayerControllerAction>();
+		obj.AddComponent<WeaponAction>();
+		obj.AddComponent<MoveAction>();
 		return obj;
 	}
 
@@ -33,7 +33,7 @@ public static class ShooterFactory
 		obj.AddComponent<SeekTargetMarker>();
 		AddMoveStack(obj, x, z, moveSpeed, radius);
 		obj.AddComponent(new Health { Current = health, Max = health });
-		obj.AddComponent<EnemyControllerBehavior>();
+		obj.AddComponent<EnemyControllerAction>();
 		return obj;
 	}
 
@@ -50,7 +50,7 @@ public static class ShooterFactory
 		obj.AddComponent(new ProjectileConfig { Damage = damage, MaxRange = maxRange });
 		obj.AddComponent<TravelDistance>();
 		obj.AddComponent(new CollisionRadius { Value = radius });
-		obj.AddComponent<BulletBehavior>();
+		obj.AddComponent<BulletAction>();
 		return obj;
 	}
 
