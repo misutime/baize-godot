@@ -305,3 +305,4 @@ SCsub                                         @godotengine/buildsystem
 /thirdparty/Friflo.Engine.ECS.Generator/       @misutime
 /modules/ecs/                                   @misutime
 /modules/ecs-generator/                         @misutime
+/modules/authoring/                             @misutime
