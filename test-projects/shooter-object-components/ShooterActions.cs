@@ -200,7 +200,11 @@ public sealed class EnemyControllerAction : GameComponent
 		{
 			vel.X = 0;
 			vel.Z = 0;
+			// 无玩家可寻：prev=pos 退化为静止点，避免子弹扫掠过其旧运动段（幽灵轨迹）。
+			prev.X = pos.X;
+			prev.Z = pos.Z;
 			return;
+
 		}
 		// 寻玩家：朝玩家当前 Position 计算速度（玩家已在本阶段先移动，故读到的是本帧终点）。
 		var playerPos = player.GetComponent<Position>()!;
