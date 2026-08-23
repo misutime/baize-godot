@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // MatchResources.cs —— 一局游戏的声明式状态与全局运行数据
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

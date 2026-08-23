@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using Friflo.Engine.ECS;
 using Friflo.Engine.ECS.Systems;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 internal interface IEcsSystemBinding
 {

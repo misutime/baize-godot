@@ -3,7 +3,7 @@
 
 using Godot;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 public partial class Main : Node3D
 {

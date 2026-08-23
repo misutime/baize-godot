@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // PlayerBundle.cs —— “玩家”只是这一组事实的作者层配方
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

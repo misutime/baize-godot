@@ -1,4 +1,4 @@
-# site_scons/site_init.py -- baize-godot global SCons config
+# site_scons/site_init.py -- sola3d-godot global SCons config
 #
 # FORK-CUSTOM (Chinese-first constitution): force full-chain UTF-8.
 # On Windows, Python locale defaults to GBK; SCons reads profile/config files

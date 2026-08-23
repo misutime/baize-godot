@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShooterFeature.cs —— 通过嵌套 Feature 组合完整玩法规则
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

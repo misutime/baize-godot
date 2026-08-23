@@ -1,6 +1,10 @@
-# baize-godot 项目规则（强制）
+# sola3d-godot 项目规则（强制）
 
-本文件是 baize-godot fork 的强制开发规则，AI 与开发者均须遵守。与全局规范冲突时，本文件优先（fork 特有约束）。
+本文件是 sola3d-godot fork 的强制开发规则，AI 与开发者均须遵守。与全局规范冲突时，本文件优先（fork 特有约束）。
+> **产品名（2026-08-23 正式迁移）**：引擎产品名由 `baize` 统一调整为 **`sola3d`**（仓库 `sola3d-godot`）。
+> 代码面：命名空间/程序集 `Baize.*` → `Sola3d.*`（`Sola3d.Ecs`/`Sola3d.GameObject`/`Sola3d.Ecs.Generator`）、
+> 格式名 `baize.v1` → `sola3d.v1`、诊断 ID `BAIZEECSGEN*` → `SOLA3DECSGEN*`、`BaizeMainLoop` → `Sola3dMainLoop`、
+> `CHANGELOG_BAIZE.md` → `CHANGELOG_SOLA3D.md`。**禁止再写 `baize` 产品名**（历史 git 保留供考古，勿从旧文件复制旧名）。
 
 ## 1. 架构总览（2026-08-21 更新：All-in C# 路线，gd_provider 已退役）
 

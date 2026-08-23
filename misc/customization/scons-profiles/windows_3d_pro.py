@@ -1,4 +1,4 @@
-# Windows 3D daily-use editor build (baize-godot All-in C#).
+# Windows 3D daily-use editor build (sola3d-godot All-in C#).
 # Usage:
 #   scons profile=misc/customization/scons-profiles/windows_3d_pro.py -j8
 

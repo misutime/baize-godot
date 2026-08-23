@@ -8,7 +8,7 @@
 // - 无 ECS CommandBuffer：创建/命中/死亡都即时、直接（同步销毁 + 对象创建序 tick 天然去重）。
 
 using System;
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace Shooter.Objects;
 

@@ -1,6 +1,6 @@
-# baize-godot 排障记录（Troubleshooting）
+# sola3d-godot 排障记录（Troubleshooting）
 
-> 本文件是 baize-godot fork 的**故障排查积累**，按时间倒序追加。
+> 本文件是 sola3d-godot fork 的**故障排查积累**，按时间倒序追加。
 > 每条：现象 → 排查 → 根因 → 修复 → 验证。持续积累，方便以后快速定位同类问题。
 > 原则：每次解决一个真问题，把"排查思路 + 根因 + 修复"记下来，不重复踩坑。
 
@@ -13,7 +13,7 @@
 `Godot.NET.Sdk/4.8.0-dev/Sdk/Sdk.props(40)` 无法解析 `Microsoft.NET.Sdk`；无 `ProjectReference` 的 `p15-check` 曾能通过。
 
 ### 根因
-失败发生在根项目导入 `Microsoft.NET.Sdk` 时，早于 `ProjectReference` 图求值，因此与 Baize.Ecs、Shooter.Gameplay、
+失败发生在根项目导入 `Microsoft.NET.Sdk` 时，早于 `ProjectReference` 图求值，因此与 Sola3d.Ecs、Shooter.Gameplay、
 `GodotFloat64` 和 net11 项目引用无关。失败编辑器进程中的 `MSBuildSDKsPath` 与 `MSBUILD_EXE_PATH`
 分别缺少目录分隔符（如 `...26381.103Sdks`）；GodotTools 启动 `dotnet` 子进程时原样继承了这些为进程内
 MSBuild 项目求值设置的变量，覆盖了 dotnet CLI 自身的 SDK 定位。

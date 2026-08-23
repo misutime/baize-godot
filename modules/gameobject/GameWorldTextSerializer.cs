@@ -12,7 +12,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>
 /// 可读文本格式序列化器（契约 R26）：GameWorldSnapshot ↔ 文本。
@@ -21,7 +21,7 @@ namespace Baize.GameObject;
 public static class GameWorldTextSerializer
 {
 	/// <summary>格式名（第一行，固定值）。</summary>
-	public const string FormatName = "baize.v1"; // 精简（用户裁定）；领域由 kind 行承担
+	public const string FormatName = "sola3d.v1"; // 精简（用户裁定）；领域由 kind 行承担
 
 	/// <summary>kind = scene（本文档范围；prefab 由 O4 定义）。</summary>
 	public const string KindScene = "scene";

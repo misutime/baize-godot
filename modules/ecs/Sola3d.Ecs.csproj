@@ -3,8 +3,8 @@
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RootNamespace>Baize.Ecs</RootNamespace>
-    <AssemblyName>Baize.Ecs</AssemblyName>
+    <RootNamespace>Sola3d.Ecs</RootNamespace>
+    <AssemblyName>Sola3d.Ecs</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\thirdparty\Friflo.Engine.ECS\Friflo.Engine.ECS.csproj" />

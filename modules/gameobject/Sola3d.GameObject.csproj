@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sola3d.GameObject</RootNamespace>
+    <AssemblyName>Sola3d.GameObject</AssemblyName>
+    <!-- O1 硬门禁：纯 .NET，零外部依赖（不引用 Friflo/Sola3d.Ecs/Godot，不接触 Node） -->
+  </PropertyGroup>
+</Project>

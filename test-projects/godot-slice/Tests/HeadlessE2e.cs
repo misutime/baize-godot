@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // HeadlessE2e.cs —— Godot 进程内注入 InputFrame，验证完整玩法与表现隔离门禁
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 using Godot;
 using Shooter.Gameplay;
 using Position = Shooter.Gameplay.Position;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 internal static class HeadlessE2e
 {

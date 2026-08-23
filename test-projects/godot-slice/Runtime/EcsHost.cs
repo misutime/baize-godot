@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // EcsHost.cs —— 只负责 Godot 生命周期、输入交接与 ECS 固定 Tick，不拥有表现节点
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 using Godot;
 using Shooter.Gameplay;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 public partial class EcsHost : Node
 {

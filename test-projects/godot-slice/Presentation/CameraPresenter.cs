@@ -8,7 +8,7 @@
 using Godot;
 using Shooter.Gameplay;
 
-namespace Baize.GodotSlice;
+namespace Sola3d.GodotSlice;
 
 public partial class CameraPresenter : Node3D
 {

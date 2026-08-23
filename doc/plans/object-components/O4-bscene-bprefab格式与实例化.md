@@ -77,7 +77,7 @@ relation MyGame.TargetRelation @01a3c5e7 -> @00b0b1
 - 例 `Enemy.bprefab`：
 
 ```text
-format = "baize.v1"
+format = "sola3d.v1"
 kind = "prefab"
 
 object @a1 "EnemyRoot"

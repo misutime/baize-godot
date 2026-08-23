@@ -9,7 +9,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>
 /// .bscene/.bprefab 加载器（O4）：文件 → 快照 → 世界。

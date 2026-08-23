@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>
 /// 标记组件类型。可选配置：

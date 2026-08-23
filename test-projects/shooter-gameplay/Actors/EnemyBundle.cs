@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // EnemyBundle.cs —— 敌人作者层配方：阵营、寻敌能力、速度参数彼此独立
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

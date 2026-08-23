@@ -2,7 +2,7 @@
 // ShooterWorldHelper.cs —— O2 世界级查询辅助（纯静态遍历；无命中/计分仲裁——逻辑都在组件里）
 
 using System.Collections.Generic;
-using Baize.GameObject;
+using Sola3d.GameObject;
 namespace Shooter.Objects;
 
 

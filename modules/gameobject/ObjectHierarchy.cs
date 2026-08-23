@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>对象层级：parent/children 双向映射 + 环检测 + 遍历。世界内单例。</summary>
 public sealed class ObjectHierarchy

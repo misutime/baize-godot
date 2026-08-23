@@ -6,7 +6,7 @@
 // - StableObjectId          文件层稳定身份（.bscene/.bprefab 内 @hex，不随重排/合并变化）；O4 启用。
 // RuntimeGameObjectHandle == ObjectId（含 Generation 的运行时句柄）。
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>
 /// 运行时对象身份：Index（槽位）+ Generation（防复用）。

@@ -12,7 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>一条编辑步骤（apply = 重做动作，undo = 撤销动作）。内部使用。</summary>
 internal sealed record EditStep(Action Apply, Action Undo);

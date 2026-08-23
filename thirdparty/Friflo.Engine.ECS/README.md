@@ -1,5 +1,5 @@
 <!--
-baize-godot vendor 信息：
+sola3d-godot vendor 信息：
 - Upstream: https://github.com/friflo/Friflo.Engine.ECS
 - Version: main 分支（commit 8e75b6b，2026-08-21 clone）
 - License: MIT（LICENSE 文件随附）

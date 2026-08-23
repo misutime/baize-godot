@@ -3,7 +3,7 @@
 
 using System;
 using System.Collections.Generic;
-using Baize.Ecs;
+using Sola3d.Ecs;
 using Friflo.Engine.ECS;
 
 namespace Shooter.Gameplay;

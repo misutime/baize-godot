@@ -431,21 +431,21 @@ Events.cs
 
 ## 6. 作者层与底层实现层的边界
 
-**分层定位（Baize.Ecs 是日常主入口，但 IComponent/Entity 仍直接来自 Friflo）**：
+**分层定位（Sola3d.Ecs 是日常主入口，但 IComponent/Entity 仍直接来自 Friflo）**：
 
 ```text
-Baize.Ecs        —— 游戏开发者日常入口（using Baize.Ecs）
+Sola3d.Ecs        —— 游戏开发者日常入口（using Sola3d.Ecs）
     EcsSystem / EcsState / EcsWorld / ForEach / ForTag / Read /
     InsertState / WorldState / EntityBundle / EventWriter-Reader / Phase
 Friflo.Engine.ECS —— 底层高性能内核（IComponent/ITag/Entity 等核心类型仍需引用它）
     IComponent / ITag / Entity / ref 组件 / 高级查询 / chunk 写入
 ```
 
-- **日常写游戏**：`using Baize.Ecs`，用 `EcsSystem`/`ForEach`/`ForTag`/`InsertState`/`EcsState` 表达玩法。
-- **组件声明**（`struct Position : IComponent`）：`IComponent` 是 Friflo 的（性能内核，无法改为 Baize 的），
+- **日常写游戏**：`using Sola3d.Ecs`，用 `EcsSystem`/`ForEach`/`ForTag`/`InsertState`/`EcsState` 表达玩法。
+- **组件声明**（`struct Position : IComponent`）：`IComponent` 是 Friflo 的（性能内核，无法改为 Sola3d 的），
   所以组件文件需 `using Friflo.Engine.ECS`——这是**有意**的（保留 Friflo 数据布局与泛型特化），不是缺隔离。
 - **了解 Friflo 的用户**：可直接用 Friflo 高级 API（`Query`/`Filter`/`Tags.Get<T>()`/`Store.Query`）——
-  Baize.Ecs 不封死底层，而是**默认走作者层**（更简洁），高级需求在局部显式下沉。
+  Sola3d.Ecs 不封死底层，而是**默认走作者层**（更简洁），高级需求在局部显式下沉。
 
 **核心原则**：**默认代码先表达"处理谁、读什么、写什么"；只有确有高级需求时，底层查询机制才在局部显式出现。**
 不是把所有 Friflo 能力包一层藏起来，而是让日常写法最简、高级能力可及。

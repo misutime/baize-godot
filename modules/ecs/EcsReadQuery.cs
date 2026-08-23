@@ -4,7 +4,7 @@
 using System;
 using Friflo.Engine.ECS;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>一个组件的只读查询项；组件按值复制，不能通过此项原地改写世界。</summary>
 public readonly record struct EcsReadEntity<T1>(T1 Component1, Entity Entity)

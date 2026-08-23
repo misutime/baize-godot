@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // MatchSystems.cs —— 对局结束事件只在这里触发声明式状态转换
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

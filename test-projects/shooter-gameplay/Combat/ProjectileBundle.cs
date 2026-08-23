@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ProjectileBundle.cs —— 投射物作者层配方
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

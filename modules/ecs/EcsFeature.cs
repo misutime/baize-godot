@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // EcsFeature.cs —— 面向作者的功能安装边界
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>
 /// 一个可安装的玩法功能切片：负责注册本功能系统，也可通过 world.AddFeature 安装子功能。

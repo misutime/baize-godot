@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShooterComponents.cs —— O2 玩法数据组件（组件即能力：数据 + 自包含行为方法，直接操作 Owner）
 
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace Shooter.Objects;
 

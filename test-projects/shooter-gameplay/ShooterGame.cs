@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShooterGame.cs —— Shooter PoC 的唯一 Composition Root
 
-using Baize.Ecs;
+using Sola3d.Ecs;
 
 namespace Shooter.Gameplay;
 

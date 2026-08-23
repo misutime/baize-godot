@@ -1,4 +1,4 @@
-# Windows 3D development baseline (baize-godot All-in C#).
+# Windows 3D development baseline (sola3d-godot All-in C#).
 # Usage:
 #   scons profile=misc/customization/scons-profiles/windows_3d_dev.py -j8
 

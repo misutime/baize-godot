@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShooterGame.cs —— O2 Composition Root：装配世界（资源 + 世界宿主 + 玩家）
 
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace Shooter.Objects;
 

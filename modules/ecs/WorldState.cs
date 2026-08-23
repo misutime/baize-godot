@@ -1,5 +1,5 @@
-﻿// SPDX-License-Identifier: MIT
-// WorldState.cs —— baize-godot EcsWorld 世界状态单例（P2.1，借鉴 Bevy Resource）
+// SPDX-License-Identifier: MIT
+// WorldState.cs —— sola3d-godot EcsWorld 世界状态单例（P2.1，借鉴 Bevy Resource）
 //
 // 全局单例数据（GameState/Score/配置）——不挂实体，EcsWorld 持有。
 // 解决"全局状态设计成组件挂实体"的不自然（Bevy Resource 概念）。
@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 public sealed class WorldState
 {

@@ -6,7 +6,7 @@
 // - 冻结由组合根（ShooterGame.RunFrame）读各来源状态汇聚（O1 Paused 语义：所有组件 OnTick 停）。
 
 using System.Collections.Generic;
-using Baize.GameObject;
+using Sola3d.GameObject;
 
 namespace Shooter.Objects;
 

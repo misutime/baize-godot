@@ -12,7 +12,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>对象快照记录（序列化模型）。</summary>
 public sealed class GameObjectRecord

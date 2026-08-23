@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>运行时游戏对象（开发者对象）。</summary>
 public sealed class GameObject

@@ -3,7 +3,7 @@
 
 using System;
 using System.Collections.Generic;
-using Baize.GameObject;
+using Sola3d.GameObject;
 using Shooter.Objects;
 
 namespace ShooterObjectsPoc;

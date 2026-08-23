@@ -10,7 +10,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 /// <summary>关系（Relation）—— 非父子语义关系，一等数据（方案 §4.5/契约 §9）。</summary>
 public abstract class GameRelation
 {

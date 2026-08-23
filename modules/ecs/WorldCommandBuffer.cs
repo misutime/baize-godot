@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// WorldCommandBuffer.cs —— baize-godot EcsWorld 命令缓冲（P2.1）
+// WorldCommandBuffer.cs —— sola3d-godot EcsWorld 命令缓冲（P2.1）
 //
 // 延迟结构变更：系统查询循环内禁止直接 CreateEntity/DeleteEntity/AddComponent
 // （Friflo 抛 StructuralChangeException），统一走 CommandBuffer，在 Tick 末尾 Playback。
@@ -8,7 +8,7 @@
 
 using Friflo.Engine.ECS;
 
-namespace Baize.Ecs;
+namespace Sola3d.Ecs;
 
 /// <summary>
 /// 世界命令缓冲：延迟执行结构变更（创建/删除实体、添加组件/标签）。

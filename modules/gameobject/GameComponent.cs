@@ -4,7 +4,7 @@
 // 普通组件有生命周期 + C# 行为（不是纯数据）；ECS/SoA 只是可选性能后端（§14.2）。
 // 生命周期顺序见 O1 契约 §4：OnCreate → OnEnable → OnStart → OnTick/OnFixedTick → OnDisable → OnDestroy。
 
-namespace Baize.GameObject;
+namespace Sola3d.GameObject;
 
 /// <summary>
 /// GameComponent —— GameObject 的能力/状态单元。
