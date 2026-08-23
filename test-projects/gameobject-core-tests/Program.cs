@@ -1286,6 +1286,22 @@ internal static class Program
 		Check("O4：override 应用", enemyA.GetComponent<Health>()!.Max == 42 && enemyA.GetComponent<Health>()!.Current == 7);
 		Check("O4：override 不影响其他实例", enemyB.GetComponent<Health>()!.Current == 100);
 
+		// reviewer P1-2：双实例的子对象（模板 Mesh）Uid 不得共享——Capture 快照 uid 全唯一。
+		var snap = GameWorldSerializer.Capture(world);
+		var uidSet = new HashSet<ulong>();
+		bool uidUnique = true;
+		foreach (var o in snap.Objects)
+		{
+			if (o.Uid != 0 && !uidSet.Add(o.Uid))
+			{
+				uidUnique = false;
+			}
+		}
+		Check("O4：双实例子对象 Uid 唯一（不共享模板 uid）", uidUnique);
+		// 展开后序列化可被自身读回（无重复 @id）。
+		string reText = GameWorldTextSerializer.Serialize(snap);
+		var reSnap = GameWorldTextSerializer.Deserialize(reText);
+		Check("O4：双实例展开后 Serialize→Deserialize 不抛错", reSnap.Objects.Count == snap.Objects.Count);
 		// override 未知组件报错。
 		Check("O4：override 未知组件拒绝",
 			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
@@ -1293,8 +1309,15 @@ internal static class Program
 
 		// prefab resolver 返回 null → 报错。
 		Check("O4：prefab 无法解析拒绝",
-			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
+ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
 				"format = \"sola3d.v1\"\nkind = \"scene\"\n\nobject @1a \"A\" prefab = \"res://Missing.bprefab\"\n", _ => null), "无法解析"));
+
+		// reviewer P2：Serialize 拒绝重复非零 Uid（防产出自身不可读文本）。
+		var dupSnap = new GameWorldSnapshot();
+		dupSnap.Objects.Add(new GameObjectRecord { Name = "X", Uid = 0xab });
+		dupSnap.Objects.Add(new GameObjectRecord { Name = "Y", Uid = 0xab });
+		Check("O4：Serialize 拒绝重复 Uid",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Serialize(dupSnap), "重复"));
 	}
 
 	private static GameWorld CreateO4World(string name)

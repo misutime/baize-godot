@@ -87,8 +87,8 @@ public sealed class Sola3dMainLoop
 		// fixed 域：累计时间驱动的固定步子循环（Bevy RunFixedMainLoop 同构）。
 		while (_accumulator >= _world.FixedDelta)
 		{
-			// 输入在 fixed 边界采样并注入（§14.6：fixed tick 边界收集）。
-			var frame = BuildInputFrame();
+			// 输入在 fixed 边界采样并注入（§14.6：fixed tick 边界收集）——先采样，再构建注入，
+			// 保证本 fixed tick 看到的是刚采样的输入（reviewer P1：时序修正）。
 			foreach (var gateway in _gateways)
 			{
 				if (gateway is IInputGateway input)
@@ -96,6 +96,7 @@ public sealed class Sola3dMainLoop
 					input.SampleFixed();
 				}
 			}
+			var frame = BuildInputFrame();
 			_world.InjectInput(frame);
 			_world.FixedTick();
 			_accumulator -= _world.FixedDelta;

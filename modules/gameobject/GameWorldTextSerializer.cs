@@ -49,7 +49,12 @@ public static class GameWorldTextSerializer
 			if (snapshot.Objects[i].Uid != 0)
 			{
 				effectiveUid[i] = snapshot.Objects[i].Uid;
-				used.Add(snapshot.Objects[i].Uid);
+				// reviewer P2：重复非零 Uid 会被写成自身无法读回的 @id 文本——直接拒绝。
+				if (!used.Add(snapshot.Objects[i].Uid))
+				{
+					throw new InvalidOperationException(
+						$"快照对象 {i}（\"{snapshot.Objects[i].Name}\"）的 Uid @{snapshot.Objects[i].Uid.ToString("x16", CultureInfo.InvariantCulture)} 与前面对象重复——Serialize 拒绝（文件内 @id 必须唯一）。");
+				}
 			}
 		}
 		ulong nextAuto = 1;

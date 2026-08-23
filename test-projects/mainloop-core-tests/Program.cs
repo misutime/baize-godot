@@ -58,14 +58,25 @@ internal static class Program
 	private sealed class FakeInputGateway : IInputGateway
 	{
 		private InputFrame _frame = InputFrame.Empty;
+		private InputFrame? _pending; // 待 SampleFixed 生效的输入
+		public int SampleCount;
 
 		public void BeginFrame(float nowSeconds) { }
 		public void EndFrame(float nowSeconds) { }
 
-		public void SampleFixed() { }
+		/// <summary>采样边界：若有待注入输入，此刻生效（reviewer P1-1：本 fixed tick 应看到刚采样的输入）。</summary>
+		public void SampleFixed()
+		{
+			SampleCount++;
+			if (_pending.HasValue)
+			{
+				_frame = _pending.Value;
+				_pending = null;
+			}
+		}
 
-		/// <summary>测试注入合成输入。</summary>
-		public void SetFrame(InputFrame frame) => _frame = frame;
+		/// <summary>测试注入合成输入（下次 SampleFixed 生效）。</summary>
+		public void SetFrame(InputFrame frame) => _pending = frame;
 
 		public InputFrame? LastFrame() => _frame;
 	}
@@ -99,11 +110,13 @@ internal static class Program
 		var input = new FakeInputGateway();
 		loop.AddGateway(input);
 
-		// 注入合成输入：fixed 边界采样。
+		// 注入合成输入：SetFrame 后下一次 SampleFixed（首个 fixed 边界）生效——本 fixed tick 即见（reviewer P1-1）。
 		input.SetFrame(new InputFrame(1, new[] { new InputSample("fire", pressed: true) }));
 		loop.Frame(0.05f);
 		Check("输入：每 fixed tick 注入一帧（2 fixed → 至少 2 帧注入）", world.Injected.Count >= 2);
-		Check("输入：注入帧含 fire 样本", world.Injected[0].Samples.Count == 1 && world.Injected[0].Samples[0].Name == "fire");
+		Check("输入：首个 fixed 即注入 fire（SampleFixed 先于 BuildInputFrame）",
+			world.Injected[0].Samples.Count == 1 && world.Injected[0].Samples[0].Name == "fire");
+		Check("输入：SampleFixed 被调用（2 fixed）", input.SampleCount >= 2);
 
 		// variable 域也注入最新帧。
 		Check("输入：variable 帧注入最新", world.Injected[^1].Samples.Count == 1);

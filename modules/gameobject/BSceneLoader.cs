@@ -80,12 +80,14 @@ public static class BSceneLoader
 
 	// ---------- prefab 实例化 ----------
 
-	private static void ExpandPrefabs(GameWorldSnapshot snapshot, Func<string, string?>? resolver)
+	private static void ExpandPrefabs(GameWorldSnapshot snapshot, Func<string, string?>? resolver, List<string>? activePath = null)
 	{
 		if (resolver == null)
 		{
 			return; // 无解析器：保持原状（调用方自行处理 SourceTemplate 字段）
 		}
+		activePath ??= new List<string>();
+		const int MaxDepth = 64;
 
 		// 逐对象检查 prefab 字段（存放在 SourceTemplate；当前 Deserialize 未解析该字段——见下方回退）。
 		for (int i = 0; i < snapshot.Objects.Count; i++)
@@ -96,13 +98,31 @@ public static class BSceneLoader
 				continue;
 			}
 			string path = record.SourceTemplate;
+			if (activePath.Contains(path))
+			{
+				// reviewer P2：循环 prefab 引用（含自引用）——抛带完整引用链的错误，而非无限递归。
+				string chain = string.Join(" → ", System.Linq.Enumerable.Append(activePath, path));
+				throw new InvalidOperationException($"prefab 循环引用：{chain}");
+			}
+			if (activePath.Count >= MaxDepth)
+			{
+				throw new InvalidOperationException($"prefab 嵌套深度超限（>{MaxDepth}）：{path}");
+			}
 			string? prefabText = resolver(path);
 			if (prefabText == null)
 			{
 				throw new InvalidOperationException($"prefab 引用无法解析：{path}（prefabResolver 返回 null）。");
 			}
 			var template = ParsePrefab(prefabText);
-			ExpandPrefabs(template, resolver); // 递归：模板内嵌套 prefab
+			activePath.Add(path);
+			try
+			{
+				ExpandPrefabs(template, resolver, activePath); // 递归：模板内嵌套 prefab
+			}
+			finally
+			{
+				activePath.RemoveAt(activePath.Count - 1);
+			}
 			InstantiateAt(snapshot, i, template);
 		}
 	}
@@ -143,8 +163,35 @@ public static class BSceneLoader
 			}
 			copied[t] = dst;
 		}
-
-		// 2) root 继承场景声明；其余节点 ParentIndex 整体右移 rootIndex（模板 DFS 序 ⇒ 插入到 rootIndex 起连续块）。
+		// 2) root 继承场景声明；模板非 root 节点重新分配唯一 Uid（reviewer P1-2：
+		//    同一 prefab 多实例不得共享子 Uid——否则违反文件内 @id 唯一契约，Serialize/Deserialize 断裂）。
+		var used = new HashSet<ulong>();
+		foreach (var obj in snapshot.Objects)
+		{
+			if (obj.Uid != 0)
+			{
+				used.Add(obj.Uid);
+			}
+		}
+		if (uid != 0)
+		{
+			used.Add(uid);
+		}
+		ulong nextUid = 1;
+		ulong AllocateUid()
+		{
+			while (used.Contains(nextUid))
+			{
+				nextUid++;
+			}
+			used.Add(nextUid);
+			return nextUid;
+		}
+		// 模板内旧 uid → 实例新 uid（供 override 寻址 / 后续引用一致性）。
+		for (int t = 1; t < templateCount; t++)
+		{
+			copied[t].Uid = AllocateUid();
+		}
 		copied[0].Name = name;
 		copied[0].Enabled = enabled;
 		copied[0].Uid = uid;

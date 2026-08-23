@@ -104,6 +104,55 @@ internal static class Program
 		Check("层级：子对象 ParentIndex 指向父", child.ParentIndex == 0);
 		session.Undo();
 		Check("层级：Undo 回顶层（-1）", child.ParentIndex == -1);
+
+		// reviewer P1-3：前挂后（先建 A、后建 B，SetParent(A,B)）→ 保持 DFS 物理顺序可保存。
+		var a = session.CreateGameObject("A");
+		var b = session.CreateGameObject("B");
+		session.SetParent(a, b); // A(0) → B(1) 下
+		Check("层级：前挂后 A 挂到 B 下（DFS 序 B 先）", session.Document.Objects.IndexOf(a) > session.Document.Objects.IndexOf(b));
+		string text = session.SaveSceneText(); // 不应抛错（ValidateSnapshot 通过）
+		Check("层级：前挂后保存不抛错", text.Contains("\"A\"") && text.Contains("\"B\""));
+
+		// 接着测试前挂后恢复：undo SetParent(A,B) → A 回顶层（B 仍存在）。
+		session.Undo();
+		Check("层级：undo 前挂后 → A 回顶层", a.ParentIndex == -1 && session.Document.Objects.Count == 4);
+	}
+
+	private static void Test_重挂_undo_保存()
+	{
+		// reviewer P1-3：SetParent 后 Undo 再 SaveSceneText 不抛错（Undo 恢复原 DFS 序）。
+		var session = new EditorSession();
+		var a = session.CreateGameObject("A");
+		var b = session.CreateGameObject("B");
+		var c = session.CreateGameObject("C");
+		session.SetParent(a, b);     // A 挂到 B 下
+		session.SetParent(c, a);     // C 挂到 A 下（链 B→A→C）
+		string before = session.SaveSceneText();
+		session.Undo();              // 撤 SetParent(C,A)
+		session.Undo();              // 撤 SetParent(A,B)
+		string after = session.SaveSceneText();
+		Check("重挂：undo 后保存合法（无异常）", after.Length > 0);
+		var reopened = EditorSession.LoadScene(before, new ComponentSchemaRegistry());
+		Check("重挂：保存-重载合法", reopened.Document.Objects.Count == 3);
+	}
+
+	private static void Test_环检测()
+	{
+		// reviewer P1-3：把父设为后代 → 抛错。
+		var session = new EditorSession();
+		var root = session.CreateGameObject("Root");
+		var child = session.CreateGameObject("Child");
+		session.SetParent(child, root);
+		bool threw = false;
+		try
+		{
+			session.SetParent(root, child); // root 试图成为 child 的子 → 环
+		}
+		catch (InvalidOperationException)
+		{
+			threw = true;
+		}
+		Check("层级：环被拒绝", threw);
 	}
 
 	private static int Main()
@@ -113,7 +162,8 @@ internal static class Program
 		Test_编辑保存重载闭环();
 		Test_Undo();
 		Test_层级编辑();
-
+		Test_重挂_undo_保存();
+		Test_环检测();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{

@@ -57,14 +57,122 @@ public sealed class EditorSession
 		{
 			throw new InvalidOperationException("对象不能成为自己的父。");
 		}
-		int oldIndex = obj.ParentIndex;
-		int newIndex = parent == null ? -1 : Document.Objects.IndexOf(parent);
-		if (parent != null && newIndex < 0)
+		int objIdx = Document.Objects.IndexOf(obj);
+		if (objIdx < 0)
+		{
+			throw new InvalidOperationException("对象不在文档中。");
+		}
+		if (parent != null && Document.Objects.IndexOf(parent) < 0)
 		{
 			throw new InvalidOperationException("父对象不在文档中。");
 		}
-		obj.ParentIndex = newIndex;
-		_undoStack.Push(() => obj.ParentIndex = oldIndex);
+		// 环检测：parent 不能是 obj 的后代（子树内）。
+		if (parent != null && IsDescendant(parent, objIdx))
+		{
+			throw new InvalidOperationException("父对象不能是子对象的后代（环）。");
+		}
+		if (obj.ParentIndex == (parent == null ? -1 : Document.Objects.IndexOf(parent)))
+		{
+			return; // 无变化
+		}
+
+		// undo 快照：原列表顺序（引用序列）+ 每对象原父（引用身份）。
+		var beforeOrder = new List<GameObjectRecord>(Document.Objects);
+		var beforeParent = new Dictionary<GameObjectRecord, GameObjectRecord?>();
+		foreach (var o in beforeOrder)
+		{
+			int pi = o.ParentIndex;
+			beforeParent[o] = pi >= 0 && pi < beforeOrder.Count ? beforeOrder[pi] : null;
+		}
+
+		// 1) obj 的 DFS 连续子树区间 [subStart, subEnd)。
+		int subStart = objIdx;
+		int subEnd = subStart + SubtreeSpan(subStart);
+		var subtree = Document.Objects.GetRange(subStart, subEnd - subStart);
+
+		// 2) 先移除子树。
+		Document.Objects.RemoveRange(subStart, subEnd - subStart);
+
+		// 3) 在"移除后"的列表上定位新插入点：父 DFS 子树末尾；顶层 = 末尾。
+		int insertAt;
+		if (parent == null)
+		{
+			insertAt = Document.Objects.Count;
+		}
+		else
+		{
+			int pIdx = Document.Objects.IndexOf(parent);
+			insertAt = pIdx + SubtreeSpan(pIdx); // 父子树末尾之后（Span 含父自身）
+		}
+		Document.Objects.InsertRange(insertAt, subtree);
+
+		// 4) 全表按身份重建父引用：obj → parent，其余保持原父（beforeParent）。
+		foreach (var o in Document.Objects)
+		{
+			var p = ReferenceEquals(o, obj) ? parent : beforeParent[o];
+			o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
+		}
+
+		// undo：恢复原顺序与每对象原父索引。
+		_undoStack.Push(() =>
+		{
+			var current = new List<GameObjectRecord>(Document.Objects);
+			Document.Objects.Clear();
+			foreach (var o in beforeOrder)
+			{
+				Document.Objects.Add(current[current.IndexOf(o)]);
+			}
+			for (int i = 0; i < Document.Objects.Count; i++)
+			{
+				var o = Document.Objects[i];
+				var p = beforeParent[o];
+				o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
+			}
+		});
+	}
+
+	/// <summary>判断 candidate 是否在 obj 的 DFS 子树内（Objects 序即 DFS 序）。</summary>
+	private bool IsDescendant(GameObjectRecord candidate, int objIdx)
+	{
+		int span = SubtreeSpan(objIdx);
+		for (int i = objIdx + 1; i < objIdx + span && i < Document.Objects.Count; i++)
+		{
+			if (ReferenceEquals(Document.Objects[i], candidate))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>obj 起 DFS 连续子树跨度（含自身）：Objects 序即 DFS 序，子树为连续块。</summary>
+	private int SubtreeSpan(int idx)
+	{
+		if (idx < 0 || idx >= Document.Objects.Count)
+		{
+			return 0;
+		}
+		int span = 1;
+		while (idx + span < Document.Objects.Count)
+		{
+			int pi = Document.Objects[idx + span].ParentIndex;
+			// 后续节点若父在 [idx, idx+span) 内 → 属于当前子树，继续扩展。
+			if (pi >= idx && pi < idx + span)
+			{
+				span++;
+			}
+			else
+			{
+				break;
+			}
+		}
+		return span;
+	}
+	/// <summary>obj 目标父的 DFS 子树末尾索引（父为 null → 顶层末尾）。</summary>
+	private int ComputeInsertIndex(List<GameObjectRecord> subtree)
+	{
+		// 在"移除前"的列表上定位父（避免父在子树内导致的索引漂移——环已排除，父必在子树外）。
+		return 0; // 占位——实际在下方重算
 	}
 
 	/// <summary>添加组件（Design：给对象 record 加组件 record；TypeName = Schema 稳定名）。</summary>

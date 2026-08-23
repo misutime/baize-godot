@@ -307,7 +307,7 @@ public static class GameWorldSerializer
 		if (ut == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
 		if (ut == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
 		if (ut == typeof(bool)) return Convert.ToBoolean(value);
-if (ut == typeof(string)) return Convert.ToString(value, CultureInfo.InvariantCulture);
+		if (ut == typeof(string)) return Convert.ToString(value, CultureInfo.InvariantCulture);
 		if (ut == typeof(System.Numerics.Vector3) && value is System.Numerics.Vector3 v3)
 		{
 			return v3; // R27：原生快照 Vector3 直通（值即目标类型）
