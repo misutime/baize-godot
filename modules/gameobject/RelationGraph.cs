@@ -128,16 +128,14 @@ public sealed class RelationGraph
 		_order.Add(relation);
 	}
 
-	/// <summary>查询：本对象作为 Source 的所有关系（按类型过滤，插入序）。</summary>
-	/// <summary>查询：本对象作为 Source 的所有关系（按类型过滤，插入序）。跨世界对象返回空（reviewer P1）。</summary>
-	public IReadOnlyList<TRelation> GetFrom<TRelation>(GameObject source) where TRelation : GameRelation
+/// <summary>查询：本对象作为 Source 的所有关系（按类型过滤，插入序）。跨世界对象返回空（reviewer P1）。</summary>
+public IReadOnlyList<TRelation> GetFrom<TRelation>(GameObject source) where TRelation : GameRelation
 	{
 		ArgumentNullException.ThrowIfNull(source);
 		if (!IsOwned(source))
 		{
 			return Array.Empty<TRelation>();
 		}
-		ArgumentNullException.ThrowIfNull(source);
 		if (!_outgoing.TryGetValue(source.Id, out var list))
 		{
 			return Array.Empty<TRelation>();
