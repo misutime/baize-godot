@@ -189,7 +189,6 @@ public sealed class EditorSession
 			}
 		}
 		return span;
-		return span;
 	}
 
 	/// <summary>添加组件（Design：给对象 record 加组件 record；TypeName = Schema 稳定名）。</summary>
