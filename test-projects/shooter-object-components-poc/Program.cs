@@ -361,7 +361,7 @@ internal static class Program
 
 	// ---------- 7：GameOver 冻结（Paused 全局）----------
 
-private static void TestGameOverFreeze()
+	private static void TestGameOverFreeze()
 	{
 		// 保留 Game 宿主（EnemySpawner 启用）——验证 Paused 真正冻结生成，而非宿主被清导致"无生成"。
 		var world = ShooterGame.CreateWorld();
@@ -604,7 +604,7 @@ private static void TestGameOverFreeze()
 		return list.ToArray();
 	}
 
-private readonly struct RunResult(ulong hash, int score, int alive)
+	private readonly struct RunResult(ulong hash, int score, int alive)
 	{
 		public ulong Hash { get; } = hash;
 		public int Score { get; } = score;

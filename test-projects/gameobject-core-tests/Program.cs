@@ -91,7 +91,7 @@ internal static class Program
 		public override void OnDestroy() => Log.Add("OnDestroy");
 	}
 
-private sealed class TargetRelation : GameRelation
+	private sealed class TargetRelation : GameRelation
 	{
 	}
 
@@ -135,7 +135,7 @@ private sealed class TargetRelation : GameRelation
 			{
 				return;
 			}
-// 只 swap 一次：先移除再重挂同一实例（Revision 自增），随后不再干预。
+			// 只 swap 一次：先移除再重挂同一实例（Revision 自增），随后不再干预。
 			var t = Target;
 			Target = null;
 			Owner!.RemoveComponent(t);
@@ -345,7 +345,7 @@ private sealed class TargetRelation : GameRelation
 			if (!MutateOnEnable) return;
 			Owner!.AddComponent<Health>();
 		}
-}
+	}
 
 	private static void Test_暂停回调内改结构不中断刷新()
 	{
@@ -769,7 +769,7 @@ private sealed class TargetRelation : GameRelation
 		var obj = world.CreateGameObject("d");
 		obj.AddComponent<DisableThrowsProbe>();
 
-// SetEnabled 路径：OnDisable 异常直接传播（RefreshEffective 不做聚合，保持简单契约）。
+		// SetEnabled 路径：OnDisable 异常直接传播（RefreshEffective 不做聚合，保持简单契约）。
 		bool threw = Throws<InvalidOperationException>(() => obj.Enabled = false);
 		Check("R3：SetEnabled 时 OnDisable 异常直接传播", threw);
 		Check("R3：OnDisable 被调用", DisableThrowsProbe.DisableCount == 1);
@@ -856,7 +856,7 @@ private sealed class TargetRelation : GameRelation
 		var h = o1.AddComponent<Health>();
 
 		var tx = w2.CreateTransaction();
-// 跨世界 RemoveComponent 走严格路径（RequireResolved 抛异常，不触碰外世界）。
+		// 跨世界 RemoveComponent 走严格路径（RequireResolved 抛异常，不触碰外世界）。
 		Check("R4：跨世界 RemoveComponent 拒绝", Throws<InvalidOperationException>(() => tx.RemoveComponent(o1, new Health())));
 		Check("R4：跨世界 AddComponent 拒绝", Throws<InvalidOperationException>(() => tx.AddComponent(o1, new Health())));
 		Check("R4：跨世界 SetProperty 拒绝", Throws<InvalidOperationException>(() => tx.SetProperty(h, nameof(Health.Max), 50)));

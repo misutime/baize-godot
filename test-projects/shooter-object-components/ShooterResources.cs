@@ -20,7 +20,7 @@ public enum GamePhase
 /// <summary>对局控制器（资源）：全局状态 + 阶段切换。命中计分由组件触发（OnEnemyKilled），不自足仲裁。</summary>
 public sealed class MatchController
 {
-public GamePhase Phase { get; private set; } = GamePhase.Playing;
+	public GamePhase Phase { get; private set; } = GamePhase.Playing;
 	// Score/AliveEnemies 可写：正常由 OnEnemyKilled/OnEnemySpawned 改；测试可预设断言。
 	public int Score { get; set; }
 	public int AliveEnemies { get; set; }

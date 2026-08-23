@@ -61,7 +61,7 @@ public sealed class Health : GameComponent
 	public int Max { get; set; } = 1;
 
 	/// <summary>扣血；流归零则销毁 Owner 并返回 true（死亡）。组件直接操作 Owner，不依赖全局仲裁器。</summary>
-public bool ApplyDamage(int amount)
+	public bool ApplyDamage(int amount)
 	{
 		// 先校验 Owner 存活（reviewer P2：已脱离 Owner 的组件不应再修改状态）。
 		if (Owner == null || Owner.IsDestroyed)
