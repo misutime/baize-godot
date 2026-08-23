@@ -313,7 +313,7 @@ public static class GameWorldSerializer
 		return hash;
 	}
 
-/// <summary>
+	/// <summary>
 	/// 规范化值编码（reviewer P2）：带类型标签 + 长度前缀，消除 null/字符串歧义；
 	/// 枚举按底层类型输出完整位模式（防 ulong 溢出），字符串含长度前缀防拼接歧义。
 	/// </summary>

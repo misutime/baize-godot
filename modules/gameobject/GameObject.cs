@@ -25,7 +25,7 @@ public sealed class GameObject
 	public ObjectId Id { get; }
 	public uint CreationIndex { get; internal set; }
 	/// <summary>作者/静态场景稳定 ID（O1/O4 契约；O4 起由 .bscene/.bprefab 解析器填充）。</summary>
-public AuthoringObjectId AuthoringId { get; internal set; }
+	public AuthoringObjectId AuthoringId { get; internal set; }
 
 	/// <summary>创建该对象时的世界 Tick（对象创建时由世界赋值；游戏层可读，用于 O2 回滚本帧创建）。</summary>
 	public ulong CreatedAtTickIndex { get; set; }

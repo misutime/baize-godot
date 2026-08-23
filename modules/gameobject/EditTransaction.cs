@@ -135,7 +135,7 @@ public sealed class EditTransaction
 	public EditTransaction SetParent(GameObject obj, GameObject? newParent)
 	{
 		ThrowIfDisposed();
-// reviewer P1（第四轮）：先解析当前实例，再从解析实例读旧父（stale 句柄的 Parent 不可信）。
+		// reviewer P1（第四轮）：先解析当前实例，再从解析实例读旧父（stale 句柄的 Parent 不可信）。
 		var resolvedTarget = RequireResolved(obj);
 		GameObject? oldParent = resolvedTarget.Parent;
 		GameObject? resolvedNew = newParent != null ? RequireResolved(newParent) : null;

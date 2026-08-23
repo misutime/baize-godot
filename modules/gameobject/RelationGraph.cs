@@ -128,8 +128,8 @@ public sealed class RelationGraph
 		_order.Add(relation);
 	}
 
-/// <summary>查询：本对象作为 Source 的所有关系（按类型过滤，插入序）。跨世界对象返回空（reviewer P1）。</summary>
-public IReadOnlyList<TRelation> GetFrom<TRelation>(GameObject source) where TRelation : GameRelation
+	/// <summary>查询：本对象作为 Source 的所有关系（按类型过滤，插入序）。跨世界对象返回空（reviewer P1）。</summary>
+	public IReadOnlyList<TRelation> GetFrom<TRelation>(GameObject source) where TRelation : GameRelation
 	{
 		ArgumentNullException.ThrowIfNull(source);
 		if (!IsOwned(source))
@@ -237,7 +237,7 @@ public IReadOnlyList<TRelation> GetFrom<TRelation>(GameObject source) where TRel
 		}
 	}
 
-/// <summary>端点是否属于本关系图所属世界且存活（查询用：跨世界返回空，不抛，读安全，reviewer P1）。</summary>
+	/// <summary>端点是否属于本关系图所属世界且存活（查询用：跨世界返回空，不抛，读安全，reviewer P1）。</summary>
 	private bool IsOwned(GameObject obj) => ReferenceEquals(obj.World, _world) && !obj.IsDestroyed;
 
 	/// <summary>端点必须属于本关系图所属世界且存活（reviewer P1：拒跨世界端点）。</summary>

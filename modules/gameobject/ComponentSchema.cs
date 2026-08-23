@@ -70,7 +70,7 @@ public sealed class PropertySchema
 public sealed class ComponentSchemaRegistry
 {
 	private readonly Dictionary<Type, ComponentSchema> _byType = new();
-private readonly Dictionary<string, ComponentSchema> _byName = new();
+	private readonly Dictionary<string, ComponentSchema> _byName = new();
 
 	/// <summary>已注册的组件类型数。</summary>
 	public int Count => _byType.Count;

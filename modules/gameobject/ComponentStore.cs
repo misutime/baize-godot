@@ -25,7 +25,7 @@ public sealed class ComponentStore
 	/// <summary>尝试取单实例组件。</summary>
 	public bool TryGetSingle(Type type, out GameComponent? component) => _single.TryGetValue(type, out component);
 
-/// <summary>是否持有该组件实例（按引用；移除前需确认归属，产地 §1/§5）。</summary>
+	/// <summary>是否持有该组件实例（按引用；移除前需确认归属，产地 §1/§5）。</summary>
 	public bool Contains(GameComponent component) => _order.Contains(component);
 
 	/// <summary>是否持有该类型组件（单实例或已有多实例；依赖校验用，reviewer P1）。</summary>

@@ -18,7 +18,7 @@ namespace Baize.GameObject;
 /// <para><b>关卡切换</b>：销毁旧 <c>GameWorld</c>、新建一个，再用该关卡的场景/预置体快照
 /// （<c>GameWorldSerializer</c> 导出的 <c>GameWorldSnapshot</c>）填充；<c>Reset()</c> 只用于<b>重开同一局</b>
 /// （清对象 + tick 归零），不用于切换不同内容。</para></summary>
-	/// 服务器并发复用前需单线程命令队列或统一同步边界。
+/// 服务器并发复用前需单线程命令队列或统一同步边界。
 public sealed class GameWorld
 {
 	private readonly List<GameObject?> _slots = new();          // index → 存活对象（null = 槽位空闲）

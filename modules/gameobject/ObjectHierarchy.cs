@@ -28,7 +28,7 @@ public sealed class ObjectHierarchy
 		return _children.TryGetValue(obj, out var list) ? list : Array.Empty<GameObject>();
 	}
 
-/// <summary>是否拥有该对象（已登记）。</summary>
+	/// <summary>是否拥有该对象（已登记）。</summary>
 	public bool Contains(GameObject obj) => _parent.ContainsKey(obj);
 
 	/// <summary>是否 ancestor 是 obj 的祖先（沿内部 parent 链向上；环检测用）。</summary>
@@ -53,7 +53,7 @@ public sealed class ObjectHierarchy
 		_roots.Add(obj);
 	}
 
-/// <summary>移除对象登记（由世界在销毁时调用；整棵子树随销毁一并摘除，不重新挂 root）。</summary>
+	/// <summary>移除对象登记（由世界在销毁时调用；整棵子树随销毁一并摘除，不重新挂 root）。</summary>
 	internal void Unregister(GameObject obj)
 	{
 		// 销毁场景：子对象随父一并销毁，直接递归摘除子树，不再 Unparent 回 root。
