@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sola3d.Host</RootNamespace>
+    <AssemblyName>Sola3d.Host</AssemblyName>
+    <!-- O5 硬门禁：纯 .NET 抽象层，零外部依赖（不引用 Friflo/Sola3d.Ecs/Sola3d.GameObject/Godot）——
+         GameWorld 经 IWorldDriver 接口解耦，Host 层可独立 headless 测试与服务器复用。 -->
+  </PropertyGroup>
+</Project>
