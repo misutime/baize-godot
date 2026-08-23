@@ -36,7 +36,7 @@ public sealed class PlayerControllerAction : GameComponent
 
 	public override void OnCreate()
 	{
-		_input = World!.GetService<InputService>();
+		_input = World!.GetResource<InputService>();
 	}
 
 	public void PlanMotion(float delta, ulong tickIndex)
@@ -70,7 +70,7 @@ public sealed class WeaponAction : GameComponent
 	public override void OnStart()
 	{
 		_world = World;
-		_input = _world!.GetService<InputService>();
+		_input = _world!.GetResource<InputService>();
 	}
 
 	public override void OnTick(float delta)
@@ -101,8 +101,8 @@ public sealed class BulletAction : GameComponent
 	public override void OnStart()
 	{
 		_world = World;
-		_match = _world!.GetService<MatchController>();
-		_resolver = _world!.GetService<CollisionResolver>();
+		_match = _world!.GetResource<MatchController>();
+		_resolver = _world!.GetResource<CollisionResolver>();
 	}
 
 	public void PlanMotion(float delta, ulong tickIndex)
@@ -198,7 +198,7 @@ public sealed class EnemyControllerAction : GameComponent
 	public override void OnCreate()
 	{
 		_world = World;
-		_match = _world!.GetService<MatchController>();
+		_match = _world!.GetResource<MatchController>();
 	}
 
 	/// <summary>基于玩家本帧计划终点生成敌人的唯一运动计划，并同步提交本帧速度。</summary>
@@ -301,9 +301,9 @@ public sealed class EnemySpawnerAction : GameComponent
 	public override void OnStart()
 	{
 		_world = World;
-		_match = _world!.GetService<MatchController>();
-		_config = _world!.GetService<SpawnConfig>();
-		_state = _world!.GetService<SpawnState>();
+		_match = _world!.GetResource<MatchController>();
+		_config = _world!.GetResource<SpawnConfig>();
+		_state = _world!.GetResource<SpawnState>();
 	}
 
 	public override void OnTick(float delta)
@@ -334,7 +334,7 @@ public sealed class EnemySpawnerAction : GameComponent
 	}
 }
 
-/// <summary>碰撞几何：顺序无关的扫掠距离（共享，避免重复代码；作为 Service 注入保持组件自包含）。</summary>
+/// <summary>碰撞几何：顺序无关的扫掠距离（共享，避免重复代码；作为 Resource 注入保持组件自包含）。</summary>
 public sealed class CollisionResolver
 {
 	/// <summary>两条运动轨迹 (a1→a2) 与 (b1→b2) 的同步扫掠最短距离。

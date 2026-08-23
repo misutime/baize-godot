@@ -3,7 +3,7 @@
 //
 // 纯 .NET、可测试、可服务器复用；不连接 Node、不连接编辑器（O5 才做 BaizeMainLoop/Host）。
 // 职责：对象 registry（EntityId 槽位 + Generation）、层级、关系、组件生命周期调度、
-//       variable/fixed tick、删除（同步，契约 §5）、services 端口。
+//       variable/fixed tick、删除（同步，契约 §5）、Resources 端口。
 
 using System;
 using System.Collections.Generic;
@@ -13,7 +13,7 @@ namespace Baize.GameObject;
 /// <summary>纯运行时游戏世界（Headless GameObject Kernel）。
 /// <para><b>粒度</b>：一个 <c>GameWorld</c> 代表<b>一场对局 / 一个关卡</b>的可运行模拟容器——
 /// 持有这一局的对象注册表、层级、关系、组件生命周期调度、全局 tick（<c>TickIndex</c>/<c>FixedTickIndex</c>）、
-/// 服务（计分/阶段/输入/生成配置）与 <c>Paused</c> 冻结。多关卡游戏 = <b>多个 GameWorld 实例</b>，
+/// 资源（计分/阶段/输入/生成配置）与 <c>Paused</c> 冻结。多关卡游戏 = <b>多个 GameWorld 实例</b>，
 /// 而非一个世界塞多个关卡。</para>
 /// <para><b>关卡切换</b>：销毁旧 <c>GameWorld</c>、新建一个，再用该关卡的场景/预置体快照
 /// （<c>GameWorldSerializer</c> 导出的 <c>GameWorldSnapshot</c>）填充；<c>Reset()</c> 只用于<b>重开同一局</b>
@@ -31,7 +31,7 @@ public sealed class GameWorld
 	private readonly List<GameComponent> _tickOrder = new();     // 全局组件注册序（对象创建序 → 组件插入序）
 	private readonly Dictionary<GameObject, bool> _enabled = new();
 	private readonly Dictionary<GameObject, ComponentStore> _stores = new();
-	private readonly Dictionary<Type, object> _services = new();
+	private readonly Dictionary<Type, object> _resources = new();
 	private uint _revisionCounter;
 	private uint _creationCounter; // 对象创建序号（tick 顺序 = 对象创建序 → 组件插入序，契约 §4）
 	private long _nextTransactionId = 1;
@@ -631,32 +631,32 @@ public sealed class GameWorld
 		}
 	}
 
-	// ---------- Services（契约 §11）----------
+	// ---------- Resources（契约 §11）----------
 
-	/// <summary>注册服务单例（同一类型重复注册抛异常）。</summary>
-	public T AddService<T>(T service) where T : class
+	/// <summary>注册资源单例（同一类型重复注册抛异常）。</summary>
+	public T AddResource<T>(T resource) where T : class
 	{
-		ArgumentNullException.ThrowIfNull(service);
-		if (_services.ContainsKey(typeof(T)))
+		ArgumentNullException.ThrowIfNull(resource);
+		if (_resources.ContainsKey(typeof(T)))
 		{
-			throw new InvalidOperationException($"服务类型 {typeof(T).Name} 已注册。");
+			throw new InvalidOperationException($"资源类型 {typeof(T).Name} 已注册。");
 		}
-		_services.Add(typeof(T), service);
-		return service;
+		_resources.Add(typeof(T), resource);
+		return resource;
 	}
 
-	/// <summary>取服务单例（未注册抛异常）。</summary>
-	public T GetService<T>() where T : class
+	/// <summary>取资源单例（未注册抛异常）。</summary>
+	public T GetResource<T>() where T : class
 	{
-		if (_services.TryGetValue(typeof(T), out var service))
+		if (_resources.TryGetValue(typeof(T), out var resource))
 		{
-			return (T)service;
+			return (T)resource;
 		}
-		throw new InvalidOperationException($"服务类型 {typeof(T).Name} 未注册。");
+		throw new InvalidOperationException($"资源类型 {typeof(T).Name} 未注册。");
 	}
 
-	/// <summary>是否存在该服务。</summary>
-	public bool HasService<T>() where T : class => _services.ContainsKey(typeof(T));
+	/// <summary>是否存在该资源。</summary>
+	public bool HasResource<T>() where T : class => _resources.ContainsKey(typeof(T));
 
 	/// <summary>清理全部对象（等价逐个 Destroy；已随级联销毁的对象自动跳过，契约 §6 语义）。</summary>
 	public void Clear()
@@ -675,7 +675,7 @@ public sealed class GameWorld
 		}
 	}
 
-	/// <summary>重置一局世界：清对象、清时间轴与事务栈，保留 Services（O2 Restart/O1 可复用）。</summary>
+	/// <summary>重置一局世界：清对象、清时间轴与事务栈，保留 Resources（O2 Restart/O1 可复用）。</summary>
 	public void Reset()
 	{
 		Clear();

@@ -12,11 +12,11 @@
 
 本项目沿用既定命名：
 
-- `GameObject`（`Baize.GameObject`）保存一个对象（一组组件的 Id + 生命周期）；`GameWorld` 保存一局世界（组件 + 规则 + 服务）；
+- `GameObject`（`Baize.GameObject`）保存一个对象（一组组件的 Id + 生命周期）；`GameWorld` 保存一局世界（组件 + 规则 + 资源）；
 - `GameComponent` 是挂在对象上的小块能力/数据；`GameWorld.Tick` 每帧驱动所有组件的 `OnTick`；
 - `ComponentSchema` 用 `[GameComponent]` 与 `[GameComponent(Requires = ...)]` 声明「这个组件需要哪些其它组件」，创建时校验；
 - `[GameProperty]` 标记会被确定性序列化的字段；
-- `GameWorld.AddService<T>()` / `GetService<T>()` 承载「这一局只有一份」的全局状态（对局控制器/输入/生成配置）；
+- `GameWorld.AddResource<T>()` / `GetResource<T>()` 承载「这一局只有一份」的全局状态（对局控制器/输入/生成配置）；
 - `MotionPlan` 是这个例子里的关键：**控制器先在 tick 前提交本帧唯一的运动计划，移动与碰撞都只消费这一条**，从而让「先全局移动，再碰撞」的顺序无关语义成立。
 
 ---
@@ -29,7 +29,7 @@
 
 #### World 的粒度：一局 = 一个 GameWorld
 
-`GameWorld` 不是"整个游戏的全局世界"，而是**一场对局 / 一个关卡的可运行模拟容器**。它持有这一局的对象注册表、层级、关系、组件生命周期调度、全局 tick（`TickIndex`/`FixedTickIndex`）、服务（计分/阶段/输入/生成配置）与 `Paused` 冻结。
+`GameWorld` 不是"整个游戏的全局世界"，而是**一场对局 / 一个关卡的可运行模拟容器**。它持有这一局的对象注册表、层级、关系、组件生命周期调度、全局 tick（`TickIndex`/`FixedTickIndex`）、资源（计分/阶段/输入/生成配置）与 `Paused` 冻结。
 
 所以：
 
@@ -49,11 +49,11 @@
 
 不要从所有组件或所有行为开始读。按以下顺序读：
 
-1. `ShooterGame.cs`：这一局装了什么全局服务、初始对象和宿主；
+1. `ShooterGame.cs`：这一局装了什么全局资源、初始对象和宿主；
 2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些组件（B1 工厂，一行创建带全套组件）；
 3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记、`MotionPlan`；
 4. `ShooterActions.cs`：规则按什么顺序运行（先是各控制器的 `PlanMotion`，再是 `OnTick` 消费计划）；
-5. `ShooterServices.cs`：全局状态持有者（对局控制器/输入/生成配置）；
+5. `ShooterResources.cs`：全局状态持有者（对局控制器/输入/生成配置）；
 6. 最后才看 `shooter-object-components-poc/Program.cs` 的 15 项断言。
 
 唯一游戏装配入口是：
@@ -67,11 +67,11 @@ var world = ShooterGame.CreateWorld();  // new GameWorld(fixedDelta=0.01) + Inst
 ```csharp
 var match = new MatchController();
 match.Bind(world);                       // 通知它"世界是谁"，供 Paused 冻结用
-world.AddService(match);                 // 放进「这一局只有一份」的全局状态
-world.AddService(new InputService());
-world.AddService(new SpawnConfig());
-world.AddService(new SpawnState());
-world.AddService(new CollisionResolver());
+world.AddResource(match);                 // 放进「这一局只有一份」的全局状态
+world.AddResource(new InputService());
+world.AddResource(new SpawnConfig());
+world.AddResource(new SpawnState());
+world.AddResource(new CollisionResolver());
 SetupScene(world, withPlayer);           // 建宿主 Game + 初始玩家
 ```
 
@@ -155,9 +155,9 @@ Shooter 示例：
 | `Bullet.Damage/Range/Travelled` + `BulletTag` | 参数、状态、类别重复 | `ProjectileConfig` + `TravelDistance` + `ProjectileTag` |
 | `PlayerControl.MoveSpeed` + `PlayerTag` | 控制能力、参数、身份重复 | `PlayerInputMarker` + `MoveSpeed` + `PlayerFaction` |
 
-### 2.4 GameWorld Service：整个世界只有一份的全局状态
+### 2.4 GameWorld Resource：整个世界只有一份的全局状态
 
-服务不挂在虚构的「全局实体」上，由 `GameWorld` 通过 `AddService<T>()`/`GetService<T>()` 持有（内部一局一份）。Shooter 示例：
+资源不挂在虚构的「全局实体」上，由 `GameWorld` 通过 `AddResource<T>()`/`GetResource<T>()` 持有（内部一局一份）。Shooter 示例：
 
 - `MatchController`：本局互斥阶段（`GamePhase`）、分数、存活敌人数；`RequestGameOver` 会设 `GameWorld.Paused = true` 冻结全局；
 - `InputService`：本帧移动输入 + 射击边沿（`FirePressed`/`WasPressed`）；
@@ -165,18 +165,18 @@ Shooter 示例：
 - `SpawnState`：当前生成倒计时；
 - `CollisionResolver`：共享的扫掠碰撞几何（保持组件自包含，避免重复代码）。
 
-**什么时候用 Service？** 当判断句是「这一局只有一份」，而不是「每个对象各有一份」时使用。配置和状态都可能是 Service，但必须用不同类型表达——`SpawnConfig` 不能再混入当前位置或倒计时。
+**什么时候用 Resource？** 当判断句是「这一局只有一份」，而不是「每个对象各有一份」时使用。配置和状态都可能是 Resource，但必须用不同类型表达——`SpawnConfig` 不能再混入当前位置或倒计时。
 
 #### 前端 store/state 心智模型（借前端 Redux/Pinia）
 
 | 前端（Redux/Pinia） | 我们 | 含义 |
 |---|---|---|
-| **store**（全局容器） | `GameWorld` 的服务注册表（`AddService`/`GetService`） | 装所有「这一局唯一」状态的容器 |
+| **store**（全局容器） | `GameWorld` 的资源注册表（`AddResource`/`GetResource`） | 装所有「这一局唯一」状态的容器 |
 | **state**（容器里的一块） | `MatchController`/`InputService`/`SpawnConfig` | 具体的某个全局状态 |
-| **set/getState** | `AddService` / `GetService<T>()` | 读/写某个全局状态 |
+| **set/getState** | `AddResource` / `GetResource<T>()` | 读/写某个全局状态 |
 | **action / 纯函数更新** | 各 Action 的 `OnTick` / `OnEnemyKilled` | 修改状态的方式（规则） |
 
-**注意**：对象存储（`GameWorld` 的对象注册表）与 `Services`（全局状态）是两件事——一个管对象+组件，一个管全局状态。
+**注意**：对象存储（`GameWorld` 的对象注册表）与 `Resources`（全局状态）是两件事——一个管对象+组件，一个管全局状态。
 
 #### 阶段控制：`GameWorld.Paused`（而非逐帧 IsPlaying）
 
@@ -233,7 +233,7 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
 
 ### 2.7 Action：依赖可见的数据变换规则
 
-Action（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读服务/输入，然后改写明确的数据。Shooter 示例：
+Action（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读资源/输入，然后改写明确的数据。Shooter 示例：
 
 - `PlayerControllerAction.PlanMotion`：`InputService + MoveSpeed → Velocity → MotionPlan`；
 - `EnemyControllerAction.PlanMotion`：`玩家 MotionPlan.End + MoveSpeed → Velocity → MotionPlan`；
@@ -242,16 +242,16 @@ Action（行为组件）不拥有玩家、敌人或分数。它读取所属对�
 - `WeaponAction.OnTick`：`Fire 边沿 + Cooldown → SpawnProjectile`；
 - `EnemySpawnerAction.OnTick`：`TickIndex 确定 HashTick → 生成敌人`。
 
-一眼可见的依赖是：`Requires` 里声明的组件、`World!.GetService<T>()` 取的服务、以及它读写的 `Owner` 组件。`OnStart`（或 `OnCreate`）只缓存这些引用，`OnTick` 只做变换。
+一眼可见的依赖是：`Requires` 里声明的组件、`World!.GetResource<T>()` 取的资源、以及它读写的 `Owner` 组件。`OnStart`（或 `OnCreate`）只缓存这些引用，`OnTick` 只做变换。
 
 #### Action 纯函数约束
 
 这里的「纯」不是说 Action 不修改世界，而是：**相同输入数据产生相同输出数据，Action 实例本身不暗藏跨帧的玩法状态。**
 
-- 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入组件或服务；
+- 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入组件或资源；
 - 倒计时、输入边沿、随机种子、累计分数不能藏在 Action 字段；
 - 允许保存安装期不变配置，以及每次 `OnTick` 开头清空的临时工作区；
-- 如果删掉 Action 再重建会改变下一帧玩法结果，说明它藏了状态，应把那份数据搬回组件/服务。
+- 如果删掉 Action 再重建会改变下一帧玩法结果，说明它藏了状态，应把那份数据搬回组件/资源。
 
 ---
 
@@ -280,8 +280,8 @@ Action（行为组件）不拥有玩家、敌人或分数。它读取所属对�
 
 逐条问：
 
-1. 每对象还是全世界一份？决定 `GameComponent` 或 Service；
-2. 长期数据还是瞬时发生？决定组件/服务或由某个 Action 瞬时触发；
+1. 每对象还是全世界一份？决定 `GameComponent` 或 Resource；
+2. 长期数据还是瞬时发生？决定组件/资源或由某个 Action 瞬时触发；
 3. 是「有没有这项能力」「现在的值」「作者设置的参数」还是「属于谁」？决定能力/状态/参数/标签四类之一。
 
 例如：
@@ -330,11 +330,11 @@ public static void Install(GameWorld world, bool withPlayer = true)
 {
     var match = new MatchController();
     match.Bind(world);                 // 通知它世界是谁（供 Paused 冻结用）
-    world.AddService(match);
-    world.AddService(new InputService());
-    world.AddService(new SpawnConfig());
-    world.AddService(new SpawnState());
-    world.AddService(new CollisionResolver());
+    world.AddResource(match);
+    world.AddResource(new InputService());
+    world.AddResource(new SpawnConfig());
+    world.AddResource(new SpawnState());
+    world.AddResource(new CollisionResolver());
     SetupScene(world, withPlayer);
 }
 ```
@@ -350,7 +350,7 @@ shooter-object-components/
 ├─ Shooter.Objects.csproj         # 纯 .NET 共享类库，只引用 modules/gameobject（O1）
 ├─ ShooterComponents.cs           # 组件类型：数据组件 / 状态 / 参数 / 标签 / MotionPlan / Health
 ├─ ShooterActions.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
-├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
+├─ ShooterResources.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
 ├─ ShooterGame.cs                 # 唯一装配根 + RunFrame（规划阶段 + world.Tick）
 ├─ ShooterWorldHelper.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
@@ -366,10 +366,10 @@ shooter-object-components-poc/
 ```text
 Components.cs
 Actions.cs
-Services.cs
+Resources.cs
 ```
 
-按「组合」组织后，改「伤害」主要停留在 `Health` 组件 + `BulletAction`+`MatchController`；跨功能的依赖通过组件、服务或直接调用明说。
+按「组合」组织后，改「伤害」主要停留在 `Health` 组件 + `BulletAction`+`MatchController`；跨功能的依赖通过组件、资源或直接调用明说。
 
 ---
 
@@ -381,7 +381,7 @@ Services.cs
 |---|---|
 | `Entity` | `GameObject` |
 | `IComponent` / `ITag` | `GameComponent`（`[GameComponent]` 数据组件 / 标记组件） |
-| `Resource` | `GameWorld` 服务（`AddService` / `GetService<T>()`） |
+| `Resource` | `GameWorld` 资源（`AddResource` / `GetResource<T>()`） |
 | `System` | Action 组件（`OnTick` 规则；`PlanMotion` 控制器） |
 | `Bundle` | `ShooterFactory`（`SpawnXxx` 一行创建带全套组件） |
 | `CommandBuffer` | **无**（创建/命中/死亡都即时、直接；同步销毁） |
@@ -429,11 +429,11 @@ Services.cs
 写新玩法前逐项回答：
 
 - [ ] 我能用一句「输入 → 行为 → 反馈」说清玩法闭环吗？
-- [ ] 每份数据的拥有者是对象还是世界（Service）？
+- [ ] 每份数据的拥有者是对象还是世界（Resource）？
 - [ ] 每个组件只属于能力、状态、参数、标签关系中的一个主要类别吗？
 - [ ] 配置里是否偷偷混入倒计时、当前位置、累计值？
 - [ ] Action 能否写成「读取 A，更新 B」，且类字段没有藏跨帧玩法状态？
-- [ ] Action 的 `Requires`（依赖组件）、取的服务、读写的 Owner 组件是否一眼可见？
+- [ ] Action 的 `Requires`（依赖组件）、取的资源、读写的 Owner 组件是否一眼可见？
 - [ ] 互斥世界阶段是否用 `GameWorld.Paused` 集中冻结（而非逐帧自查）？
 - [ ] 一个 tick 的运动是否统一先规划成 `MotionPlan`，移动与碰撞能否消费同一条线段？
 - [ ] 是否仍依赖「谁先执行」？测试里是否覆盖了「子弹先建/敌人后建」的顺序无关场景？

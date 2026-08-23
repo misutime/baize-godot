@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-// ShooterServices.cs —— O2 全局服务（GameWorld.Services 承载：对局控制器 / 输入 / 生成配置）
+// ShooterResources.cs —— O2 全局资源（GameWorld.Resources 承载：对局控制器 / 输入 / 生成配置）
 //
-// 干净 GameObject-first：服务只做「全局状态持有者 + 阶段切换」，不做命中/计分仲裁。
+// 干净 GameObject-first：全局资源只做「全局状态持有者 + 阶段切换」，不做命中/计分仲裁。
 // - MatchController：持有 Phase/Score/AliveEnemies；RequestGameOver 设 GameWorld.Paused=true 全局冻结
 //   （O1 Paused 语义：所有组件 OnTick 停，等效 ECS RunInState(Playing) 门禁，组件无需自查）。
 // - 命中/死亡由组件间直接调用（bullet → Health.ApplyDamage → MatchController.OnEnemyKilled）。
+
 
 using Baize.GameObject;
 
@@ -17,7 +18,7 @@ public enum GamePhase
 	GameOver,
 }
 
-/// <summary>对局控制器（服务）：全局状态 + 阶段切换。命中计分由组件触发（OnEnemyKilled），不自足仲裁。</summary>
+/// <summary>对局控制器（资源）：全局状态 + 阶段切换。命中计分由组件触发（OnEnemyKilled），不自足仲裁。</summary>
 public sealed class MatchController
 {
 public GamePhase Phase { get; private set; } = GamePhase.Playing;
@@ -67,7 +68,7 @@ public GamePhase Phase { get; private set; } = GamePhase.Playing;
 	}
 }
 
-/// <summary>本帧输入（服务；测试/回放直接写字段）：移动 + 射击边沿。WasPressed 是上一帧射击态。</summary>
+/// <summary>本帧输入（资源；测试/回放直接写字段）：移动 + 射击边沿。WasPressed 是上一帧射击态。</summary>
 public sealed class InputService
 {
 	public float MoveX;
@@ -92,7 +93,7 @@ public sealed class InputService
 	}
 }
 
-/// <summary>生成配置（服务；只描述规则，不缓存状态）。</summary>
+/// <summary>生成配置（资源；只描述规则，不缓存状态）。</summary>
 public sealed class SpawnConfig
 {
 	public float Interval = 1.0f;
@@ -100,7 +101,7 @@ public sealed class SpawnConfig
 	public float SpawnRadius = 20.0f;
 }
 
-/// <summary>生成运行状态（服务；全球一个生成节拍）。</summary>
+/// <summary>生成运行状态（资源；全球一个生成节拍）。</summary>
 public sealed class SpawnState
 {
 	public float Remaining;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterGame.cs —— O2 Composition Root：装配世界（服务 + 世界宿主 + 玩家）
+// ShooterGame.cs —— O2 Composition Root：装配世界（资源 + 世界宿主 + 玩家）
 
 using Baize.GameObject;
 
@@ -21,14 +21,14 @@ public static class ShooterGame
 
 	public static void Install(GameWorld world, bool withPlayer = true)
 	{
-		// 全局服务：对局控制器（阶段/计分/冻结）、输入、生成配置、碰撞几何。
+		// 全局资源：对局控制器（阶段/计分/冻结）、输入、生成配置、碰撞几何。
 		var match = new MatchController();
 		match.Bind(world);
-		world.AddService(match);
-		world.AddService(new InputService());
-		world.AddService(new SpawnConfig());
-		world.AddService(new SpawnState());
-		world.AddService(new CollisionResolver());
+		world.AddResource(match);
+		world.AddResource(new InputService());
+		world.AddResource(new SpawnConfig());
+		world.AddResource(new SpawnState());
+		world.AddResource(new CollisionResolver());
 
 		SetupScene(world, withPlayer);
 	}
@@ -65,9 +65,9 @@ public static class ShooterGame
 	public static void Restart(GameWorld world)
 	{
 		world.Reset();
-		world.GetService<MatchController>().Reset();
-		world.GetService<InputService>().Reset();
-		world.GetService<SpawnState>().Remaining = 0;
+		world.GetResource<MatchController>().Reset();
+		world.GetResource<InputService>().Reset();
+		world.GetResource<SpawnState>().Remaining = 0;
 		SetupScene(world, withPlayer: true);
 	}
 }

@@ -64,7 +64,7 @@ internal static class Program
 	private static void TestPlayerMovement()
 	{
 		var world = ShooterGame.CreateWorld();
-		var input = world.GetService<InputService>();
+		var input = world.GetResource<InputService>();
 
 		ShooterGame.RunFrame(world);
 		var player = FindPlayer(world)!;
@@ -84,8 +84,8 @@ internal static class Program
 	private static void TestFireEdge()
 	{
 		var world = ShooterGame.CreateWorld();
-		var input = world.GetService<InputService>();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		var input = world.GetResource<InputService>();
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		SetPlayerCooldownZero(world);
 
 		input.FirePressed = false;
@@ -107,9 +107,9 @@ internal static class Program
 	private static void TestProjectileHitsEnemy()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0);
 		match.AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30);
@@ -130,10 +130,10 @@ internal static class Program
 	private static void TestOrderIndependence()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		// 子弹先创建（pre-existing）。但敌人作为高速「移动目标」在子弹路径上横穿——本帧内从 z=2 冲向 z=0，
 		// 子弹 +Z 从 z=0 冲到 z=1——两者在同一 tick 内扫掠相交（t=2/3 处二者同在 z=2/3，距离 0）。
 		// 若碰撞读取敌方实时 prev/pos，会在子弹先执行时看到敌人停在 z=2 而漏判；
@@ -161,14 +161,14 @@ internal static class Program
 	private static void TestMotionPlanMatchesActual()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 		var player = FindPlayer(world)!;
 		player.GetComponent<MoveSpeed>()!.Value = 1000f;
-		world.GetService<InputService>().MoveX = 1f; // 本 tick 从 (0,0) 到 (10,0)。
+		world.GetResource<InputService>().MoveX = 1f; // 本 tick 从 (0,0) 到 (10,0)。
 
 		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 200f);
-		world.GetService<MatchController>().AliveEnemies = 1;
+		world.GetResource<MatchController>().AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 200f); // 本 tick 沿 +Z 从 0 到 2。
 
 		ShooterGame.RunFrame(world);
@@ -181,7 +181,7 @@ internal static class Program
 		CheckEqu("运动计划：敌人实际 X 等于计划终点", enemyPos.X, enemyPlan.EndX);
 		CheckEqu("运动计划：敌人实际 Z 等于计划终点", enemyPos.Z, enemyPlan.EndZ);
 		Check("运动计划：玩家帧内移动改变寻向后不产生虚假命中", !enemy.IsDestroyed);
-		Check("运动计划：虚假命中不计分", world.GetService<MatchController>().Score == 0);
+		Check("运动计划：虚假命中不计分", world.GetResource<MatchController>().Score == 0);
 	}
 
 	// ---------- 3c：禁用行为 → 静止计划，不产生幽灵轨迹 ----------
@@ -191,12 +191,12 @@ internal static class Program
 		// P1 回归：禁用 EnemyControllerAction 后，敌人应停留在原位（静止计划），
 		// 子弹穿过它仍能命中真实当前位置；不因「O1 跳过 OnTick 但计划已发布」而与幽灵轨迹碰撞。
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
 		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 30f);
 		enemy.GetComponent<EnemyControllerAction>()!.Enabled = false; // 禁用行为：不寻敌、不移动。
-		world.GetService<MatchController>().AliveEnemies = 1;
+		world.GetResource<MatchController>().AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
 
 		// 首帧后敌人仍应停在 z=2（静止计划）；子弹尚未到达，且敌人未被禁用逻辑误动。
@@ -211,7 +211,7 @@ internal static class Program
 
 
 		Check("禁用行为：子弹仍命中静止敌人（真实位置）", CountWith<EnemyFaction>(world) == 0);
-		Check("禁用行为：命中计分+1", world.GetService<MatchController>().Score == 1);
+		Check("禁用行为：命中计分+1", world.GetResource<MatchController>().Score == 1);
 	}
 
 	// ---------- 3d：禁用玩家控制器 → 即使有输入也不移动 ----------
@@ -219,12 +219,12 @@ internal static class Program
 	private static void TestDisabledPlayerNoMove()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 		var player = FindPlayer(world)!;
 		player.GetComponent<PlayerControllerAction>()!.Enabled = false; // 禁用控制器。
 
-		world.GetService<InputService>().MoveX = 1;
+		world.GetResource<InputService>().MoveX = 1;
 		ShooterGame.RunFrame(world);
 		ShooterGame.RunFrame(world);
 
@@ -238,7 +238,7 @@ internal static class Program
 		// P2：旧实现在 lengthSquared<0.0001 时退化为「起点」距离，漏判跨过合并半径的小幅相对运动。
 		// 例：合并半径 1，相对距离 1.004→0.996（位移 0.008，平方 6.4e-5），应在某 t 处距离 <1 命中。
 		var world = ShooterGame.CreateWorld();
-		var resolver = world.GetService<CollisionResolver>();
+		var resolver = world.GetResource<CollisionResolver>();
 		// A 静止在原点；B 相对距离 1.004→0.996——若退化为「起点」会漏判，正确应落到 0.996。
 		float dist = resolver.SegmentSegmentDistance(
 			0f, 0f, 0f, 0f,      // A 静止在原点
@@ -253,10 +253,10 @@ internal static class Program
 	private static void TestNonLethalDamage()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0, health: 2);
 		match.AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30, damage: 1);
@@ -276,7 +276,7 @@ internal static class Program
 	private static void TestSpawnCoverage()
 	{
 		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
+		var config = world.GetResource<SpawnConfig>();
 		config.Interval = 0;
 		config.MaxAlive = 64;
 		config.SpawnRadius = 20;
@@ -314,7 +314,7 @@ internal static class Program
 	private static void TestEnemySeek()
 	{
 		var seekWorld = ShooterGame.CreateWorld();
-		var seekConfig = seekWorld.GetService<SpawnConfig>();
+		var seekConfig = seekWorld.GetResource<SpawnConfig>();
 		seekConfig.MaxAlive = 0;
 		ClearObjectsExcept(seekWorld, "Player");
 		var enemy = ShooterFactory.SpawnEnemy(seekWorld, 5, 0, moveSpeed: 3.5f);
@@ -334,11 +334,11 @@ private static void TestGameOverFreeze()
 	{
 		// 保留 Game 宿主（EnemySpawner 启用）——验证 Paused 真正冻结生成，而非宿主被清导致"无生成"。
 		var world = ShooterGame.CreateWorld();
-		var config = world.GetService<SpawnConfig>();
+		var config = world.GetResource<SpawnConfig>();
 		config.Interval = 0; // 每 tick 都想生成
 		config.MaxAlive = 64;
 
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0); // 与玩家重叠 → 接触
 		match.AliveEnemies = 1;
 
@@ -350,7 +350,7 @@ private static void TestGameOverFreeze()
 		int enemyCount = CountWith<EnemyFaction>(world);
 		var player = FindPlayer(world)!;
 		float frozenX = player.GetComponent<Position>()!.X;
-		world.GetService<InputService>().MoveX = 1;
+		world.GetResource<InputService>().MoveX = 1;
 		for (int i = 0; i < 8; i++)
 		{
 			ShooterGame.RunFrame(world);
@@ -361,7 +361,7 @@ private static void TestGameOverFreeze()
 
 		// 从该 Paused 世界 Restart → 恢复 Playing + 解锁 Paused，生成器恢复。
 		ShooterGame.Restart(world);
-		Check("恢复：Restart 后 Playing", world.GetService<MatchController>().Phase == GamePhase.Playing);
+		Check("恢复：Restart 后 Playing", world.GetResource<MatchController>().Phase == GamePhase.Playing);
 		Check("恢复：Restart 后非 Paused", !world.Paused);
 		Check("恢复：重启后玩家存在", FindPlayer(world) != null);
 	}
@@ -371,7 +371,7 @@ private static void TestGameOverFreeze()
 	private static void TestStaleHandleNoResolution()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
 		// 组件间直接调用：对已销毁敌人调 ApplyDamage 应被拒绝（Owner.IsDestroyed 短路）。
@@ -381,11 +381,11 @@ private static void TestGameOverFreeze()
 		var health = oldTarget.GetComponent<Health>()!;
 		int currentBefore = health.Current;
 		oldTarget.Destroy();
-		world.GetService<MatchController>().AliveEnemies = 0;
+		world.GetResource<MatchController>().AliveEnemies = 0;
 
 		Check("旧句柄：销毁后 ApplyDamage 被拒绝", !health.ApplyDamage(1));
 		Check("旧句柄：Current 未变", health.Current == currentBefore);
-		Check("旧句柄：未计分", world.GetService<MatchController>().Score == 0);
+		Check("旧句柄：未计分", world.GetResource<MatchController>().Score == 0);
 
 	}
 
@@ -394,10 +394,10 @@ private static void TestGameOverFreeze()
 	private static void TestRestart()
 	{
 		var world = ShooterGame.CreateWorld();
-		world.GetService<SpawnConfig>().MaxAlive = 0;
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
 
 		inputFire(world);
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		ShooterGame.RunFrame(world);
 		Check("重启前：有投射物", CountWith<ProjectileTag>(world) == 1);
 
@@ -409,7 +409,7 @@ private static void TestGameOverFreeze()
 		Check("重启后：AliveEnemies=0", match.AliveEnemies == 0);
 		Check("重启后：玩家重新存在", FindPlayer(world) != null);
 		Check("重启后：投射物清空", CountWith<ProjectileTag>(world) == 0);
-		Check("重启后：Phase=Playing", world.GetService<MatchController>().Phase == GamePhase.Playing);
+		Check("重启后：Phase=Playing", world.GetResource<MatchController>().Phase == GamePhase.Playing);
 		Check("重启后：TickIndex=0", world.TickIndex == 0);
 	}
 
@@ -437,7 +437,7 @@ private static void TestGameOverFreeze()
 
 	private static RunResult ReplayOnce(GameWorld world)
 	{
-		var input = world.GetService<InputService>();
+		var input = world.GetResource<InputService>();
 		ulong hash = 1469598103934665603UL;
 		// 一段带移动+射击的输入脚本（确定性）；hash 覆盖完整玩法状态（对象序 + 位置 + 阵营 + 阶段 + TickIndex）。
 		for (int i = 0; i < 60; i++)
@@ -446,10 +446,10 @@ private static void TestGameOverFreeze()
 			input.MoveX = (i % 3 == 0) ? 1 : 0;
 			input.FirePressed = (i % 5 == 0);
 			ShooterGame.RunFrame(world);
-			Mix(ref hash, world.GetService<MatchController>().Score);
+			Mix(ref hash, world.GetResource<MatchController>().Score);
 			MixWorldState(ref hash, world);
 		}
-		var match = world.GetService<MatchController>();
+		var match = world.GetResource<MatchController>();
 		MixWorldState(ref hash, world);
 		return new RunResult(hash, match.Score, match.AliveEnemies);
 	}
@@ -482,7 +482,7 @@ private static void TestGameOverFreeze()
 
 	private static void inputFire(GameWorld world)
 	{
-		var input = world.GetService<InputService>();
+		var input = world.GetResource<InputService>();
 		input.FirePressed = false;
 		ShooterGame.RunFrame(world);
 		input.FirePressed = true;

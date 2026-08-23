@@ -470,7 +470,7 @@ private sealed class TargetRelation : GameRelation
 	private static void Test_序列化RoundTrip()
 	{
 		var world = new GameWorld();
-		world.AddService(new TestService { Tag = "world" });
+		world.AddResource(new TestResource { Tag = "world" });
 		var root = world.CreateGameObject("主场景");
 		var cube = world.CreateGameObject("CubeA");
 		cube.SetParent(root);
@@ -818,19 +818,19 @@ private sealed class TargetRelation : GameRelation
 		tx.Rollback();
 	}
 
-	private static void Test_Services()
+	private static void Test_Resources()
 	{
 		var world = new GameWorld();
-		world.AddService(new TestService { Tag = "svc-1" });
-		CheckEq("Service：取回", world.GetService<TestService>().Tag, "svc-1");
-		Check("Service：重复注册抛异常", Throws<InvalidOperationException>(() => world.AddService(new TestService())));
-		Check("Service：HasService", world.HasService<TestService>());
+		world.AddResource(new TestResource { Tag = "svc-1" });
+		CheckEq("Resource：取回", world.GetResource<TestResource>().Tag, "svc-1");
+		Check("Resource：重复注册抛异常", Throws<InvalidOperationException>(() => world.AddResource(new TestResource())));
+		Check("Resource：HasResource", world.HasResource<TestResource>());
 	}
 
 	private static void Test_Reset()
 	{
 		var world = new GameWorld();
-		world.AddService(new TestService { Tag = "keep" });
+		world.AddResource(new TestResource { Tag = "keep" });
 		var obj = world.CreateGameObject("A");
 		var id = obj.Id;
 		obj.AddComponent<Health>();
@@ -841,10 +841,10 @@ private sealed class TargetRelation : GameRelation
 		Check("Reset：对象清空", world.AliveCount == 0);
 		Check("Reset：TickIndex 归零", world.TickIndex == 0);
 		Check("Reset：旧 Id 失效", !world.IsAlive(id));
-		Check("Reset：Services 保留", world.GetService<TestService>().Tag == "keep");
+		Check("Reset：Resources 保留", world.GetResource<TestResource>().Tag == "keep");
 	}
 
-	private sealed class TestService
+	private sealed class TestResource
 	{
 		public string Tag = string.Empty;
 	}
@@ -907,7 +907,7 @@ private sealed class TargetRelation : GameRelation
 		Test_Review3_OnStart销毁后不再Tick();
 		Test_Review3_三事务交错全链Redo();
 		Test_Review4_跨世界事务拒绝();
-		Test_Services();
+		Test_Resources();
 		Test_Reset();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
