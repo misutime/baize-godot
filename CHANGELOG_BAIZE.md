@@ -8,6 +8,11 @@
 
 ---
 
+## 2026-08-22
+- **Object+Components 落地：O0 源码依赖地图**（`doc/plans/object-components/O0-源码依赖地图.md`）：实测量化 Node/NodePath/SceneTree/PackedScene 依赖面（Node 直接派生 28 类、Node3D 34 文件、CanvasItem/Node2D/Control 101 类、NodePath 1308 处、SceneTree 1057 处、PackedScene 344 处）；每个 Node 派生类给出迁移分类 + 后端 owner；目标分层 §14.5（GameWorld 纯运行时 / BaizeMainLoop / GameWorldNodeHost / EditorPreviewHost），分支 `feature/object-components-engine`。
+- **Object+Components 落地：O1 语义契约**（`doc/plans/object-components/O1-GameObject语义契约.md`）：回答 §14.8 十条（组件重复/依赖/enabled 传播/生命周期顺序/tick 生效时机/销毁后句柄/父子职责/Prefab Override 原则/Relation 清理/确定性序列化白名单）+ Services 端口；先定契约再写代码。
+- **Object+Components 落地：O1 纯 GameWorld 内核（modules/gameobject/，纯 .NET 零依赖）**：EntityId=Index+Generation 防复用、GameComponent 生命周期（OnCreate/OnEnable/OnStart/OnTick/OnFixedTick/OnDisable/OnDestroy）、ComponentSchema 注册表（[GameComponent] 单/多实例 + Requires 依赖）、ObjectHierarchy（环检测 + 销毁级联摘除）、RelationGraph（双向索引 + 类型工厂注册表）、GameWorld（对象 registry/快照 tick/同步销毁/Services/Undo-Redo 栈）、GameWorldSerializer（确定性 Capture/Restore/FNV-1a 64 hash）、EditTransaction（命令模式 Undo/Redo）。验收 `test-projects/gameobject-core-tests/`：**67 项断言全绿**（Debug + Release）。不引用 Friflo/Baize.Ecs/Godot，不接触 Node（O1 硬门禁达成）。
+
 ## 2026-08-21（起始日）
 - 新增 `CHANGELOG_BAIZE.md`：fork 定制流水账，从今日起记录与上游的差异。
 - 定案 **All-in C# 路线**（决策唯一权威：`Godot_Fork_All-in-CSharp_总方案.md` v3.6）——战略宪法/技术路线/架构模式/生态集成/实施路线。
