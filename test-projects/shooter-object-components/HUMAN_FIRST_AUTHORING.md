@@ -25,7 +25,7 @@
 
 `shooter-object-components`（共享库）与 `shooter-object-components-poc`（验收程序）都只引用 `modules/gameobject/`（O1 纯 .NET 内核）。**零 Godot、零 Node、零 Friflo/Baize.Ecs**——玩法层不依赖引擎，也不依赖任何 ECS 框架。这是 O1 的硬门禁：Gameplay 侧调不到引擎 API。
 
-游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 16 项断言把关。
+游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 17 项断言把关。
 
 #### World 的粒度：一局 = 一个 GameWorld
 
@@ -53,7 +53,8 @@
 2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些组件（B1 工厂，一行创建带全套组件）；
 3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记；
 4. `ShooterActions.cs`：规则按什么顺序运行（先是各控制器的 `Move`，再是命中/接触）；
-6. 最后才看 `shooter-object-components-poc/Program.cs` 的 16 项断言。
+5. `ShooterResources.cs`：全局状态持有者（对局控制器/输入/生成配置/多来源暂停）；
+6. 最后才看 `shooter-object-components-poc/Program.cs` 的 17 项断言。
 
 唯一游戏装配入口是：
 
@@ -64,9 +65,8 @@ var world = ShooterGame.CreateWorld();  // new GameWorld(fixedDelta=0.01) + Inst
 `Install` 展开后仍只有三类动作：
 
 ```csharp
-var match = new MatchController();
-match.Bind(world);                       // 通知它"世界是谁"，供 Paused 冻结用
-world.AddResource(match);                 // 放进「这一局只有一份」的全局状态
+world.AddResource(new MatchController()); // 放进「这一局只有一份」的全局状态；纯状态，不碰世界
+world.AddResource(new PauseManager());    // 多来源暂停计数（终局/菜单等各自 Pause/Unpause）
 world.AddResource(new InputService());
 world.AddResource(new SpawnConfig());
 world.AddResource(new SpawnState());
@@ -158,11 +158,14 @@ Shooter 示例：
 
 资源不挂在虚构的「全局实体」上，由 `GameWorld` 通过 `AddResource<T>()`/`GetResource<T>()` 持有（内部一局一份）。Shooter 示例：
 
-- `MatchController`：本局互斥阶段（`GamePhase`）、分数、存活敌人数；`RequestGameOver` 会设 `GameWorld.Paused = true` 冻结全局；
+- `MatchController`：本局互斥阶段（`GamePhase`）、分数、存活敌人数；`RequestGameOver` 只切 `Phase`（纯状态，不碰世界）；
+- `PauseManager`：多来源暂停计数（终局/菜单等各自 `Pause`/`Unpause`；任一来源 active 即暂停）；
 - `InputService`：本帧移动输入 + 射击边沿（`FirePressed`/`WasPressed`）；
 - `SpawnConfig`：全局生成间隔、上限、生成半径；
 - `SpawnState`：当前生成倒计时；
 - `CollisionResolver`：共享的扫掠碰撞几何（保持组件自包含，避免重复代码）。
+
+**装配约定**：资源用 `world.AddResource(new Xxx(...))` 一行装配（纯状态资源无需回指世界）；若将来需要给资源传配置，一律走**构造函数参数**（如 `new SpawnConfig(fixedDelta)`），不用 `Bind`/后门方法——资源保持「纯状态 + 组合根读状态得出门禁」的单向因果。
 
 **什么时候用 Resource？** 当判断句是「这一局只有一份」，而不是「每个对象各有一份」时使用。配置和状态都可能是 Resource，但必须用不同类型表达——`SpawnConfig` 不能再混入当前位置或倒计时。
 
@@ -179,7 +182,7 @@ Shooter 示例：
 
 #### 阶段控制：`GameWorld.Paused`（而非逐帧 IsPlaying）
 
-`GameOver` 时 `MatchController.RequestGameOver()` 把 `Phase` 切到 `GameOver`，并设 `world.Paused = true`。O1 的 `Paused` 语义是「所有组件 `OnTick` 停」，因此组件**无需再逐帧自查 `IsPlaying`**——这是等效于 ECS `RunInState(Playing)` 门禁的全局冻结。`GameWorld.Reset()` 会把 `Paused` 归零。
+`GameOver` 时 `MatchController.RequestGameOver()` 只把 `Phase` 切到 `GameOver`（纯状态，不碰世界）。冻结由组合根唯一聚合：`ShooterGame.RunFrame` 的 `ApplyPause` 读各来源（`PauseManager` 菜单/暂停表 + 终局 `Phase`）→ 写 `GameWorld.Paused`。O1 的 `Paused` 语义是「所有组件 `OnTick` 停」，因此组件**无需再逐帧自查 `IsPlaying`**——等效于 ECS `RunInState(Playing)` 门禁的全局冻结。`GameWorld.Reset()` 会把 `Paused` 归零；多来源暂停（菜单 + 终局）用 `PauseManager` 计数，任一来源 active 即冻结、来源互不误伤。
 
 ### 2.5 阶段顺序：先全局移动，再碰撞
 
@@ -325,9 +328,8 @@ ShooterWorldHelper.CollideAll(world, delta)   // 阶段2：子弹扫掠命中
 ```csharp
 public static void Install(GameWorld world, bool withPlayer = true)
 {
-    var match = new MatchController();
-    match.Bind(world);                 // 通知它世界是谁（供 Paused 冻结用）
-    world.AddResource(match);
+    world.AddResource(new MatchController());   // 纯状态，不碰世界
+    world.AddResource(new PauseManager());
     world.AddResource(new InputService());
     world.AddResource(new SpawnConfig());
     world.AddResource(new SpawnState());
@@ -354,7 +356,7 @@ shooter-object-components/
 └─ HUMAN_FIRST_AUTHORING.md
 
 shooter-object-components-poc/
-├─ Program.cs                     # 16 项验收断言（纯 .NET，零引擎）
+├─ Program.cs                     # 17 项验收断言（纯 .NET，零引擎）
 └─ HUMAN_FIRST_AUTHORING.md       # 本文件在共享库侧
 ```
 

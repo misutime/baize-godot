@@ -47,6 +47,7 @@ internal static class Program
 		TestSpawnCoverage();
 		TestEnemySeek();
 		TestGameOverFreeze();
+		TestMultiSourcePause();
 		TestStaleHandleNoResolution();
 		TestRestart();
 		TestDeterminism();
@@ -396,8 +397,42 @@ private static void TestGameOverFreeze()
 		Check("恢复：重启后玩家存在", FindPlayer(world) != null);
 	}
 
-	// ---------- 8：旧句柄（已销毁对象）不再结算 ----------
+	// ---------- 7'：多来源暂停（菜单 + 终局）——组合根聚合，非 bool 直接推 ----------
 
+	private static void TestMultiSourcePause()
+	{
+		var world = ShooterGame.CreateWorld();
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+		var pause = world.GetResource<PauseManager>();
+		var match = world.GetResource<MatchController>();
+
+		// 菜单来源：暂停但 GameOver 未触发。冻结由 RunFrame 聚合（组合根读状态）写入 world.Paused。
+		pause.Pause("menu");
+		ShooterGame.RunFrame(world);
+		Check("多来源：菜单暂停 → 世界 Paused（非终局）", world.Paused);
+		Check("多来源：Phase 仍是 Playing", match.Phase == GamePhase.Playing);
+
+		// 取消菜单（无其它来源）→ 下一帧聚合后世界恢复。
+		pause.Unpause("menu");
+		ShooterGame.RunFrame(world);
+		Check("多来源：菜单取消 → 世界恢复非 Paused", !world.Paused);
+
+		// 两个来源同时：菜单 + 终局。
+		pause.Pause("menu");
+		match.RequestGameOver();
+		ShooterGame.RunFrame(world);
+		Check("多来源：菜单+终局同时 → 世界 Paused", world.Paused);
+		Check("多来源：终局 Phase 为 GameOver", match.Phase == GamePhase.GameOver);
+
+		// 取消菜单但终局仍在 → 下一帧仍暂停（来源互不误伤）。
+		pause.Unpause("menu");
+		ShooterGame.RunFrame(world);
+		Check("多来源：终局仍在 → 世界仍 Paused", world.Paused);
+	}
+
+
+	// ---------- 8：旧句柄（已销毁对象）不再结算 ----------
 	private static void TestStaleHandleNoResolution()
 	{
 		var world = ShooterGame.CreateWorld();

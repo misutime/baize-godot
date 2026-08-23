@@ -2,11 +2,10 @@
 // ShooterResources.cs —— O2 全局资源（GameWorld.Resources 承载：对局控制器 / 输入 / 生成配置）
 //
 // 干净 GameObject-first：全局资源只做「全局状态持有者 + 阶段切换」，不做命中/计分仲裁。
-// - MatchController：持有 Phase/Score/AliveEnemies；RequestGameOver 设 GameWorld.Paused=true 全局冻结
-//   （O1 Paused 语义：所有组件 OnTick 停，等效 ECS RunInState(Playing) 门禁，组件无需自查）。
-// - 命中/死亡由组件间直接调用（bullet → Health.ApplyDamage → MatchController.OnEnemyKilled）。
+// - MatchController：持有 Phase/Score/AliveEnemies；RequestGameOver 只切 Phase（纯状态，不碰世界）。
+// - 冻结由组合根（ShooterGame.RunFrame）读各来源状态汇聚（O1 Paused 语义：所有组件 OnTick 停）。
 
-
+using System.Collections.Generic;
 using Baize.GameObject;
 
 namespace Shooter.Objects;
@@ -26,11 +25,6 @@ public GamePhase Phase { get; private set; } = GamePhase.Playing;
 	public int Score { get; set; }
 	public int AliveEnemies { get; set; }
 
-	private GameWorld? _world;
-
-	/// <summary>绑定世界（Install 时设置；Paused 冻结用）。</summary>
-	public void Bind(GameWorld world) => _world = world;
-
 	/// <summary>敌人出生：AliveEnemies++（由生成器调用）。</summary>
 	public void OnEnemySpawned() => AliveEnemies++;
 
@@ -44,7 +38,7 @@ public GamePhase Phase { get; private set; } = GamePhase.Playing;
 		}
 	}
 
-	/// <summary>请求结束对局（幂等：Playing 才切；切后设世界 Paused 冻结全局）。</summary>
+	/// <summary>请求结束对局（幂等：Playing 才切；只切换状态，不碰世界）。冻结由组合根读状态汇聚。</summary>
 	public void RequestGameOver()
 	{
 		if (Phase != GamePhase.Playing)
@@ -52,11 +46,6 @@ public GamePhase Phase { get; private set; } = GamePhase.Playing;
 			return;
 		}
 		Phase = GamePhase.GameOver;
-		// 冻结全局（O1 Paused：所有组件 OnTick 停，等效 ECS 阶段门禁）。
-		if (_world != null)
-		{
-			_world.Paused = true;
-		}
 	}
 
 	/// <summary>重置（重启一局用；Paused 由 GameWorld.Reset 归零）。</summary>
@@ -66,6 +55,29 @@ public GamePhase Phase { get; private set; } = GamePhase.Playing;
 		Score = 0;
 		AliveEnemies = 0;
 	}
+}
+
+/// <summary>多来源暂停计数（资源）：终局/菜单等来源各自 Pause/Unpause；来源名去重（重复 Pause 不叠加），任一来源 active 即 IsPaused。</summary>
+public sealed class PauseManager
+{
+	private readonly HashSet<string> _active = new();
+
+	public bool IsPaused => _active.Count > 0;
+
+	/// <summary>请求暂停（来源名幂等：已 active 则不叠加）。</summary>
+	public void Pause(string source)
+	{
+		if (source != null) _active.Add(source);
+	}
+
+	/// <summary>解除暂停（来源名不存在则忽略）。</summary>
+	public void Unpause(string source)
+	{
+		if (source != null) _active.Remove(source);
+	}
+
+	/// <summary>清空全部暂停来源（重启一局用）。</summary>
+	public void Clear() => _active.Clear();
 }
 
 /// <summary>本帧输入（资源；测试/回放直接写字段）：移动 + 射击边沿。WasPressed 是上一帧射击态。</summary>
