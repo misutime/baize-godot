@@ -136,3 +136,17 @@ Disable / 父链禁用 / Pause
 | R19 | `Tick/FixedTick` 在 `EnsureStarted(OnStart)` **之后重新验证 Revision + IsTickable**：OnStart 内禁用/销毁/重挂自身则不再回调 | reviewer P1（第三轮） |
 | R20 | **社区借鉴决策**（对照 `doc/plans/object-components/社区对象模型对照与借鉴.md`）：B1 Required Components（O2 前）/*B2 DataContract 序列化对齐（O3）/*B3 prefab override 照 Unity（O4）/ 默认不借鉴 DOTS Archetype 存储与 EnTT 池布局（有意决策，非缺失） | 社区调研（Unity/Flecs/Bevy/EnTT/Stride/Wave/Defold） |
 | R21 | **世界重置与同帧追踪**（O2 需求，O1 受控扩展）：`GameWorld.Reset()`（清对象 + TickIndex/FixedTickIndex 归零 + 事务栈/句柄映射清零，**事务逻辑 ID 世界生命周期内单调不复用**）；`GameObject.CreatedAtTickIndex`（创建时世界 Tick，O2 回滚本帧创建用）+ 保留 `AuthoringId`（O1 契约） | O2 实施 + reviewer P1（第三轮） |
+
+## 14. O3 补充：Schema 驱动元数据层与校验整合（2026-08-23，实施中）
+
+O3（修订路线 §14.10）= **GameObject C# bindings + Component Schema**。本节是 O1 契约在 O3 的扩展——Schema 是**序列化与编辑器 Inspector 的同一事实源**（采纳决策 B2：WaveEngine DataContract 模式）。下列条目在 `ComponentSchema.cs` / `GameWorldSerializer.cs` 落地，并由 `gameobject-core-tests` 断言：
+
+| # | 决策 |
+|---|---|
+| R22 | **Schema 驱动属性访问**：`PropertySchema` 注册时**编译 get/set 委托**（表达式树，一次性开销）；`Capture/Restore/编辑器` 一律走 `PropertySchema.GetValue/SetValue`，**禁止散落 `PropertyInfo.GetValue/SetValue`**。标记 `[GameProperty]` 的属性必须同时有可读可写访问器，否则注册报错（防作者误用）。 |
+| R23 | **Inspector 元数据与序列化共用同一 Schema（B2）**：`[GameComponent(DisplayName=, Group=)]`、`[GameProperty(DisplayName=, Group=, ReadOnly=, DefaultValue=)]`；缺省显示名 = 属性名/类名。`ComponentSchema` 暴露 `DisplayName/Group`，`PropertySchema` 暴露 `DisplayName/Group/IsReadOnly/DefaultValue`——编辑器 O7 直接读 Schema，不再另立一份元数据。 |
+| R24 | **未知组件/未知属性容错策略**：`Restore` 支持 `RestoreOptions`（`UnknownComponentPolicy` / `UnknownPropertyPolicy` = `Throw`（默认，保持现状）\| `Skip`）。`Skip` = 丢弃该条记录继续恢复，用于格式演进/插件缺装时宽容加载；`Throw` 的**报错必须带上下文**：对象名 + 快照索引 + 组件类型名 + 属性名，杜绝「只说未注册」的盲错。 |
+| R25 | **Schema 实例化收拢**：`ComponentSchema.CreateInstance()`（无参构造，Restore 与编辑器共用）；`ComponentSchemaRegistry.CreateInstance(typeName)` 按稳定名创建，未注册时报错并列出已注册类型数——杜绝各调用点自行 `Activator.CreateInstance`。 |
+| R26 | **可读文本格式契约草案（O3 工件 2，供 O4 `.bscene/.bprefab` 落地引用）**：`GameWorldTextSerializer` 做 `GameWorldSnapshot ↔ 文本` 双向编码，`Capture→Serialize→Deserialize→Restore→Capture` 后 hash 相等、同快照 Serialize 两次字节相等、Serialize→Deserialize→Serialize 幂等（可 diff、Git 友好）。格式头强制 `format = "baize.object-components.v1"` + `kind = "scene"`（方案 §6.3；评审修订：首条有效行 format、次条 kind、各一次、正文前，任一违反报错）。**形态 = 平铺 + DFS 序号引用**（选型见 O3 草案 §2.1）：对象平铺 + `parent = #<序号>` 显式引用、`[component]` 块头切块、关系 `relation <稳定名> #<源> -> #<目标>` 序号引用；**对象名仅作展示标签可重复、不参与引用**（任意合法快照含重名对象都可序列化，零约束；O4 AuthoringId 与序号引用正交）；**DFS 前序严格校验**（祖先栈，非仅父先出现）+ Serialize 前置 ValidateSnapshot（非法 ParentIndex 抛错）+ 引用越界/自引用校验。**类型键**沿用 R7 稳定全限定名；**属性行** `名 = 值`，值编码 = **token 系统**（评审修订）：`null`→Null / `true|false`→Bool / 整数→Int / 含小数点或指数→Float / 带引号严格转义（未知转义/悬空反斜杠/未转义内部引号 → 语法错误）→String / 裸词→Bare（enum 名，冲突时输出底层数值）；**非有限浮点 NaN/±Infinity → Serialize 拒绝**；Restore 按 **strict 转换矩阵**（int 只收 Int、string 只收 String、bool 只收 Bool、enum 收 Bare/数值/String、float/double 收 Int/Float 超范围报错、null 只允许可空/引用），错误带对象+组件+属性+目标类型+原字面量上下文；重复属性名 → Deserialize 报错；关系行/对象行/头部转移重置组件上下文（属性不得归属旧组件）；未知关系类型恒为错误（R24 Skip 不适用关系）。O4 落地指引（AuthoringId 双身份/document model 未知数据保留/资源引用/迁移版本/性能限额）见草案 §6。 |
+
+设计约束沿用 §3/§4/§6：Schema 不变更行为契约；新增条目不得破坏 R1–R21 既有断言（默认策略保持 Throw 即与旧行为等价）。
