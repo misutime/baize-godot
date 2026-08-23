@@ -67,11 +67,17 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 			instance = RenderingServer.InstanceCreate2(meshRid, _scenario);
 			_instanceCache[rc.ObjectUid] = instance;
 		}
-var basis = new Basis(new Quaternion(rc.Rotation.X, rc.Rotation.Y, rc.Rotation.Z, rc.Rotation.W));
-		// reviewer P1（第2轮）：用 ScaledLocal 仅缩放旋转/网格，不改 position（Scaled 是全局=连 origin 缩放）。
-		var scaledBasis = basis.Scaled(new Vector3(rc.Scale.X, rc.Scale.Y, rc.Scale.Z));
-		var t = new Transform3D(scaledBasis, new Vector3(rc.Position.X, rc.Position.Y, rc.Position.Z));
+		var t = BuildTransform(rc.Rotation, rc.Position, rc.Scale); // reviewer P1-3：局部轴缩放 + 保持 origin
 		RenderingServer.InstanceSetTransform(instance, t);
+	}
+
+	/// <summary>构造实例变换：局部轴缩放（ScaledLocal）+ 独立 position（reviewer P1-3 语义）。</summary>
+	public static Transform3D BuildTransform(System.Numerics.Quaternion rotation, System.Numerics.Vector3 position, System.Numerics.Vector3 scale)
+	{
+		var basis = new Basis(new Quaternion(rotation.X, rotation.Y, rotation.Z, rotation.W));
+		// ScaledLocal：按对象局部轴缩放各列（连同旋转后的轴），不改 origin。
+		var scaledBasis = basis.ScaledLocal(new Vector3(scale.X, scale.Y, scale.Z));
+		return new Transform3D(scaledBasis, new Vector3(position.X, position.Y, position.Z));
 	}
 
 	public void Dispose()

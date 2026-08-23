@@ -79,6 +79,21 @@ public sealed partial class DemoPreview : Node3D
 		control.Mesh = arrMesh;
 		control.Position = new Vector3(3.0f, 0, 0);
 		AddChild(control);
+
+		// reviewer P1-3 矩阵语义验证：绕 Z 转 90° + Scale(2,1,1) + Position(2,3,4)
+		// → origin 保持 (2,3,4)（未被 Scale 乘），且局部 X 轴（缩放后）沿全局 +Y 放大为 2。
+		var t90 = System.Numerics.Quaternion.CreateFromYawPitchRoll(0, 0, (float)Mathf.Pi / 2);
+		var m = GodotRenderGateway.BuildTransform(t90, new System.Numerics.Vector3(2, 3, 4), new System.Numerics.Vector3(2, 1, 1));
+		var origin = m.Origin;
+		GD.Print($"preview: BuildTransform origin={origin} — 期望 (2,3,4)");
+		if (System.Math.Abs(origin.X - 2) < 1e-3f && System.Math.Abs(origin.Y - 3) < 1e-3f && System.Math.Abs(origin.Z - 4) < 1e-3f)
+		{
+			GD.Print("preview: [通过] origin 未被 Scale 缩放（局部缩放语义正确）");
+		}
+		else
+		{
+			GD.PushError("preview: [失败] origin 被 Scale 错误缩放（应保持 (2,3,4)）");
+		}
 		GD.Print($"preview: ArrayMesh control (我们的数据,红色) surface={arrMesh.GetSurfaceCount()}");
 		GD.Print("preview: cube instance created — Design→Runtime→GodotCore 链路通电");
 	}

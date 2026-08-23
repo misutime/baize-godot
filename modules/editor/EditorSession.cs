@@ -189,12 +189,7 @@ public sealed class EditorSession
 			}
 		}
 		return span;
-	}
-	/// <summary>obj 目标父的 DFS 子树末尾索引（父为 null → 顶层末尾）。</summary>
-	private int ComputeInsertIndex(List<GameObjectRecord> subtree)
-	{
-		// 在"移除前"的列表上定位父（避免父在子树内导致的索引漂移——环已排除，父必在子树外）。
-		return 0; // 占位——实际在下方重算
+		return span;
 	}
 
 	/// <summary>添加组件（Design：给对象 record 加组件 record；TypeName = Schema 稳定名）。</summary>
