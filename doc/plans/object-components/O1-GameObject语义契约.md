@@ -99,7 +99,7 @@ Disable / 父链禁用 / Pause
 - **确定性序列化**：`GameWorldSerializer` 导出 `GameWorldSnapshot`（对象记录：Id/Name/Parent/Enabled/组件序 + 组件属性 + Relations），round-trip 可重建（Restore 后 hash 相等）。
 - **确定性 hash**：FNV-1a 64 风格，遍历顺序敏感（对象序/组件序/属性序全部稳定）——与 shooter-poc 的确定性验证口径一致。
 - **Backend Observation**（O5/O6 详定）：Backend 只能通过显式 Port（Event/Command/Observation）回传；GameWorld 在 fixed tick 边界收集；Backend 永不隐式修改 Gameplay 状态（§14.6 权威矩阵）。O1 无 Backend，仅预留 `service` 端口。
-- 支持属性类型（O1 序列化白名单）：`int/float/double/bool/string` 及可空同族、`enum`（按底层值）、其他类型报错（防止隐性不确定序列化）。
+- 支持属性类型（O1 序列化白名单）：`int/float/double/bool/string` 及可空同族、`enum`（按底层值）、其他类型报错（防止隐性不确定序列化）。**R27（O6 扩展）**：白名单增加 `System.Numerics.Vector3`（x/y/z，各 float）与 `Quaternion`（x/y/z/w）——分量序固定、逐分量 Float token 编码，确定性往返。数字类型清单见 `PropertySchema.IsWhitelisted`。
 
 ## 11. Resources（§4.6 / §14.6 端口预留）
 

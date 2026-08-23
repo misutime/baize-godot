@@ -126,6 +126,10 @@ public sealed class PropertySchema
 		{
 			return true;
 		}
+		if (ut == typeof(System.Numerics.Vector3) || ut == typeof(System.Numerics.Quaternion))
+		{
+			return true; // R27（O6）：空间类型进白名单（分量序固定，确定性往返）
+		}
 		return ut == typeof(int) || ut == typeof(float) || ut == typeof(double) || ut == typeof(bool) || ut == typeof(string);
 	}
 }

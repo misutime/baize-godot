@@ -337,7 +337,11 @@ public static class GameWorldSerializer
 			case GameWorldTextSerializer.LiteralKind.String:
 				if (ut == typeof(string)) return token.Value;
 				if (ut.IsEnum) return Enum.Parse(ut, (string)token.Value!, ignoreCase: false); // 名字或数值字符串
-				throw new InvalidOperationException($"{context}：String token 只匹配 string / enum 属性。");
+				if (ut == typeof(System.Numerics.Vector3) || ut == typeof(System.Numerics.Quaternion))
+				{
+					return ParseSpatialToken(token, ut, context); // R27：String token "(x,y,z[,w])" 重建
+				}
+				throw new InvalidOperationException($"{context}：String token 只匹配 string / enum / 空间类型属性。");
 			case GameWorldTextSerializer.LiteralKind.Bare:
 				if (ut.IsEnum)
 				{
@@ -348,6 +352,42 @@ public static class GameWorldSerializer
 			default:
 				throw new InvalidOperationException($"{context}：未知 token 类别 {token.Kind}。");
 		}
+	}
+
+	/// <summary>R27（O6）：解析空间类型 String token——"x,y,z" 或 "x,y,z,w"（Invariant），分量数不符报错。</summary>
+	private static object? ParseSpatialToken(GameWorldTextSerializer.LiteralToken token, Type ut, string context)
+	{
+		string text = (token.Value as string)?.Trim('(', ')') ?? token.Lexeme.Trim('(', ')');
+		string[] parts = text.Split(',', StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			throw new InvalidOperationException($"{context}：空间类型值分量缺失（期望 x,y,z 或 x,y,z,w）：{token.Lexeme}");
+		}
+		float[] comps = new float[parts.Length];
+		for (int i = 0; i < parts.Length; i++)
+		{
+			if (!float.TryParse(parts[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out comps[i]))
+			{
+				throw new InvalidOperationException($"{context}：分量 {i} 非法浮点：{token.Lexeme}");
+			}
+		}
+		if (ut == typeof(System.Numerics.Vector3))
+		{
+			if (comps.Length != 3)
+			{
+				throw new InvalidOperationException($"{context}：Vector3 需要 3 分量，收到 {comps.Length}：{token.Lexeme}");
+			}
+			return new System.Numerics.Vector3(comps[0], comps[1], comps[2]);
+		}
+		if (ut == typeof(System.Numerics.Quaternion))
+		{
+			if (comps.Length != 4)
+			{
+				throw new InvalidOperationException($"{context}：Quaternion 需要 4 分量，收到 {comps.Length}：{token.Lexeme}");
+			}
+			return new System.Numerics.Quaternion(comps[0], comps[1], comps[2], comps[3]);
+		}
+		throw new InvalidOperationException($"{context}：非空间类型 {ut.Name}。");
 	}
 
 	private static object? ConvertNumeric(object value, Type ut, PropertySchema propertySchema, GameWorldTextSerializer.LiteralToken token, string kindLabel)
@@ -437,6 +477,15 @@ public static class GameWorldSerializer
 		if (value is string s)
 		{
 			return "s" + s.Length.ToString(CultureInfo.InvariantCulture) + ":" + s + ";";
+		}
+		if (value is System.Numerics.Vector3 v3)
+		{
+			// R27：分量 Invariant 拼接，确定性与文本编码一致。
+			return "v3:" + v3.X.ToString("R", CultureInfo.InvariantCulture) + "," + v3.Y.ToString("R", CultureInfo.InvariantCulture) + "," + v3.Z.ToString("R", CultureInfo.InvariantCulture) + ";";
+		}
+		if (value is System.Numerics.Quaternion q)
+		{
+			return "q4:" + q.X.ToString("R", CultureInfo.InvariantCulture) + "," + q.Y.ToString("R", CultureInfo.InvariantCulture) + "," + q.Z.ToString("R", CultureInfo.InvariantCulture) + "," + q.W.ToString("R", CultureInfo.InvariantCulture) + ";";
 		}
 		// int/float/double 等：类型标签 + invariant 文本。
 		string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "?";

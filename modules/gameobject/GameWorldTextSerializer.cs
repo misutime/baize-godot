@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using System.Text;
 
@@ -514,6 +515,10 @@ public static class GameWorldTextSerializer
 				return EnsureDecimalPoint(d.ToString("R", CultureInfo.InvariantCulture));
 			case string s:
 				return "\"" + Escape(s) + "\"";
+			case System.Numerics.Vector3 v3:
+				return EncodeSpatial(v3.X, v3.Y, v3.Z); // R27：\"(x,y,z)\" String token
+			case System.Numerics.Quaternion q:
+				return EncodeSpatial(q.X, q.Y, q.Z, q.W); // R27：\"(x,y,z,w)\" String token
 			case Enum e:
 				// 裸词 = enum 名；无名字（未定义组合值）或名字命中保留 token / 数字形态 → 输出底层数值（评审修订 §3.5 enum 冲突策略）。
 				string? name = Enum.GetName(e.GetType(), e);
@@ -572,6 +577,10 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 
 	/// <summary>O4 override 区值解析入口（BSceneLoader 使用；同 token 语义）。</summary>
 	internal static object? ParseValueForOverride(string literal) => ParseValue(literal);
+
+	/// <summary>R27（O6）：空间类型文本编码——分量用 R + 补小数点（float→double 无损往返），逗号分隔。</summary>
+	private static string EncodeSpatial(params float[] components) =>
+			"\"" + "(" + string.Join(",", components.Select(c => EnsureDecimalPoint(c.ToString("R", CultureInfo.InvariantCulture)))) + ")\"";
 
 	/// <summary>float/double 序列化保证带小数点（与 int 区分，草案 §3.5）。</summary>
 	private static string EnsureDecimalPoint(string text) =>
