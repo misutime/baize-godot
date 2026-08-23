@@ -8,6 +8,10 @@ namespace Shooter.Objects;
 /// <summary>O2 Shooter 装配根。</summary>
 public static class ShooterGame
 {
+	/// <summary>规划阶段唯一权威顺序（PlayerInput → Enemy → Projectile）。</summary>
+	private static readonly PlanPhase[] _planPhases =
+		{ PlanPhase.PlayerInput, PlanPhase.Enemy, PlanPhase.Projectile };
+
 	public static GameWorld CreateWorld(float fixedDelta = 0.01f, bool withPlayer = true)
 	{
 		var world = new GameWorld(fixedDelta);
@@ -46,20 +50,14 @@ public static class ShooterGame
 		{
 			ulong tickIndex = world.TickIndex + 1;
 
-			// 玩家先规划：敌人据玩家本帧终点寻敌，等价于玩家先移动，但不依赖实际 tick 顺序。
-			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<PlayerControllerBehavior>() != null))
+			// 规划阶段按 PlanPhase 声明序执行（PlayerInput → Enemy → Projectile）：
+			// 玩家先规划，敌人据玩家本帧终点寻敌，子弹提交自身线段——顺序即游戏语义，不依赖 tick 顺序。
+			foreach (var phase in _planPhases)
 			{
-				obj.GetComponent<PlayerControllerBehavior>()!.PlanMotion(delta, tickIndex);
-			}
-			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyControllerBehavior>() != null))
-			{
-				obj.GetComponent<EnemyControllerBehavior>()!.PlanMotion(delta, tickIndex);
-			}
-			foreach (var obj in ShooterWorld.QueryObjects(world, o => o.GetComponent<BulletBehavior>() != null))
-			{
-				obj.GetComponent<BulletBehavior>()!.PlanMotion(delta, tickIndex);
+				ShooterWorld.PlanMotion(world, delta, tickIndex, phase);
 			}
 		}
+
 
 		world.Tick(delta);
 	}

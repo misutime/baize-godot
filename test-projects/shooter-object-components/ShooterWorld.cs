@@ -3,8 +3,17 @@
 
 using System.Collections.Generic;
 using Baize.GameObject;
-
 namespace Shooter.Objects;
+
+/// <summary>运动规划阶段：Step 在 Tick 前按此顺序让各控制器提交本帧运动计划。
+/// 顺序即游戏语义（玩家先规划，敌人据玩家本帧终点规划，子弹提交自身线段），
+/// 只用于编排，不构成全局排程器。</summary>
+public enum PlanPhase
+{
+	PlayerInput,
+	Enemy,
+	Projectile,
+}
 
 /// <summary>世界辅助（纯静态功能，不持有状态）。</summary>
 public static class ShooterWorld
@@ -51,6 +60,33 @@ public static class ShooterWorld
 			}
 		}
 		return true;
+	}
+
+	/// <summary>按阶段提交运动计划：只会为该阶段对应的行为组件调用 PlanMotion，
+	/// 顺序由 <see cref="PlanPhase"/> 声明序决定（无全局排程器）。</summary>
+	public static void PlanMotion(GameWorld world, float delta, ulong tickIndex, PlanPhase phase)
+	{
+		switch (phase)
+		{
+			case PlanPhase.PlayerInput:
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<PlayerControllerBehavior>() != null))
+				{
+					obj.GetComponent<PlayerControllerBehavior>()!.PlanMotion(delta, tickIndex);
+				}
+				break;
+			case PlanPhase.Enemy:
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<EnemyControllerBehavior>() != null))
+				{
+					obj.GetComponent<EnemyControllerBehavior>()!.PlanMotion(delta, tickIndex);
+				}
+				break;
+			case PlanPhase.Projectile:
+				foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletBehavior>() != null))
+				{
+					obj.GetComponent<BulletBehavior>()!.PlanMotion(delta, tickIndex);
+				}
+				break;
+		}
 	}
 
 	private static IEnumerable<GameObject> Walk(GameObject obj)

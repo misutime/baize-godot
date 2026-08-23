@@ -16,8 +16,7 @@ public static class ShooterFactory
 		obj.AddComponent<PlayerFaction>();
 		obj.AddComponent<PlayerInputMarker>();
 		AddMoveStack(obj, x, z, moveSpeed, radius);
-		obj.AddComponent<WeaponConfig>().CooldownSeconds = fireCooldown;
-		obj.GetComponent<WeaponConfig>()!.ProjectileSpeed = projectileSpeed;
+		obj.AddComponent(new WeaponConfig { CooldownSeconds = fireCooldown, ProjectileSpeed = projectileSpeed });
 		obj.AddComponent<Cooldown>();
 		obj.AddComponent<PlayerControllerBehavior>();
 		obj.AddComponent<WeaponBehavior>();
@@ -33,8 +32,7 @@ public static class ShooterFactory
 		obj.AddComponent<EnemyFaction>();
 		obj.AddComponent<SeekTargetMarker>();
 		AddMoveStack(obj, x, z, moveSpeed, radius);
-		obj.AddComponent<Health>()!.Current = health;
-		obj.GetComponent<Health>()!.Max = health;
+		obj.AddComponent(new Health { Current = health, Max = health });
 		obj.AddComponent<EnemyControllerBehavior>();
 		return obj;
 	}
@@ -45,17 +43,13 @@ public static class ShooterFactory
 	{
 		var obj = world.CreateGameObject("Projectile");
 		obj.AddComponent<ProjectileTag>();
-		obj.AddComponent<Position>()!.X = x;
-		obj.GetComponent<Position>()!.Z = z;
-		obj.AddComponent<PreviousPosition>()!.X = x;
-		obj.GetComponent<PreviousPosition>()!.Z = z;
+		obj.AddComponent(new Position { X = x, Z = z });
+		obj.AddComponent(new PreviousPosition { X = x, Z = z });
 		obj.AddComponent<MotionPlan>();
-		obj.AddComponent<Velocity>()!.X = vx;
-		obj.GetComponent<Velocity>()!.Z = vz;
-		obj.AddComponent<ProjectileConfig>()!.Damage = damage;
-		obj.GetComponent<ProjectileConfig>()!.MaxRange = maxRange;
+		obj.AddComponent(new Velocity { X = vx, Z = vz });
+		obj.AddComponent(new ProjectileConfig { Damage = damage, MaxRange = maxRange });
 		obj.AddComponent<TravelDistance>();
-		obj.AddComponent<CollisionRadius>()!.Value = radius;
+		obj.AddComponent(new CollisionRadius { Value = radius });
 		obj.AddComponent<BulletBehavior>();
 		return obj;
 	}
@@ -63,13 +57,11 @@ public static class ShooterFactory
 	/// <summary>移动组件栈（Position/Previous/Velocity/MoveSpeed/CollisionRadius + 初始位置）。</summary>
 	private static void AddMoveStack(GameObject obj, float x, float z, float moveSpeed, float radius)
 	{
-		obj.AddComponent<Position>()!.X = x;
-		obj.GetComponent<Position>()!.Z = z;
-		obj.AddComponent<PreviousPosition>()!.X = x;
-		obj.GetComponent<PreviousPosition>()!.Z = z;
+		obj.AddComponent(new Position { X = x, Z = z });
+		obj.AddComponent(new PreviousPosition { X = x, Z = z });
 		obj.AddComponent<MotionPlan>();
 		obj.AddComponent<Velocity>();
-		obj.AddComponent<MoveSpeed>()!.Value = moveSpeed;
-		obj.AddComponent<CollisionRadius>()!.Value = radius;
+		obj.AddComponent(new MoveSpeed { Value = moveSpeed });
+		obj.AddComponent(new CollisionRadius { Value = radius });
 	}
 }

@@ -177,10 +177,12 @@ Shooter 示例：
 ```
 Step(world)：
   1) 若未 Paused：tickIndex = world.TickIndex + 1
-     每个 PlayerControllerBehavior.PlanMotion(delta, tickIndex)   // 玩家先规划
-     每个 EnemyControllerBehavior.PlanMotion(delta, tickIndex)    // 敌人读玩家本帧终点
-     每个 BulletBehavior.PlanMotion(delta, tickIndex)             // 子弹提交自身线段
-  2) world.Tick(delta)                                            // 统一执行所有 OnTick
+     按 PlanPhase 声明序遍历（PlayerInput → Enemy → Projectile）：
+        ShooterWorld.PlanMotion(world, delta, tickIndex, phase)
+        - PlayerInput → 每个 PlayerControllerBehavior.PlanMotion   // 玩家先规划
+        - Enemy       → 每个 EnemyControllerBehavior.PlanMotion    // 敌人读玩家本帧终点
+        - Projectile  → 每个 BulletBehavior.PlanMotion             // 子弹提交自身线段
+  2) world.Tick(delta)                                              // 统一执行所有 OnTick
 ```
 
 `MotionPlan` 组件保存本 tick 的 `(StartX, StartZ, EndX, EndZ)` 与 `TickIndex`。移动（`MoveBehavior`/子弹/敌人的 `OnTick`）只把 `Position` 设成 `plan.End`，把 `PreviousPosition` 设成 `plan.Start`。
@@ -202,8 +204,7 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
     obj.AddComponent<PlayerFaction>();
     obj.AddComponent<PlayerInputMarker>();
     AddMoveStack(obj, x, z, moveSpeed, radius);   // Position + Previous + MotionPlan + Velocity + MoveSpeed + CollisionRadius
-    obj.AddComponent<WeaponConfig>().CooldownSeconds = fireCooldown;
-    ...
+    obj.AddComponent(new WeaponConfig { CooldownSeconds = fireCooldown, ProjectileSpeed = projectileSpeed });
     obj.AddComponent<PlayerControllerBehavior>();  // 行为组件
     ...
     return obj;
@@ -336,7 +337,7 @@ shooter-object-components/
 ├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
 ├─ ShooterGame.cs                 # 唯一装配根 + Step（规划阶段 + world.Tick）
-├─ ShooterWorld.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）
+├─ ShooterWorld.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
 └─ HUMAN_FIRST_AUTHORING.md
 
 shooter-object-components-poc/
