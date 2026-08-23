@@ -43,8 +43,8 @@ public static class ShooterGame
 		}
 	}
 
-	/// <summary>步进：控制器先提交本 tick 的不可变运动计划，再统一执行移动与碰撞。</summary>
-	public static void Step(GameWorld world, float delta = 0.01f)
+	/// <summary>跑一帧：控制器先提交本 tick 的不可变运动计划，再统一执行移动与碰撞。</summary>
+	public static void RunFrame(GameWorld world, float delta = 0.01f)
 	{
 		if (!world.Paused)
 		{

@@ -62,7 +62,7 @@ SetupScene(world, withPlayer);           // 建宿主 Game + 初始玩家
 一步推进一帧：
 
 ```csharp
-ShooterGame.Step(world);   // 1) 所有控制器先提交本帧运动计划  2) world.Tick 统一执行移动+碰撞
+ShooterGame.RunFrame(world);   // 1) 所有控制器先提交本帧运动计划  2) world.Tick 统一执行移动+碰撞
 ```
 
 这就是 Human-first Authoring 的入口：**先读「世界里有什么」「世界怎么步进」，再读底层查询与被操作的组件。**
@@ -175,7 +175,7 @@ Shooter 示例：
 为了做到**顺序无关**（也即 ECS「先全局移动，再碰撞」的语义），本设计把「一个 tick 的运动」先统一规划出来：
 
 ```
-Step(world)：
+RunFrame(world)：
   1) 若未 Paused：tickIndex = world.TickIndex + 1
      按 PlanPhase 声明序遍历（PlayerInput → Enemy → Projectile）：
         ShooterWorld.PlanMotion(world, delta, tickIndex, phase)
@@ -292,11 +292,11 @@ TickIndex -> HashTick -> SpawnEnemy
 
 ### 第五步：排因果
 
-本设计的因果顺序由 `Step` 的**规划阶段**显式固定：
+本设计的因果顺序由 `RunFrame` 的**规划阶段**显式固定：
 
 ```text
-PlayerController.PlanMotion   // 玩家先规划
-  -> EnemyController.PlanMotion   // 敌人据玩家本帧终点规划
+PlayerControllerAction.PlanMotion   // 玩家先规划
+  -> EnemyControllerAction.PlanMotion   // 敌人据玩家本帧终点规划
   -> BulletAction.PlanMotion    // 子弹提交自身线段
   -> world.Tick                    // 统一执行移动 + 命中 + 生成 + 接触
 ```
@@ -336,7 +336,7 @@ shooter-object-components/
 ├─ ShooterActions.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
 ├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
-├─ ShooterGame.cs                 # 唯一装配根 + Step（规划阶段 + world.Tick）
+├─ ShooterGame.cs                 # 唯一装配根 + RunFrame（规划阶段 + world.Tick）
 ├─ ShooterWorld.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
 └─ HUMAN_FIRST_AUTHORING.md
 
@@ -371,7 +371,7 @@ Services.cs
 | `CommandBuffer` | **无**（创建/命中/死亡都即时、直接；同步销毁） |
 | `RunInState(Playing)` | `GameWorld.Paused`（全局冻结，组件不再自查） |
 | `Event` | **无**（组件间直接调用，如 `enemy.Health.ApplyDamage`） |
-| 阶段/Phase | `Step` 的规划阶段 + `world.Tick` |
+| 阶段/Phase | `RunFrame` 的规划阶段 + `world.Tick` |
 | （无直接对应物） | `MotionPlan`（本设计为「先全局移动，再碰撞」引入的唯一运动计划） |
 
 两点**有意不同**：
@@ -423,7 +423,7 @@ Services.cs
 - [ ] 是否仍依赖「谁先执行」？测试里是否覆盖了「子弹先建/敌人后建」的顺序无关场景？
 - [ ] 创建长链是否已经提取为 `ShooterFactory`？世界装配是否只从一个 `ShooterGame.Install` 进入？
 - [ ] 测试安排是否和游戏装配分开？
-- [ ] 新开发者能否先读 `ShooterGame.Install` + `ShooterGame.Step`，再按文件逐层深入？
+- [ ] 新开发者能否先读 `ShooterGame.Install` + `ShooterGame.RunFrame`，再按文件逐层深入？
 - [ ] 是否零 Godot/Node/Friflo/Baize.Ecs 引用（只 `using Baize.GameObject`）？
 
 如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，组件先于类型，因果先于样板。

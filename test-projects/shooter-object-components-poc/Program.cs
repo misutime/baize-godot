@@ -66,16 +66,16 @@ internal static class Program
 		var world = ShooterGame.CreateWorld();
 		var input = world.GetService<InputService>();
 
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		var player = FindPlayer(world)!;
 		Check("移动：初始位置 (0,0)", player.GetComponent<Position>()!.X == 0 && player.GetComponent<Position>()!.Z == 0);
 
 		input.MoveX = 1;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		CheckEqu("移动：+X 移动 0.08", player.GetComponent<Position>()!.X, 0.08f);
 
 		input.MoveX = 0;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		CheckEqu("移动：停输入后位置不变", player.GetComponent<Position>()!.X, 0.08f);
 	}
 
@@ -89,14 +89,14 @@ internal static class Program
 		SetPlayerCooldownZero(world);
 
 		input.FirePressed = false;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		input.FirePressed = true;
-		ShooterGame.Step(world); // 边沿 → 1 弹
-		ShooterGame.Step(world); // 保持按下，非边沿 → 0 弹
+		ShooterGame.RunFrame(world); // 边沿 → 1 弹
+		ShooterGame.RunFrame(world); // 保持按下，非边沿 → 0 弹
 		input.FirePressed = false;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		input.FirePressed = true;
-		ShooterGame.Step(world); // 新边沿 → 1 弹
+		ShooterGame.RunFrame(world); // 新边沿 → 1 弹
 
 		int count = CountWith<ProjectileTag>(world);
 		Check($"Fire 边沿：共 {count} 弹（期望 2）", count == 2);
@@ -116,7 +116,7 @@ internal static class Program
 
 		for (int i = 0; i < 20 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 		}
 
 		Check("命中：敌人被消灭", CountWith<EnemyFaction>(world) == 0);
@@ -147,7 +147,7 @@ internal static class Program
 
 		for (int i = 0; i < 10 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 		}
 
 
@@ -171,7 +171,7 @@ internal static class Program
 		world.GetService<MatchController>().AliveEnemies = 1;
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 200f); // 本 tick 沿 +Z 从 0 到 2。
 
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 
 		var enemyPos = enemy.GetComponent<Position>()!;
 		var enemyPlan = enemy.GetComponent<MotionPlan>()!;
@@ -200,13 +200,13 @@ internal static class Program
 		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
 
 		// 首帧后敌人仍应停在 z=2（静止计划）；子弹尚未到达，且敌人未被禁用逻辑误动。
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		Check("禁用行为：敌人停在 z=2（不产生幽灵轨迹）", enemy.GetComponent<Position>()!.Z == 2f);
 		Check("禁用行为：首帧敌人仍存活", !enemy.IsDestroyed);
 
 		for (int i = 0; i < 5 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 		}
 
 
@@ -225,8 +225,8 @@ internal static class Program
 		player.GetComponent<PlayerControllerAction>()!.Enabled = false; // 禁用控制器。
 
 		world.GetService<InputService>().MoveX = 1;
-		ShooterGame.Step(world);
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
+		ShooterGame.RunFrame(world);
 
 		Check("禁用控制器：玩家不移动", player.GetComponent<Position>()!.X == 0f);
 	}
@@ -263,7 +263,7 @@ internal static class Program
 
 		for (int i = 0; i < 30 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 		}
 
 		Check("非致死：目标存活", !enemy.IsDestroyed);
@@ -285,7 +285,7 @@ internal static class Program
 		bool px = false, nx = false, pz = false, nz = false;
 		for (int i = 0; i < 66; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 			foreach (var enemy in ShooterWorld.QueryObjects(world, o => o.GetComponent<EnemyFaction>() != null))
 			{
 				if (!seen.Add(enemy))
@@ -322,7 +322,7 @@ internal static class Program
 		float startX = enemy.GetComponent<Position>()!.X;
 		for (int i = 0; i < 30; i++)
 		{
-			ShooterGame.Step(seekWorld);
+			ShooterGame.RunFrame(seekWorld);
 		}
 
 		Check("寻敌：敌人向玩家靠近（X 减小）", enemy.GetComponent<Position>()!.X < startX - 0.5f);
@@ -342,7 +342,7 @@ private static void TestGameOverFreeze()
 		ShooterFactory.SpawnEnemy(world, 0, 0, moveSpeed: 0); // 与玩家重叠 → 接触
 		match.AliveEnemies = 1;
 
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		Check("GameOver：接触敌人进入 GameOver", match.Phase == GamePhase.GameOver);
 		Check("GameOver：世界 Paused（全局冻结）", world.Paused);
 
@@ -353,7 +353,7 @@ private static void TestGameOverFreeze()
 		world.GetService<InputService>().MoveX = 1;
 		for (int i = 0; i < 8; i++)
 		{
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 		}
 		Check("GameOver：玩家冻结", player.GetComponent<Position>()!.X == frozenX);
 		Check("GameOver：Paused 冻结生成（敌人数不变）", CountWith<EnemyFaction>(world) == enemyCount);
@@ -398,7 +398,7 @@ private static void TestGameOverFreeze()
 
 		inputFire(world);
 		var match = world.GetService<MatchController>();
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		Check("重启前：有投射物", CountWith<ProjectileTag>(world) == 1);
 
 		match.Score = 5;
@@ -445,7 +445,7 @@ private static void TestGameOverFreeze()
 			Mix(ref hash, (int)world.TickIndex);
 			input.MoveX = (i % 3 == 0) ? 1 : 0;
 			input.FirePressed = (i % 5 == 0);
-			ShooterGame.Step(world);
+			ShooterGame.RunFrame(world);
 			Mix(ref hash, world.GetService<MatchController>().Score);
 			MixWorldState(ref hash, world);
 		}
@@ -484,9 +484,9 @@ private static void TestGameOverFreeze()
 	{
 		var input = world.GetService<InputService>();
 		input.FirePressed = false;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		input.FirePressed = true;
-		ShooterGame.Step(world);
+		ShooterGame.RunFrame(world);
 		input.FirePressed = false;
 	}
 
