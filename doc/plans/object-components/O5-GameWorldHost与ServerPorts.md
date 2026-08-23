@@ -6,7 +6,7 @@
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§14.5/§14.6/§15.5）。
 > 契约：`O1-GameObject语义契约.md` §10（Backend Observation）/§11（Resources 端口）。
 > 双世界：本层全部在 **Runtime World** 侧（进程宿主与端口；GameWorld 是语义核心，本层是可替换的进程外壳）。
-> 实现：`modules/host/`（纯 .NET 抽象，零 Godot 依赖）+ `test-projects/godot-slice/`（Godot 适配壳）。
+> 实现：`modules/mainloop/`（纯 .NET 抽象，零 Godot 依赖）+ `test-projects/godot-slice/`（Godot 适配壳）。
 
 ## 1. 目标与非目标
 

@@ -6,7 +6,7 @@
 
 using System.Collections.Generic;
 
-namespace Sola3d.Host;
+namespace Sola3d.MainLoop;
 
 /// <summary>单一输入样本（按键/轴/指针）。</summary>
 public readonly record struct InputSample

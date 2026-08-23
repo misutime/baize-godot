@@ -4,10 +4,10 @@
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RootNamespace>HostCoreTests</RootNamespace>
-    <AssemblyName>host-core-tests</AssemblyName>
+    <RootNamespace>MainLoopCoreTests</RootNamespace>
+    <AssemblyName>mainloop-core-tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\modules\host\Sola3d.Host.csproj" />
+    <ProjectReference Include="..\..\modules\mainloop\Sola3d.MainLoop.csproj" />
   </ItemGroup>
 </Project>

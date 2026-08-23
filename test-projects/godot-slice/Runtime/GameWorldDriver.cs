@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // GameWorldDriver.cs —— IWorldDriver 适配（O5，O5-GameWorldHost与ServerPorts.md）
 //
-// 把 Sola3d.Host 的 IWorldDriver 桥到 Sola3d.GameObject.GameWorld：
+// 把 Sola3d.MainLoop 的 IWorldDriver 桥到 Sola3d.GameObject.GameWorld：
 // fixed/variable tick 转发 + InputFrame 注入 Resources 端口（§11）。
 // 纯 .NET（零 Godot 依赖）——本文件可 headless 测试，也是服务器/编辑器预览复用的实现。
 
 using System;
 using Sola3d.GameObject;
-using Sola3d.Host;
+using Sola3d.MainLoop;
 
 namespace Sola3d.GodotSlice;
 

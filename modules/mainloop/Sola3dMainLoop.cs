@@ -9,7 +9,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Sola3d.Host;
+namespace Sola3d.MainLoop;
 
 /// <summary>
 /// 世界驱动接口：隔离 Host 层与具体世界实现（GameWorld 适配器在引用 Sola3d.GameObject 的层实现）。

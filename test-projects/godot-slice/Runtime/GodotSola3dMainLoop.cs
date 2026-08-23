@@ -3,22 +3,21 @@
 //
 // 参考社区：Godot 官方支持自定义 MainLoop（SceneTree 只是默认实现，可自定义 C# 子类）；
 // headless 检测（DisplayServer.get_name()=="headless"）→ 纯逻辑跑（服务器/CLI）。
-// 桥接：Godot MainLoop 每帧回调 → Sola3d.Host.Sola3dMainLoop.Frame。
+// 桥接：Godot MainLoop 每帧回调 → Sola3d.MainLoop.Sola3dMainLoop.Frame。
 
 using Godot;
-using Sola3d.Host;
-
+using GameLoopNs = Sola3d.MainLoop;
 namespace Sola3d.GodotSlice;
 
 /// <summary>
 /// Godot 进程入口：自定义 MainLoop 取代 SceneTree 作为语义入口（§15.5），
 /// 内部驱动 Sola3dMainLoop（GameWorld + Host + Port）。
 /// </summary>
-public sealed partial class GodotSola3dMainLoop : MainLoop
+public sealed partial class GodotSola3dMainLoop : Godot.MainLoop
 {
-	private readonly Sola3dMainLoop _loop;
+	private readonly GameLoopNs.Sola3dMainLoop _loop;
 
-	public GodotSola3dMainLoop(Sola3dMainLoop loop)
+	public GodotSola3dMainLoop(GameLoopNs.Sola3dMainLoop loop)
 	{
 		_loop = loop ?? throw new System.ArgumentNullException(nameof(loop));
 	}

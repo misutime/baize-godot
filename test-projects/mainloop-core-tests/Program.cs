@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-// Program.cs —— host-core-tests：O5 Host 抽象层契约验证（headless 纯 .NET）
+// Program.cs —— mainloop-core-tests：O5 Host 抽象层契约验证（headless 纯 .NET）
 //
 // 断言：双轨判帧、InputFrame 注入、Port 三通道（Event/Command/Observation）、
 // 确定性保持（fixed 边界采样）、Host 生命周期序。
 
 using System;
 using System.Collections.Generic;
-using Sola3d.Host;
+using Sola3d.MainLoop;
 
-namespace HostCoreTests;
+namespace MainLoopCoreTests;
 
 internal static class Program
 {
@@ -162,7 +162,7 @@ internal static class Program
 
 	private static int Main()
 	{
-		Console.WriteLine("host-core-tests —— O5 Host 抽象层契约验证\n");
+		Console.WriteLine("mainloop-core-tests —— O5 Host 抽象层契约验证\n");
 
 		Test_双轨判帧();
 		Test_输入注入();

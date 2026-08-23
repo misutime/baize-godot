@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Sola3d.Host;
+namespace Sola3d.MainLoop;
 
 /// <summary>事件负载基类（Backend → Gameplay：碰撞、命中、UI 点击——"发生了什么"）。</summary>
 public abstract record GameplayEvent
