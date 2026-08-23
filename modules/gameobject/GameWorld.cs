@@ -288,7 +288,7 @@ public sealed class GameWorld
 			// reviewer P1（第二轮）：依赖校验需同时覆盖单实例与多实例容器（ContainsType）。
 			if (!store.ContainsType(requireType))
 			{
-				throw new InvalidOperationException($"添加 {schema.TypeName} 缺少必需依赖组件 {requireType.Name}（契约 §2）。");
+				throw new InvalidOperationException($"对象 {obj} 添加 {schema.TypeName} 缺少必需依赖组件 {requireType.Name}（契约 §2）。");
 			}
 		}
 

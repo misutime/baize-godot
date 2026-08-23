@@ -65,6 +65,25 @@ public sealed class GameWorldSnapshot
 	/// <summary>关系记录。</summary>
 	public List<RelationRecord> Relations = new();
 }
+/// <summary>未知组件/未知属性的恢复容错策略（契约 R24）。</summary>
+public enum UnknownMemberPolicy
+{
+	/// <summary>遇到未知项抛异常（默认，与旧行为等价）。</summary>
+	Throw,
+
+	/// <summary>跳过未知项，继续恢复其余内容（格式演进/插件缺装宽容加载）。</summary>
+	Skip,
+}
+
+/// <summary>Restore 配置（契约 R24）。</summary>
+public sealed class RestoreOptions
+{
+	/// <summary>未知组件类型策略（默认 Throw）。</summary>
+	public UnknownMemberPolicy UnknownComponentPolicy { get; set; } = UnknownMemberPolicy.Throw;
+
+	/// <summary>未知属性策略（默认 Throw）。</summary>
+	public UnknownMemberPolicy UnknownPropertyPolicy { get; set; } = UnknownMemberPolicy.Throw;
+}
 
 /// <summary>确定性序列化器：Capture / Restore / ComputeHash。</summary>
 public static class GameWorldSerializer
@@ -108,7 +127,7 @@ public static class GameWorldSerializer
 					{
 						throw new InvalidOperationException($"组件 {type.Name} 的属性 {ps.Name} 类型 {ps.ValueType.Name} 不在 O1 序列化白名单（契约 §10）。");
 					}
-					compRecord.Properties.Add(new KeyValuePair<string, object?>(ps.Name, ps.Info.GetValue(comp)));
+					compRecord.Properties.Add(new KeyValuePair<string, object?>(ps.Name, ps.GetValue(comp))); // 契约 R22：走 Schema 编译委托
 				}
 				record.Components.Add(compRecord);
 			}
@@ -156,13 +175,18 @@ public static class GameWorldSerializer
 	}
 
 	/// <summary>
-	/// 从快照重建世界（无副作用于原世界）。组件严格按记录序创建；
-	/// 组件 Enabled 先于 AddComponent 设置（保证生命周期回调符合契约 §4）；
+	/// 从快照重建世界（无副作用于原世界；默认容错策略 = 见 <see cref="RestoreOptions"/>）。
+	/// 组件严格按记录序创建；组件 Enabled 先于 AddComponent 设置（保证生命周期回调符合契约 §4）；
 	/// 组件/关系类型注册表从原世界（schemaSource/relationSource）复制，否则需事先在目标世界注册。
 	/// </summary>
 	public static GameWorld Restore(GameWorldSnapshot snapshot, ComponentSchemaRegistry? schemaSource = null, RelationGraph? relationSource = null)
+		=> Restore(snapshot, new RestoreOptions(), schemaSource, relationSource);
+
+	/// <summary>带容错策略重载（契约 R24）：<see cref="RestoreOptions.UnknownComponentPolicy"/> / <see cref="RestoreOptions.UnknownPropertyPolicy"/>。</summary>
+	public static GameWorld Restore(GameWorldSnapshot snapshot, RestoreOptions options, ComponentSchemaRegistry? schemaSource = null, RelationGraph? relationSource = null)
 	{
 		ArgumentNullException.ThrowIfNull(snapshot);
+		ArgumentNullException.ThrowIfNull(options);
 		var world = new GameWorld();
 		// 类型注册表从原世界复制（组件 + 关系）。
 		if (schemaSource != null)
@@ -204,13 +228,25 @@ public static class GameWorldSerializer
 			{
 				if (!world.Schemas.TryGetByName(compRecord.TypeName, out var schema))
 				{
-					throw new InvalidOperationException($"快照包含未注册组件类型 {compRecord.TypeName}（Restore 前需先注册 Schema）。");
+					if (options.UnknownComponentPolicy == UnknownMemberPolicy.Skip)
+					{
+						continue; // 契约 R24：宽容加载，丢弃未知组件记录
+					}
+					throw new InvalidOperationException($"快照对象[{i}] \"{record.Name}\" 的组件 {compRecord.TypeName} 未注册（Restore 前需先注册 Schema；或使用 RestoreOptions.Skip 宽容加载）。");
 				}
-				var comp = (GameComponent)Activator.CreateInstance(schema.ComponentType)!;
+				var comp = schema.CreateInstance(); // 契约 R25：Schema 收拢创建
 				comp.Enabled = compRecord.Enabled; // 先于 AddComponent 设置，避免过期 enable 闪烁
 				foreach (var kv in compRecord.Properties)
 				{
-					FindProperty(schema, kv.Key).Info.SetValue(comp, ConvertValue(kv.Value, kv.Key, schema));
+					if (!schema.TryGetProperty(kv.Key, out var ps))
+					{
+						if (options.UnknownPropertyPolicy == UnknownMemberPolicy.Skip)
+						{
+							continue; // 契约 R24：跳过未知属性
+						}
+						throw new InvalidOperationException($"快照对象[{i}] \"{record.Name}\" 的组件 {compRecord.TypeName} 含未知属性 {kv.Key}（Schema 已变更？或使用 RestoreOptions.Skip 宽容加载）。");
+					}
+					ps.SetValue(comp, ConvertValue(kv.Value, ps)); // 契约 R22：走 Schema 编译委托
 				}
 				world.AddComponent(created[i], comp);
 			}
@@ -230,52 +266,103 @@ public static class GameWorldSerializer
 		return world;
 	}
 
-	private static PropertySchema FindProperty(ComponentSchema schema, string name)
+	private static object? ConvertValue(object? value, PropertySchema propertySchema)
 	{
-		foreach (var ps in schema.SerializedProperties)
+		// 评审修订 §3.5：strict 转换矩阵——LiteralToken 按类别严格匹配目标类型；原生值（Capture/旧快照）原样透传。
+		if (value is GameWorldTextSerializer.LiteralToken token)
 		{
-			if (ps.Name == name)
-			{
-				return ps;
-			}
+			return ConvertToken(token, propertySchema);
 		}
-		throw new InvalidOperationException($"组件 {schema.TypeName} 缺少已序列化属性 {name}（Schema 已变更？）。");
-	}
-
-	private static object? ConvertValue(object? value, string propertyName, ComponentSchema schema)
-	{
 		if (value == null)
 		{
-			return null;
+			return null; // 原生快照 null 直通（可空性由目标 Schema 属性承担）
 		}
-		var propertySchema = FindProperty(schema, propertyName);
 		Type targetType = propertySchema.ValueType;
 		Type ut = Nullable.GetUnderlyingType(targetType) ?? targetType;
 		if (ut.IsEnum)
 		{
-			return Enum.ToObject(ut, value);
+			if (value is string enumText)
+			{
+				return Enum.Parse(ut, enumText, ignoreCase: false);
+			}
+			return Enum.ToObject(ut, value ?? throw new InvalidOperationException($"Enum 属性 {propertySchema.Name} 收到 null。"));
 		}
+		if (ut == typeof(int)) return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+		if (ut == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+		if (ut == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+		if (ut == typeof(bool)) return Convert.ToBoolean(value);
+		if (ut == typeof(string)) return Convert.ToString(value, CultureInfo.InvariantCulture);
+		throw new InvalidOperationException($"类型 {targetType.Name} 不在 O1 序列化白名单。");
+	}
+
+	/// <summary>评审修订 §3.5：strict 转换矩阵——token 类别与目标类型必须严格匹配，错误带完整上下文。</summary>
+	private static object? ConvertToken(GameWorldTextSerializer.LiteralToken token, PropertySchema propertySchema)
+	{
+		Type targetType = propertySchema.ValueType;
+		Type ut = Nullable.GetUnderlyingType(targetType) ?? targetType;
+		string context = $"对象属性 \"{propertySchema.Name}\" 目标类型 {targetType.Name}";
+
+		switch (token.Kind)
+		{
+			case GameWorldTextSerializer.LiteralKind.Null:
+				// null 只允许引用类型/可空（评审修订 §3.5）。
+				if (Nullable.GetUnderlyingType(targetType) != null || !targetType.IsValueType)
+				{
+					return null;
+				}
+				throw new InvalidOperationException($"{context}：null 只允许赋值给引用/可空类型，收到 {targetType.Name}。");
+			case GameWorldTextSerializer.LiteralKind.Bool:
+				if (ut == typeof(bool)) return token.Value;
+				throw new InvalidOperationException($"{context}：Bool token 只匹配 bool 属性。");
+			case GameWorldTextSerializer.LiteralKind.Int:
+				return ConvertNumeric(token.Value!, ut, propertySchema, token, "Int");
+			case GameWorldTextSerializer.LiteralKind.Float:
+				return ConvertNumeric(token.Value!, ut, propertySchema, token, "Float");
+			case GameWorldTextSerializer.LiteralKind.String:
+				if (ut == typeof(string)) return token.Value;
+				if (ut.IsEnum) return Enum.Parse(ut, (string)token.Value!, ignoreCase: false); // 名字或数值字符串
+				throw new InvalidOperationException($"{context}：String token 只匹配 string / enum 属性。");
+			case GameWorldTextSerializer.LiteralKind.Bare:
+				if (ut.IsEnum)
+				{
+					// 裸词 = enum 名（或冲突策略输出的数值字符串）。
+					return Enum.Parse(ut, token.Lexeme, ignoreCase: false);
+				}
+				throw new InvalidOperationException($"{context}：Bare token（裸词 {token.Lexeme}）只匹配 enum 属性。");
+			default:
+				throw new InvalidOperationException($"{context}：未知 token 类别 {token.Kind}。");
+		}
+	}
+
+	private static object? ConvertNumeric(object value, Type ut, PropertySchema propertySchema, GameWorldTextSerializer.LiteralToken token, string kindLabel)
+	{
 		if (ut == typeof(int))
 		{
-			return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+			if (kindLabel == "Int")
+			{
+				return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+			}
+			throw new InvalidOperationException($"对象属性 \"{propertySchema.Name}\" 目标类型 int：Float token（{token.Lexeme}）不能隐式写入 int（strict 矩阵，评审修订 §3.5）。");
 		}
 		if (ut == typeof(float))
 		{
-			return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+			float f = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+			if (float.IsInfinity(f))
+			{
+				throw new InvalidOperationException($"对象属性 \"{propertySchema.Name}\" 目标类型 float：数值 {token.Lexeme} 超出 float 有限范围（strict 矩阵，评审修订 §3.5）。");
+			}
+			return f;
 		}
 		if (ut == typeof(double))
 		{
 			return Convert.ToDouble(value, CultureInfo.InvariantCulture);
 		}
-		if (ut == typeof(bool))
+		if (ut.IsEnum)
 		{
-			return Convert.ToBoolean(value);
+			// enum 收数值 token（冲突策略输出）：底层值转换。
+			return Enum.ToObject(ut, value);
 		}
-		if (ut == typeof(string))
-		{
-			return Convert.ToString(value, CultureInfo.InvariantCulture);
-		}
-		throw new InvalidOperationException($"类型 {targetType.Name} 不在 O1 序列化白名单。");
+		throw new InvalidOperationException($"对象属性 \"{propertySchema.Name}\" 目标类型 {ut.Name}：{kindLabel} token（{token.Lexeme}）不匹配（strict 矩阵，评审修订 §3.5）。");
 	}
 
 	/// <summary>确定性 hash（FNV-1a 64；顺序敏感，契约 §10）。</summary>
