@@ -141,9 +141,9 @@ public static class BSceneLoader
 
 ### 5.2 document model（规划，O7 落地）
 
-- O4 最小实现只做「文件 → 运行时快照 → 世界」单向投影；
-- document model（未知组件/属性原文保留、源顺序、编辑器保存保真）按 O3 草案 §5.2/§6.3
-  规划，O7 编辑器阶段实现 `AuthoringDocument ↔ 快照` 双向层。
+- O4 最小实现只做「Design World 文件 → 运行时快照 → Runtime World」单向投影；
+- Design document model（未知组件/属性原文保留、源顺序、编辑器保存保真）按 O3 草案 §5.2/§6.3
+  规划，O7 编辑器阶段实现 `DesignDocument ↔ 快照` 双向层（Design World 侧）。
 
 ## 6. 本阶段明确不做（O4 边界）
 
