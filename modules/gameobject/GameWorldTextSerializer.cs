@@ -42,10 +42,29 @@ public static class GameWorldTextSerializer
 		for (int i = 0; i < snapshot.Objects.Count; i++)
 		{
 			var record = snapshot.Objects[i];
-			sb.Append("object #").Append(i).Append(" \"").Append(Escape(record.Name)).Append('"');
+			// O4：@authoringId 前缀（作者格式，O4 文档 §3）；快照无作者身份则省略。
+			if (record.AuthoringId != 0)
+			{
+				sb.Append("object @").Append(record.AuthoringId.ToString("x16", CultureInfo.InvariantCulture));
+				// 无 # 序号（作者格式）：名字直接跟随。
+				sb.Append(" \"").Append(Escape(record.Name)).Append('"');
+			}
+			else
+			{
+				sb.Append("object #").Append(i).Append(" \"").Append(Escape(record.Name)).Append('"');
+			}
 			if (record.ParentIndex >= 0 && record.ParentIndex < i) // 父索引 < 子索引（DFS 序契约 + 引用校验）
 			{
-				sb.Append(" parent = #").Append(record.ParentIndex);
+				// O4：父有作者身份 → @id 引用（文件层稳定）；否则 # 序号。
+				ulong pid = snapshot.Objects[record.ParentIndex].AuthoringId;
+				if (pid != 0)
+				{
+					sb.Append(" parent = @").Append(pid.ToString("x16", CultureInfo.InvariantCulture));
+				}
+				else
+				{
+					sb.Append(" parent = #").Append(record.ParentIndex);
+				}
 			}
 			if (!record.Enabled)
 			{
@@ -76,9 +95,13 @@ public static class GameWorldTextSerializer
 			{
 				throw new InvalidOperationException($"快照关系索引越界（{rel.TypeName}）。");
 			}
+			// O4：端点有作者身份 → @id 引用；否则 # 序号。
+			ulong sId = snapshot.Objects[rel.SourceIndex].AuthoringId;
+			ulong tId = snapshot.Objects[rel.TargetIndex].AuthoringId;
 			sb.Append("relation ").Append(rel.TypeName)
-				.Append(" #").Append(rel.SourceIndex)
-				.Append(" -> #").Append(rel.TargetIndex)
+				.Append(sId != 0 ? " @" + sId.ToString("x16", CultureInfo.InvariantCulture) : " #" + rel.SourceIndex.ToString(CultureInfo.InvariantCulture))
+				.Append(" -> ")
+				.Append(tId != 0 ? "@" + tId.ToString("x16", CultureInfo.InvariantCulture) : "#" + rel.TargetIndex.ToString(CultureInfo.InvariantCulture))
 				.Append('\n');
 		}
 
@@ -127,6 +150,7 @@ public static class GameWorldTextSerializer
 		bool sawFormat = false;     // 评审修订 §3.1：头部阶段化——首条有效行 format、次条 kind
 		bool sawKind = false;
 		var ancestors = new List<int>(); // 评审修订 §3.2：DFS 前序祖先栈校验
+		var idToIndex = new Dictionary<ulong, int>(); // O4 §3：@authoringId → 快照索引（DFS 父先出现 ⇒ 引用时必已注册）
 		int lineNo = 0;
 
 		foreach (string raw in text.Split('\n'))
@@ -155,7 +179,12 @@ public static class GameWorldTextSerializer
 				{
 					throw Error(lineNo, $"第二条有效行必须是 kind 头，实际：{line}");
 				}
-				CheckHeaderValue(line, "kind", KindScene, lineNo);
+				// O4：kind 值宽泛（scene/prefab），由调用方（ParsePrefab）校验；此处仅确认存在。
+				string inner = line.Substring("kind = ".Length).Trim();
+				if (inner.Length < 2 || inner[0] != '"' || inner[^1] != '"')
+				{
+					throw Error(lineNo, $"kind 头部值必须是双引号字符串：{line}");
+				}
 				sawKind = true;
 				continue;
 			}
@@ -165,20 +194,42 @@ public static class GameWorldTextSerializer
 				throw Error(lineNo, $"头部行重复或出现在正文之后：{line}");
 			}
 
-			// 对象行：object #<DFS序号> "<名字>" [parent = #<父序号>] [enabled = false]
+			// 对象行：object [@<authoringId>] #<DFS序号> "<名字>" [parent = @<id>|#<序号>] [enabled = false]
 			if (line.StartsWith("object ", StringComparison.Ordinal))
 			{
 				string rest = line.Substring("object ".Length).Trim();
-				int hashAt = rest.IndexOf('#');
-				int nameStart = hashAt >= 0 ? rest.IndexOf('"', hashAt) : -1;
-				if (hashAt < 0 || nameStart < 0)
+				ulong authoringId = 0;
+				if (rest.StartsWith('@'))
 				{
-					throw Error(lineNo, $"对象行格式错误：{line}");
+					int atEnd = rest.IndexOf(' ');
+					string idText = atEnd < 0 ? rest.Substring(1) : rest.Substring(1, atEnd - 1);
+					if (!TryParseAuthoringId(idText, out authoringId))
+					{
+						throw Error(lineNo, $"对象行 @authoringId 格式错误（期望 hex16）：{rest}");
+					}
+					rest = atEnd < 0 ? "" : rest.Substring(atEnd).Trim();
 				}
-				string indexText = rest.Substring(hashAt + 1, nameStart - hashAt - 1).Trim();
-				if (!int.TryParse(indexText, NumberStyles.None, CultureInfo.InvariantCulture, out int index) || index < 0)
+				int hashAt = rest.IndexOf('#');
+				int nameStart = rest.IndexOf('"');
+				int index;
+				if (hashAt >= 0 && nameStart > hashAt)
 				{
-					throw Error(lineNo, $"对象序号必须是非负整数：{rest}");
+					// 显式 #序号（运行时格式 / diff 参照）：校验连续。
+					string indexText = rest.Substring(hashAt + 1, nameStart - hashAt - 1).Trim();
+					if (!int.TryParse(indexText, NumberStyles.None, CultureInfo.InvariantCulture, out index) || index < 0)
+					{
+						throw Error(lineNo, $"对象序号必须是非负整数：{rest}");
+					}
+				}
+				else
+				{
+					// O4：无 # 序号时按出现序自动分配（连续 DFS 序）；名字必须从行首（@id 后）开始。
+					index = snapshot.Objects.Count;
+					nameStart = rest.IndexOf('"');
+					if (nameStart < 0)
+					{
+						throw Error(lineNo, $"对象行缺少名字引号：{line}");
+					}
 				}
 				int close = FindClosingQuote(rest, nameStart);
 				if (close < 0)
@@ -187,8 +238,9 @@ public static class GameWorldTextSerializer
 				}
 				string name = UnescapeStrict(rest.Substring(nameStart + 1, close - nameStart - 1));
 				string tail = rest.Substring(close + 1).Trim();
-				int parentIndex = -1; // 缺省顶层；parent = #p 显式引用（草案 §3.2/§3.3）
+				int parentIndex = -1; // 缺省顶层；parent = @<id> 或 #<p> 显式引用（草案 §3.2/§3.3 + O4 §3）
 				bool enabled = true;
+				string sourceTemplate = string.Empty; // O4：prefab = "路径"（对象级 SourceTemplate）
 				if (tail.Length > 0)
 				{
 					// 支持任意顺序的尾注：parent = #n 与 enabled = false。
@@ -200,7 +252,17 @@ public static class GameWorldTextSerializer
 						{
 							throw Error(lineNo, $"对象行尾注无法解析：{tail}");
 						}
-						if (remaining.StartsWith("parent = #", StringComparison.Ordinal))
+						if (remaining.StartsWith("parent = @", StringComparison.Ordinal))
+						{
+							int pEnd = remaining.IndexOfAny(new[] { ' ', '\t' }, "parent = @".Length);
+							string pText = pEnd < 0 ? remaining.Substring("parent = @".Length) : remaining.Substring("parent = @".Length, pEnd - "parent = @".Length);
+							if (!TryParseAuthoringId(pText, out ulong pid) || !idToIndex.TryGetValue(pid, out parentIndex))
+							{
+								throw Error(lineNo, $"parent = @{pText} 引用了不存在或尚未出现的作者ID（O4 §3 映射）。");
+							}
+							remaining = pEnd < 0 ? "" : remaining.Substring(pEnd).Trim();
+						}
+						else if (remaining.StartsWith("parent = #", StringComparison.Ordinal))
 						{
 							int pEnd = remaining.IndexOfAny(new[] { ' ', '\t' }, "parent = #".Length);
 							string pText = pEnd < 0 ? remaining.Substring("parent = #".Length) : remaining.Substring("parent = #".Length, pEnd - "parent = #".Length);
@@ -215,9 +277,20 @@ public static class GameWorldTextSerializer
 							enabled = false;
 							remaining = remaining.Substring("enabled = false".Length).Trim();
 						}
+						else if (remaining.StartsWith("prefab = \"", StringComparison.Ordinal))
+						{
+							int pOpen = "prefab = \"".Length - 1;
+							int pClose = FindClosingQuote(remaining, pOpen);
+							if (pClose < 0)
+							{
+								throw Error(lineNo, $"prefab 引用缺少闭合引号：{remaining}");
+							}
+							sourceTemplate = UnescapeStrict(remaining.Substring(pOpen + 1, pClose - pOpen - 1));
+							remaining = remaining.Substring(pClose + 1).Trim();
+						}
 						else
 						{
-							throw Error(lineNo, $"对象行尾注只支持 parent = #n 与 enabled = false：{remaining}");
+							throw Error(lineNo, $"对象行尾注只支持 parent = @id/#n、prefab = \"...\" 与 enabled = false：{remaining}");
 						}
 					}
 				}
@@ -254,8 +327,15 @@ public static class GameWorldTextSerializer
 					Name = name,
 					Enabled = enabled,
 					ParentIndex = parentIndex,
+					AuthoringId = authoringId, // O4：作者身份随快照（不参与 hash）
+					SourceTemplate = sourceTemplate, // O4：prefab 来源模板
 					Components = new List<GameComponentRecord>(),
 				});
+				// O4：注册 @id → 索引映射（唯一性校验：重复作者 ID 报错）。
+				if (authoringId != 0 && !idToIndex.TryAdd(authoringId, currentObject))
+				{
+					throw Error(lineNo, $"作者ID @{authoringId.ToString("x16", CultureInfo.InvariantCulture)} 重复（O4 §3 唯一性约束）。");
+				}
 				continue;
 			}
 
@@ -303,7 +383,7 @@ public static class GameWorldTextSerializer
 				continue;
 			}
 
-			// 关系行：relation <稳定名> #<源序号> -> #<目标序号>
+			// 关系行：relation <稳定名> <@源id|#源序号> -> <@目标id|#目标序号>
 			if (line.StartsWith("relation ", StringComparison.Ordinal))
 			{
 				string rest = line.Substring("relation ".Length).Trim();
@@ -314,37 +394,28 @@ public static class GameWorldTextSerializer
 				}
 				string left = rest.Substring(0, arrow).Trim();
 				string right = rest.Substring(arrow + 4).Trim();
-				// 格式：relation <稳定名> #<源> -> #<目标>——类型名在前，序号在后。
-				int srcHash = left.IndexOf('#');
-				if (srcHash < 0)
+				int typeEnd = left.IndexOf('#');
+				if (typeEnd < 0) typeEnd = left.IndexOf('@');
+				if (typeEnd < 0)
 				{
-					throw Error(lineNo, $"关系行缺少源序号：{rest}");
+					throw Error(lineNo, $"关系行缺少源端点（@id 或 #序号）：{rest}");
 				}
-				string typeName = left.Substring(0, srcHash).Trim();
-				string srcText = left.Substring(srcHash + 1).Trim();
-				if (!int.TryParse(srcText, NumberStyles.None, CultureInfo.InvariantCulture, out int srcIndex) || srcIndex < 0)
+				string typeName = left.Substring(0, typeEnd).Trim();
+				string srcRef = left.Substring(typeEnd).Trim();
+				if (!TryResolveEndpoint(srcRef, snapshot.Objects.Count, idToIndex, out int srcIndex))
 				{
-					throw Error(lineNo, $"关系行源序号必须是非负整数：{rest}");
+					throw Error(lineNo, $"关系行源端点无效或引用未出现的对象：{srcRef}");
 				}
-				int dstHash = right.IndexOf('#');
-				if (dstHash < 0)
+				string dstRef = right.Trim();
+				if (!TryResolveEndpoint(dstRef, snapshot.Objects.Count, idToIndex, out int dstIndex))
 				{
-					throw Error(lineNo, $"关系行缺少目标序号：{rest}");
-				}
-				string dstText = right.Substring(dstHash + 1).Trim();
-				if (!int.TryParse(dstText, NumberStyles.None, CultureInfo.InvariantCulture, out int dstIndex) || dstIndex < 0)
-				{
-					throw Error(lineNo, $"关系行目标序号必须是非负整数：{rest}");
+					throw Error(lineNo, $"关系行目标端点无效或引用未出现的对象：{dstRef}");
 				}
 				if (typeName.Length == 0)
 				{
 					throw Error(lineNo, $"关系行类型名不能为空：{rest}");
 				}
-				// 引用校验（草案 §3.3）：源/目标必须在已出现对象范围内（< 当前总数）。
-				if (srcIndex >= snapshot.Objects.Count || dstIndex >= snapshot.Objects.Count)
-				{
-					throw Error(lineNo, $"关系行序号越界（对象总数 {snapshot.Objects.Count}）：{rest}");
-				}
+				// 引用校验（草案 §3.3 + O4 §3）：源/目标已由 TryResolveEndpoint 校验（@id 映射存在 / #序号在范围内）。
 				snapshot.Relations.Add(new RelationRecord { TypeName = typeName, SourceIndex = srcIndex, TargetIndex = dstIndex });
 				currentComponent = -1; // 评审修订 §3.4：关系行结束当前组件块（属性不得归属旧组件）
 				continue;
@@ -499,8 +570,35 @@ public static class GameWorldTextSerializer
 	/// <summary>评审修订：enum 名命中保留 token / 数字形态 → 需输出底层数值（§3.5）。</summary>
 	private static bool IsReservedWord(string s) =>
 		s == "null" || s == "true" || s == "false" ||
-		int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
+int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 		double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+
+	/// <summary>解析 @hex16 作者ID（O4 §3；@0 视为无身份）。</summary>
+	private static bool TryParseAuthoringId(string text, out ulong value)
+	{
+		value = 0;
+		return ulong.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+	}
+
+	/// <summary>解析关系/引用端点：@id（查 idToIndex 映射）或 #序号（须 < 已出现数）。</summary>
+	private static bool TryResolveEndpoint(string refText, int objectCount, Dictionary<ulong, int> idToIndex, out int index)
+	{
+		index = -1;
+		if (refText.StartsWith('@'))
+		{
+			return TryParseAuthoringId(refText.Substring(1), out ulong pid) && idToIndex.TryGetValue(pid, out index);
+		}
+		if (refText.StartsWith('#'))
+		{
+			return int.TryParse(refText.Substring(1), NumberStyles.None, CultureInfo.InvariantCulture, out index) &&
+				index >= 0 && index < objectCount;
+		}
+		return false;
+	}
+
+	/// <summary>O4 override 区值解析入口（BSceneLoader 使用；同 token 语义）。</summary>
+	internal static object? ParseValueForOverride(string literal) => ParseValue(literal);
+
 	/// <summary>float/double 序列化保证带小数点（与 int 区分，草案 §3.5）。</summary>
 	private static string EnsureDecimalPoint(string text) =>
 		(text.Contains('.') || text.Contains('e') || text.Contains('E')) ? text : text + ".0";

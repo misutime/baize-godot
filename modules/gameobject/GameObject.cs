@@ -25,8 +25,11 @@ public sealed class GameObject
 	public ObjectId Id { get; }
 	public uint CreationIndex { get; internal set; }
 	/// <summary>作者/静态场景稳定 ID（O1/O4 契约；O4 起由 .bscene/.bprefab 解析器填充）。</summary>
+	/// <summary>作者/静态场景稳定 ID（O1/O4 契约；O4 起由 .bscene/.bprefab 解析器填充）。</summary>
 	public AuthoringObjectId AuthoringId { get; internal set; }
 
+	/// <summary>prefab 来源模板引用（O4，契约 §8 预留）：实例对象指向 .bprefab 路径；非实例 = 空。</summary>
+	public string SourceTemplate { get; internal set; } = string.Empty;
 	/// <summary>创建该对象时的世界 Tick（对象创建时由世界赋值；游戏层可读，用于 O2 回滚本帧创建）。</summary>
 	public ulong CreatedAtTickIndex { get; set; }
 	/// <summary>逻辑事务对象 ID（0 = 非事务创建；>0 = 跨事务重映射）。</summary>

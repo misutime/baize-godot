@@ -20,9 +20,14 @@ public sealed class GameObjectRecord
 	/// <summary>对象名字。</summary>
 	public string Name = string.Empty;
 
+	/// <summary>作者/静态场景稳定 ID（O4）；0 = 运行时无作者身份。不参与 ComputeHash（O4 文档 §2）。</summary>
+	public ulong AuthoringId;
+
+	/// <summary>prefab 来源模板引用（O4；空 = 非实例）。随快照序列化，不参与 hash。</summary>
+	public string SourceTemplate = string.Empty;
+
 	/// <summary>对象启用标志（契约 §3）。</summary>
 	public bool Enabled = true;
-
 	/// <summary>父对象在快照中的索引（-1 = 顶层）。</summary>
 	public int ParentIndex = -1;
 
@@ -105,6 +110,8 @@ public static class GameWorldSerializer
 			{
 				Name = obj.Name,
 				Enabled = obj.Enabled,
+				AuthoringId = obj.AuthoringId.Value, // O4：作者 ID 随快照（不参与 hash）
+				SourceTemplate = obj.SourceTemplate, // O4：prefab 来源模板（不参与 hash）
 			};
 			var schemaCache = new Dictionary<Type, ComponentSchema>();
 			foreach (var comp in world.GetComponentList(obj))
@@ -208,6 +215,15 @@ public static class GameWorldSerializer
 		{
 			created[i] = world.CreateGameObject(snapshot.Objects[i].Name);
 			world.SetEnabled(created[i], snapshot.Objects[i].Enabled);
+			// O4：作者身份与 prefab 来源随快照写回（不参与 hash，契约 §8/§10 口径不变）。
+			if (snapshot.Objects[i].AuthoringId != 0)
+			{
+				created[i].AuthoringId = new AuthoringObjectId(snapshot.Objects[i].AuthoringId);
+			}
+			if (snapshot.Objects[i].SourceTemplate.Length > 0)
+			{
+				created[i].SourceTemplate = snapshot.Objects[i].SourceTemplate;
+			}
 		}
 		// 先补父子关系（AddComponent 前：保证父链 effective 已就位，
 		// 避免组件先以顶层身份 enable、随后挂到禁用父下再 disable 的闪烁）。

@@ -1079,7 +1079,7 @@ internal static class Program
 				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject #1 \"A\"\n"), "序号不连续"));
 		Check("R26：关系序号越界报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
-				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject #0 \"A\"\nrelation X.Y #0 -> #1\n"), "越界"));
+"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject #0 \"A\"\nrelation X.Y #0 -> #1\n"), "端点无效"));
 		Check("R26：parent 越界报错",
 			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
 				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject #0 \"A\"\nobject #1 \"B\" parent = #5\n"), "越界"));
@@ -1196,6 +1196,116 @@ internal static class Program
 			golden.Objects.Count == 5 && golden.Objects[1].ParentIndex == 0 && golden.Objects[2].Components[0].Enabled == false);
 	}
 
+	private static void Test_O4_AuthoringId与混合引用()
+	{
+		// @id 对象行 + parent=@id 引用 + 关系 @id 端点 + round-trip。
+		string text =
+					"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n" +
+					"object @a1 \"主场景\"\n" +
+					"object @b2 \"CubeA\" parent = @a1\n" +
+					"[component " + typeof(Health).FullName + "]\n\tMax = 50\n\tCurrent = 37\n" +
+					"object @d4 \"哨兵\" parent = @b2\n" +           // CubeA 子树内（DFS 合法）
+					"object #3 \"敌人\"\n" +                          // 顶层（关闭 CubeA 子树）
+					"relation " + typeof(TargetRelation).FullName + " @b2 -> #3\n";
+		var snap = GameWorldTextSerializer.Deserialize(text);
+		Check("O4：@id 解析进快照 AuthoringId",
+			snap.Objects[0].AuthoringId == 0xa1 && snap.Objects[1].AuthoringId == 0xb2 && snap.Objects[2].AuthoringId == 0xd4);
+		Check("O4：parent=@id 解析为索引", snap.Objects[1].ParentIndex == 0 && snap.Objects[2].ParentIndex == 1);
+		Check("O4：关系 @id 端点解析", snap.Relations.Count == 1 && snap.Relations[0].SourceIndex == 1 && snap.Relations[0].TargetIndex == 3);
+
+		// 幂等：Serialize(Deserialize) 保留 @id 引用形态。
+		string round = GameWorldTextSerializer.Serialize(snap);
+		Check("O4：@id round-trip 幂等", round.Contains("object @00000000000000a1 \"主场景\"") && round.Contains("parent = @00000000000000a1"));
+		Check("O4：@id round-trip 再解析等价",
+			GameWorldSerializer.ComputeHash(GameWorldTextSerializer.Deserialize(round)) == GameWorldSerializer.ComputeHash(snap));
+
+		// hash 不含 AuthoringId（运行时口径不变）：同结构不同 @id → hash 相同（在快照层注入 @id 验证）。
+		var snapA = GameWorldSerializer.Capture(CreateO4World("o"));
+		snapA.Objects[0].AuthoringId = 0x1111;
+		var snapB = GameWorldSerializer.Capture(CreateO4World("o"));
+		snapB.Objects[0].AuthoringId = 0x2222;
+		var h1 = GameWorldSerializer.ComputeHash(snapA);
+		var h2 = GameWorldSerializer.ComputeHash(snapB);
+		Check("O4：AuthoringId 不参与 hash", h1 == h2);
+
+		// Restore 写回 → Capture 再导出（AuthoringId round-trip 保真）。
+		var wR = new GameWorld();
+		wR.CreateGameObject("o");
+		var sR = GameWorldSerializer.Capture(wR);
+		sR.Objects[0].AuthoringId = 0xabcd;
+		var rR = GameWorldSerializer.Restore(sR, wR.Schemas, wR.Relations);
+		Check("O4：Restore 写回 AuthoringId", rR.Roots[0].AuthoringId.Value == 0xabcd && rR.Roots[0].AuthoringId.IsValid);
+		var sR2 = GameWorldSerializer.Capture(rR);
+		Check("O4：Capture 再导出 AuthoringId", sR2.Objects[0].AuthoringId == 0xabcd);
+	}
+
+	private static void Test_O4_AuthoringId_唯一性与Prefab字段()
+	{
+		// @id 唯一性约束。
+		Check("O4：@id 重复拒绝",
+			ThrowsWith<InvalidOperationException>(() => GameWorldTextSerializer.Deserialize(
+				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"A\"\nobject @a1 \"B\"\n"), "重复"));
+
+		// prefb 字段解析进 SourceTemplate。
+		var withPrefab = GameWorldTextSerializer.Deserialize(
+"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @a1 \"root\"\nobject @e1 \"敌人\" prefab = \"res://Enemy.bprefab\" parent = @a1\n");
+		Check("O4：prefab 字段 → SourceTemplate", withPrefab.Objects[1].SourceTemplate == "res://Enemy.bprefab");
+	}
+
+	private static void Test_O4_Prefab实例化与Override()
+	{
+		// prefab 模板（单 root + 子树 + 组件）。
+		string prefabText =
+			"format = \"baize.object-components.v1\"\nkind = \"prefab\"\n\n" +
+"object @1a \"EnemyRoot\"\n" +
+			"[component " + typeof(Health).FullName + "]\n\tMax = 100\n\tCurrent = 100\n" +
+			"object @1b \"Mesh\" parent = @1a\n";
+
+		// 场景：两个实例 + override 区。
+		string sceneText =
+			"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\n" +
+			"object @10 \"主场景\"\n" +
+			"object @11 \"敌人A\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
+			"object @12 \"敌人B\" prefab = \"res://Enemy.bprefab\" parent = @10\n" +
+			"[override]\n" +
+			"    @11 " + typeof(Health).FullName + ".Max = 42\n" +
+			"    @11 " + typeof(Health).FullName + ".Current = 7\n";
+
+		var world = new GameWorld();
+		world.Schemas.Register<Health>();
+		var loaded = BSceneLoader.LoadSceneToWorld(sceneText, world.Schemas, world.Relations, path => path == "res://Enemy.bprefab" ? prefabText : null);
+
+		// 结构：主场景 + 2 实例（各 2 对象）→ 共 5 对象。
+		Check("O4：prefab 实例化展开对象数", loaded.AliveCount == 1 + 2 * 2);
+		var root = loaded.GetObject(loaded.Roots[0].Id)!;
+		Check("O4：实例为 root 子树", root.Children.Count == 2);
+		var enemyA = root.Children[0];
+		var enemyB = root.Children[1];
+		Check("O4：实例名保留场景声明", enemyA.Name == "敌人A" && enemyB.Name == "敌人B");
+		Check("O4：SourceTemplate 记录", enemyA.SourceTemplate == "res://Enemy.bprefab");
+		Check("O4：实例子树挂 Mesh 子对象", enemyA.Children.Count == 1 && enemyA.Children[0].Name == "Mesh");
+		Check("O4：模板默认值保留（未 override）", enemyB.GetComponent<Health>()!.Max == 100);
+		Check("O4：override 应用", enemyA.GetComponent<Health>()!.Max == 42 && enemyA.GetComponent<Health>()!.Current == 7);
+		Check("O4：override 不影响其他实例", enemyB.GetComponent<Health>()!.Current == 100);
+
+		// override 未知组件报错。
+		Check("O4：override 未知组件拒绝",
+			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
+				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @1a \"A\"\n[component " + typeof(Health).FullName + "]\n\tMax = 1\n[override]\n    @1a Ghost.Nope.Value = 5\n"), "override 引用组件不存在"));
+
+		// prefab resolver 返回 null → 报错。
+		Check("O4：prefab 无法解析拒绝",
+			ThrowsWith<InvalidOperationException>(() => BSceneLoader.LoadScene(
+				"format = \"baize.object-components.v1\"\nkind = \"scene\"\n\nobject @1a \"A\" prefab = \"res://Missing.bprefab\"\n", _ => null), "无法解析"));
+	}
+
+	private static GameWorld CreateO4World(string name)
+	{
+		var w = new GameWorld();
+		w.CreateGameObject(name);
+		return w;
+	}
+
 	private sealed class TestResource
 	{
 		public string Tag = string.Empty;
@@ -1283,6 +1393,9 @@ internal static class Program
 		Test_O3_文本格式往返与可读性();
 		Test_O3_文本格式语法与容错();
 		Test_O3_评审修订回归();
+		Test_O4_AuthoringId与混合引用();
+		Test_O4_AuthoringId_唯一性与Prefab字段();
+		Test_O4_Prefab实例化与Override();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
