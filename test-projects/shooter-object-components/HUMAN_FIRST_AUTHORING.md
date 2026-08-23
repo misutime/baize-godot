@@ -2,19 +2,21 @@
 
 # Human-first Authoring：从玩法句子到 GameObject + Components 代码
 
-这份 O2 Shooter 是**概念教学样本**，不是性能样板。目标不是让你先记住「组件基类、Requires 依赖、对象工厂」这些机制，而是让人先看见游戏概念，再把概念直接写成「一组事实 + 一套规则」。
+这份 O2 Shooter 是**概念教学样本**，不是性能样板。目标不是让你先记住「组件基类、Requires 依赖、对象工厂」这些机制，而是让人先看见游戏概念，再把概念直接写成「一组组件 + 一套规则」。
 
 一句总纲：
 
-> **Object + Components ≈ ECS。对象不是「某种类的实例」，它只是若干独立事实挂在同一个 Id 上；规则围绕事实复用，而不是围绕实体类型树写 if/else。**
+> **Object + Components ≈ ECS。对象不是「某种类的实例」，它只是若干独立组件挂在同一个 Id 上；规则围绕组件复用，而不是围绕实体类型树写 if/else。**
+
+先锚定名称：**「对象」= `GameObject`（≈ ECS 的 Entity），「组件」= `GameComponent`（≈ ECS 的 Component）**——对象承载 Id，组件是挂在 Id 上的那块数据。
 
 本项目沿用既定命名：
 
-- `GameObject`（`Baize.GameObject`）保存一个对象（一组事实的 Id + 生命周期）；`GameWorld` 保存一局世界（事实 + 规则 + 服务）；
-- `GameComponent` 是挂在对象上的小块事实/能力；`GameWorld.Tick` 每帧驱动所有组件的 `OnTick`；
+- `GameObject`（`Baize.GameObject`）保存一个对象（一组组件的 Id + 生命周期）；`GameWorld` 保存一局世界（组件 + 规则 + 服务）；
+- `GameComponent` 是挂在对象上的小块能力/数据；`GameWorld.Tick` 每帧驱动所有组件的 `OnTick`；
 - `ComponentSchema` 用 `[GameComponent]` 与 `[GameComponent(Requires = ...)]` 声明「这个组件需要哪些其它组件」，创建时校验；
 - `[GameProperty]` 标记会被确定性序列化的字段；
-- `GameWorld.AddService<T>()` / `GetService<T>()` 承载「这一局只有一份」的全局事实（对局控制器/输入/生成配置）；
+- `GameWorld.AddService<T>()` / `GetService<T>()` 承载「这一局只有一份」的全局状态（对局控制器/输入/生成配置）；
 - `MotionPlan` 是这个例子里的关键：**控制器先在 tick 前提交本帧唯一的运动计划，移动与碰撞都只消费这一条**，从而让「先全局移动，再碰撞」的顺序无关语义成立。
 
 ---
@@ -32,13 +34,14 @@
 不要从所有组件或所有行为开始读。按以下顺序读：
 
 1. `ShooterGame.cs`：这一局装了什么全局服务、初始对象和宿主；
-2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些事实（B1 工厂，一行创建带全套组件）；
-3. `ShooterComponents.cs`：所有「事实」的类型——数据组件、参数、状态、标记、`MotionPlan`；
+2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些组件（B1 工厂，一行创建带全套组件）；
+3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记、`MotionPlan`；
 4. `ShooterBehaviors.cs`：规则按什么顺序运行（先是各控制器的 `PlanMotion`，再是 `OnTick` 消费计划）；
 5. `ShooterServices.cs`：全局状态持有者（对局控制器/输入/生成配置）；
 6. 最后才看 `shooter-object-components-poc/Program.cs` 的 15 项断言。
 
 唯一游戏装配入口是：
+
 ```csharp
 var world = ShooterGame.CreateWorld();  // new GameWorld(fixedDelta=0.01) + Install(world, withPlayer)
 ```
@@ -48,7 +51,7 @@ var world = ShooterGame.CreateWorld();  // new GameWorld(fixedDelta=0.01) + Inst
 ```csharp
 var match = new MatchController();
 match.Bind(world);                       // 通知它"世界是谁"，供 Paused 冻结用
-world.AddService(match);                 // 放进「这一局只有一份」的全局事实
+world.AddService(match);                 // 放进「这一局只有一份」的全局状态
 world.AddService(new InputService());
 world.AddService(new SpawnConfig());
 world.AddService(new SpawnState());
@@ -62,14 +65,13 @@ SetupScene(world, withPlayer);           // 建宿主 Game + 初始玩家
 ShooterGame.Step(world);   // 1) 所有控制器先提交本帧运动计划  2) world.Tick 统一执行移动+碰撞
 ```
 
-
-这就是 Human-first Authoring 的入口：**先读「世界里有什么」「世界怎么步进」，再读底层查询与被操作的事实。**
+这就是 Human-first Authoring 的入口：**先读「世界里有什么」「世界怎么步进」，再读底层查询与被操作的组件。**
 
 ---
 
 ## 2. GameObject + Components 六个概念分别是什么
 
-### 2.1 GameObject：事实组合的 Id
+### 2.1 GameObject：组件组合的 Id
 
 对象不是 `Player`/`Enemy` 继承树，也不承载大段行为。在 Shooter 里：
 
@@ -81,9 +83,9 @@ ShooterGame.Step(world);   // 1) 所有控制器先提交本帧运动计划  2) 
 
 **什么时候用 GameObject？** 当一个东西需要独立存在、被查询、被销毁，或被稳定句柄引用时，给它一个对象。
 
-### 2.2 GameComponent：关于某个对象的一条事实
+### 2.2 GameComponent：关于某个对象的一小块数据
 
-组件是挂在对象上的小块数据。行为组件（Behavior）是「这条事实对应的一小段规则」——它们读/改自己的 `Owner` 组件，组件间直接调用（如子弹命中直接调 `enemy.Health.ApplyDamage`）。
+组件是挂在对象上的小块数据。行为组件（Behavior）是「这个组件对应的一小段规则」——它们读/改自己的 `Owner` 组件，组件间直接调用（如子弹命中直接调 `enemy.Health.ApplyDamage`）。
 
 Shooter 示例：
 
@@ -92,12 +94,12 @@ Shooter 示例：
 - `MoveSpeed`：这个对象自己的移动速度参数；
 - `EnemyFaction`：这个对象属于敌方阵营（标签）。
 
-**什么时候用 GameComponent？** 当这份数据属于某个对象，而且规则需要按「同时拥有这些事实的对象」批量处理时使用。
+**什么时候用 GameComponent？** 当这份数据属于某个对象，而且规则需要按「同时拥有这些组件的对象」批量处理时使用。
 
 错误问法：「敌人类还缺什么字段？」
-正确问法：「哪条规则需要哪一条独立事实？」
+正确问法：「哪条规则需要哪一块独立组件？」
 
-### 2.3 服务的四分类：能力特征 / 运行状态 / 每实体参数 / 标签关系
+### 2.3 组件的四分类：能力特征 / 运行状态 / 每实体参数 / 标签关系
 
 四类可以共存于同一对象。分类的目的不是建立四个继承体系，而是阻止一个组件同时回答多个问题。
 
@@ -126,7 +128,7 @@ Shooter 示例：
 #### 标签关系
 > 如果只需要回答分类、阵营或参与关系，而没有连续数值，就用标签。
 
-`EnemyFaction` 只表达敌方关系；「会追踪目标」由 `SeekTargetMarker` 表达，「跑多快」由 `MoveSpeed` 表达。三条事实可独立替换。
+`EnemyFaction` 只表达敌方关系；「会追踪目标」由 `SeekTargetMarker` 表达，「跑多快」由 `MoveSpeed` 表达。三者可独立替换。
 
 #### 拆分前后对照
 
@@ -137,7 +139,7 @@ Shooter 示例：
 | `Bullet.Damage/Range/Travelled` + `BulletTag` | 参数、状态、类别重复 | `ProjectileConfig` + `TravelDistance` + `ProjectileTag` |
 | `PlayerControl.MoveSpeed` + `PlayerTag` | 控制能力、参数、身份重复 | `PlayerInputMarker` + `MoveSpeed` + `PlayerFaction` |
 
-### 2.4 GameWorld Service：整个世界只有一份的事实
+### 2.4 GameWorld Service：整个世界只有一份的全局状态
 
 服务不挂在虚构的「全局实体」上，由 `GameWorld` 通过 `AddService<T>()`/`GetService<T>()` 持有（内部一局一份）。Shooter 示例：
 
@@ -149,7 +151,7 @@ Shooter 示例：
 
 **什么时候用 Service？** 当判断句是「这一局只有一份」，而不是「每个对象各有一份」时使用。配置和状态都可能是 Service，但必须用不同类型表达——`SpawnConfig` 不能再混入当前位置或倒计时。
 
-#### 前置 store/state 心智模型（借前端 Redux/Pinia）
+#### 前端 store/state 心智模型（借前端 Redux/Pinia）
 
 | 前端（Redux/Pinia） | 我们 | 含义 |
 |---|---|---|
@@ -158,7 +160,7 @@ Shooter 示例：
 | **set/getState** | `AddService` / `GetService<T>()` | 读/写某个全局状态 |
 | **action / 纯函数更新** | 各 Behavior 的 `OnTick` / `OnEnemyKilled` | 修改状态的方式（规则） |
 
-**注意**：对象存储（`GameWorld` 的对象注册表）与 `Services`（全局状态）是两件事——一个管对象+事实，一个管全局状态。
+**注意**：对象存储（`GameWorld` 的对象注册表）与 `Services`（全局状态）是两件事——一个管对象+组件，一个管全局状态。
 
 #### 阶段控制：`GameWorld.Paused`（而非逐帧 IsPlaying）
 
@@ -187,7 +189,7 @@ Step(world)：
 
 **为什么 tickIndex 门禁？** `BulletBehavior.OnTick` 命中时检查 `enemyPlan.TickIndex == world.TickIndex` 才参与；本 tick 内新建的对象（例如刚生成的敌人）其计划属于下一 tick，按 O1「tick 内新建对象下一轮参与」快照语义自然地从下一帧开始参与。
 
-**一句话记忆**：控制器负责「决定本帧去哪」，`MotionPlan` 是「决定好了的事实」，执行与碰撞只消费这个事实——所以顺序无关、且无「快照重算 vs 实际移动」分叉。
+**一句话记忆**：控制器负责「决定本帧去哪」，`MotionPlan` 是「决定好了的组件」，执行与碰撞只消费这个组件——所以顺序无关、且无「快照重算 vs 实际移动」分叉。
 
 ### 2.6 对象工厂：出生时的组件配方（B1）
 
@@ -210,11 +212,11 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
 
 **什么时候用工厂？** 当同一组创建代码开始重复，或装配根被 `.AddComponent(...).AddComponent(...)` 长链淹没时使用。
 
-工厂允许重复：玩家和敌人都有 `Position`、`Velocity`、`MoveSpeed`、`CollisionRadius`、`MotionPlan`——这种重复恰好说明组件是可组合事实，不是实体类型字段表。
+工厂允许重复：玩家和敌人都有 `Position`、`Velocity`、`MoveSpeed`、`CollisionRadius`、`MotionPlan`——这种重复恰好说明组件是可组合数据，不是实体类型字段表。
 
 ### 2.7 Behavior：依赖可见的数据变换规则
 
-Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的事实、读服务/输入，然后改写明确的数据。Shooter 示例：
+Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读服务/输入，然后改写明确的数据。Shooter 示例：
 
 - `PlayerControllerBehavior.PlanMotion`：`InputService + MoveSpeed → Velocity → MotionPlan`；
 - `EnemyControllerBehavior.PlanMotion`：`玩家 MotionPlan.End + MoveSpeed → Velocity → MotionPlan`；
@@ -227,7 +229,7 @@ Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对
 
 #### Behavior 纯函数约束
 
-这里的「纯」不是说 Behavior 不修改世界，而是：**相同输入事实产生相同输出事实，Behavior 实例本身不暗藏跨帧的玩法状态。**
+这里的「纯」不是说 Behavior 不修改世界，而是：**相同输入数据产生相同输出数据，Behavior 实例本身不暗藏跨帧的玩法状态。**
 
 - 会影响玩法、存档、回放、确定性哈希或 `Reset` 的值，必须放入组件或服务；
 - 倒计时、输入边沿、随机种子、累计分数不能藏在 Behavior 字段；
@@ -248,9 +250,9 @@ Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对
 
 如果一句话还不能读通，不要急着写代码。
 
-### 第二步：列事实
+### 第二步：列组件
 
-只列名词和可观察事实，不分类型：
+只列名词和可观察数据，不分类型：
 
 - 玩家位置、移动速度、输入能力、武器间隔、武器剩余冷却；
 - 敌人位置、寻敌能力、移动速度、生命、阵营；
@@ -262,7 +264,7 @@ Behavior（行为组件）不拥有玩家、敌人或分数。它读取所属对
 逐条问：
 
 1. 每对象还是全世界一份？决定 `GameComponent` 或 Service；
-2. 长期事实还是瞬时发生？决定组件/服务或由某个 Behavior 瞬时触发；
+2. 长期数据还是瞬时发生？决定组件/服务或由某个 Behavior 瞬时触发；
 3. 是「有没有这项能力」「现在的值」「作者设置的参数」还是「属于谁」？决定能力/状态/参数/标签四类之一。
 
 例如：
@@ -285,7 +287,7 @@ Fire 边沿 + Cooldown -> SpawnProjectile
 TickIndex -> HashTick -> SpawnEnemy
 ```
 
-如果公式里出现「某 Manager 里面那个字段」，说明事实还没有归位。
+如果公式里出现「某 Manager 里面那个字段」，说明组件还没有归位。
 
 ### 第五步：排因果
 
@@ -329,7 +331,7 @@ public static void Install(GameWorld world, bool withPlayer = true)
 ```text
 shooter-object-components/
 ├─ Shooter.Objects.csproj         # 纯 .NET 共享类库，只引用 modules/gameobject（O1）
-├─ ShooterComponents.cs           # 事实类型：数据组件 / 状态 / 参数 / 标签 / MotionPlan / Health
+├─ ShooterComponents.cs           # 组件类型：数据组件 / 状态 / 参数 / 标签 / MotionPlan / Health
 ├─ ShooterBehaviors.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
 ├─ ShooterServices.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
@@ -380,7 +382,7 @@ Services.cs
 
 ## 6. 用 Shooter 检查自己的设计
 
-新增「精英敌人」时，不要先建 `EliteEnemy` 对象。先问事实：
+新增「精英敌人」时，不要先建 `EliteEnemy` 对象。先问组件：
 
 - 仍属 `EnemyFaction`；
 - 仍有 `SeekTargetMarker`；
@@ -401,7 +403,7 @@ Services.cs
 - 先判断它是临时运行状态，不应改写作者参数 `MoveSpeed`；
 - 可以增加 `MoveSpeedModifier` 状态，再由移动规划组合基础参数与修正值。
 
-这就是组合优于实体类型树：**规则围绕事实复用，工厂只负责让常见组合好写。**
+这就是组合优于实体类型树：**规则围绕组件复用，工厂只负责让常见组合好写。**
 
 ---
 
@@ -423,4 +425,4 @@ Services.cs
 - [ ] 新开发者能否先读 `ShooterGame.Install` + `ShooterGame.Step`，再按文件逐层深入？
 - [ ] 是否零 Godot/Node/Friflo/Baize.Ecs 引用（只 `using Baize.GameObject`）？
 
-如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，事实先于类型，因果先于样板。
+如果这些问题都有明确答案，代码通常已经接近 Human-first Authoring：概念先于机制，组件先于类型，因果先于样板。
