@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Sola3dMainLoop.cs —— 进程宿主抽象（O5，O5-GameWorldHost与ServerPorts.md）
 //
-// Runtime World 的进程外壳：GameWorld 挂载 + 双轨 tick 驱动 + Host 注册 + Port 通道。
+// Runtime World 的进程外壳：GameWorld 挂载 + 双轨 tick 驱动 + Backend 注册 + Port 通道。
 // 设计依据（社区对照）：Bevy MainSchedule/FixedMain 双轨节奏、Unity PlayerLoopSystem 子系统分层、
 //                       Dom Williams sim/render 分离 + Port 隔离。
 // 零 Godot 依赖：GameWorld 经 IWorldDriver 解耦，本层 headless 可测、可服务器复用。
@@ -12,8 +12,8 @@ using System.Collections.Generic;
 namespace Sola3d.MainLoop;
 
 /// <summary>
-/// 世界驱动接口：隔离 Host 层与具体世界实现（GameWorld 适配器在引用 Sola3d.GameObject 的层实现）。
-/// fixed 步进、variable 步进、输入注入——Host 层只做"到点推进 + 注入"，语义全在实现方。
+/// 世界驱动接口：隔离 Backend 层与具体世界实现（GameWorld 适配器在引用 Sola3d.GameObject 的层实现）。
+/// fixed 步进、variable 步进、输入注入——Backend 层只做"到点推进 + 注入"，语义全在实现方。
 /// </summary>
 public interface IWorldDriver
 {
@@ -35,12 +35,12 @@ public interface IWorldDriver
 
 /// <summary>
 /// 进程宿主：Runtime World 外壳。驱动固定步长 + 变步长双轨，按累计时间判帧
-/// （Bevy RunFixedMainLoop 同构），注册 Host 集合（Unity PlayerLoopSystem 同构）。
+/// （Bevy RunFixedMainLoop 同构），注册 Backend 集合（Unity PlayerLoopSystem 同构）。
 /// </summary>
 public sealed class Sola3dMainLoop
 {
 	private readonly IWorldDriver _world;
-	private readonly List<IHost> _hosts = new();
+	private readonly List<IBackend> _backends = new();
 	private readonly EventBus _events = new();
 	private readonly CommandBus _commands = new();
 	private readonly ObservationBus _observations = new();
@@ -61,11 +61,11 @@ public sealed class Sola3dMainLoop
 		_world = world ?? throw new ArgumentNullException(nameof(world));
 	}
 
-	/// <summary>注册 Host（有序；执行序 = 注册序，Unity PlayerLoopSystem 同构）。</summary>
-	public void AddHost(IHost host)
+	/// <summary>注册 Backend（有序；执行序 = 注册序，Unity PlayerLoopSystem 同构）。</summary>
+	public void AddBackend(IBackend backend)
 	{
-		ArgumentNullException.ThrowIfNull(host);
-		_hosts.Add(host);
+		ArgumentNullException.ThrowIfNull(backend);
+		_backends.Add(backend);
 	}
 
 	/// <summary>推进一帧（Godot MainLoop._Process 或服务器循环调用）。</summary>
@@ -78,10 +78,10 @@ public sealed class Sola3dMainLoop
 		_now += delta;
 		_accumulator += delta;
 
-		// 每帧先让 Host 采样（InputHost 收集 → 放入暂存）。
-		foreach (var host in _hosts)
+		// 每帧先让 Backend 采样（IInputBackend 收集 → 放入暂存）。
+		foreach (var backend in _backends)
 		{
-			host.BeginFrame(_now);
+			backend.BeginFrame(_now);
 		}
 
 		// fixed 域：累计时间驱动的固定步子循环（Bevy RunFixedMainLoop 同构）。
@@ -89,9 +89,9 @@ public sealed class Sola3dMainLoop
 		{
 			// 输入在 fixed 边界采样并注入（§14.6：fixed tick 边界收集）。
 			var frame = BuildInputFrame();
-			foreach (var host in _hosts)
+			foreach (var backend in _backends)
 			{
-				if (host is IInputHost input)
+				if (backend is IInputBackend input)
 				{
 					input.SampleFixed();
 				}
@@ -109,21 +109,21 @@ public sealed class Sola3dMainLoop
 		// 观察回传：Backend → Gameplay（fixed 边界收集，本帧统一分发）。
 		_observations.Dispatch();
 
-		// 每帧末：Host 收尾。
-		foreach (var host in _hosts)
+		// 每帧末：Backend 收尾。
+		foreach (var backend in _backends)
 		{
-			host.EndFrame(_now);
+			backend.EndFrame(_now);
 		}
 	}
 
-	/// <summary>构建输入帧：InputHost 提供合成输入；无 Host 时为默认空帧。</summary>
+	/// <summary>构建输入帧：IInputBackend 提供合成输入；无 Backend 时为默认空帧。</summary>
 	private InputFrame BuildInputFrame()
 	{
 		var samples = new List<InputSample>();
 		ulong tickIndex = 0;
-		foreach (var host in _hosts)
+		foreach (var backend in _backends)
 		{
-			if (host is IInputHost input)
+			if (backend is IInputBackend input)
 			{
 				var f = input.LastFrame();
 				if (f.HasValue)
@@ -137,18 +137,18 @@ public sealed class Sola3dMainLoop
 	}
 }
 
-/// <summary>Host 基类接口：每帧生命周期钩子（BeginFrame → [SampleFixed] → EndFrame）。</summary>
-public interface IHost
+/// <summary>Backend 基类接口：每帧生命周期钩子（BeginFrame → [SampleFixed] → EndFrame）。</summary>
+public interface IBackend
 {
-	/// <summary>帧开始（Host 可在这里做平台事件轮询）。</summary>
+	/// <summary>帧开始（Backend 可在这里做平台事件轮询）。</summary>
 	void BeginFrame(float nowSeconds);
 
-	/// <summary>帧结束（Host 收尾，如提交渲染命令）。</summary>
+	/// <summary>帧结束（Backend 收尾，如提交渲染命令）。</summary>
 	void EndFrame(float nowSeconds);
 }
 
 /// <summary>输入宿主：采集平台输入 → 生成 InputFrame（sola3d 输入端口）。</summary>
-public interface IInputHost : IHost
+public interface IInputBackend : IBackend
 {
 	/// <summary>一次 fixed 边界采样（headless 下测试注入合成帧）。</summary>
 	void SampleFixed();
@@ -158,21 +158,21 @@ public interface IInputHost : IHost
 }
 
 /// <summary>窗口宿主（O6 实现；O5 壳）。</summary>
-public interface IWindowHost : IHost
+public interface IWindowBackend : IBackend
 {
 }
 
 /// <summary>渲染世界宿主（RenderingServer/RID；O6 实现，O5 壳）。</summary>
-public interface IRenderWorldHost : IHost
+public interface IRenderBackend : IBackend
 {
 }
 
 /// <summary>物理世界宿主（PhysicsServer/Jolt；O6 实现，O5 壳）。</summary>
-public interface IPhysicsWorldHost : IHost
+public interface IPhysicsBackend : IBackend
 {
 }
 
 /// <summary>最小 UI 宿主（O5 留接口；O8 域迁移）。</summary>
-public interface IUIHost : IHost
+public interface IUIBackend : IBackend
 {
 }

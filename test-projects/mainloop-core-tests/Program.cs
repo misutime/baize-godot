@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-// Program.cs —— mainloop-core-tests：O5 Host 抽象层契约验证（headless 纯 .NET）
+// Program.cs —— mainloop-core-tests：O5 MainLoop/Backend 抽象层契约验证（headless 纯 .NET）
 //
 // 断言：双轨判帧、InputFrame 注入、Port 三通道（Event/Command/Observation）、
-// 确定性保持（fixed 边界采样）、Host 生命周期序。
+// 确定性保持（fixed 边界采样）、Backend 生命周期序。
 
 using System;
 using System.Collections.Generic;
@@ -55,7 +55,7 @@ internal static class Program
 
 	// ---------- 模拟输入宿主 ----------
 
-	private sealed class FakeInputHost : IInputHost
+	private sealed class FakeInputBackend : IInputBackend
 	{
 		private InputFrame _frame = InputFrame.Empty;
 
@@ -96,8 +96,8 @@ internal static class Program
 	{
 		var world = new CountingWorld();
 		var loop = new Sola3dMainLoop(world);
-		var input = new FakeInputHost();
-		loop.AddHost(input);
+		var input = new FakeInputBackend();
+		loop.AddBackend(input);
 
 		// 注入合成输入：fixed 边界采样。
 		input.SetFrame(new InputFrame(1, new[] { new InputSample("fire", pressed: true) }));
@@ -135,23 +135,23 @@ internal static class Program
 		Check("Observation：帧末分发", received && loop.Observations.Count == 0);
 	}
 
-	private static void Test_Host生命周期序()
+	private static void Test_Backend生命周期序()
 	{
 		var world = new CountingWorld();
 		var loop = new Sola3dMainLoop(world);
 		var log = new List<string>();
-		loop.AddHost(new LogHost(log, "A"));
-		loop.AddHost(new LogHost(log, "B"));
+		loop.AddBackend(new LogBackend(log, "A"));
+		loop.AddBackend(new LogBackend(log, "B"));
 		loop.Frame(0.02f);
-		Check("Host 序：Begin 按注册序", log[0] == "A.begin" && log[1] == "B.begin");
-		Check("Host 序：End 按注册序（帧末）", log[^2] == "A.end" && log[^1] == "B.end");
+		Check("Backend 序：Begin 按注册序", log[0] == "A.begin" && log[1] == "B.begin");
+		Check("Backend 序：End 按注册序（帧末）", log[^2] == "A.end" && log[^1] == "B.end");
 	}
 
-	private sealed class LogHost : IHost
+	private sealed class LogBackend : IBackend
 	{
 		private readonly List<string> _log;
 		private readonly string _name;
-		public LogHost(List<string> log, string name) { _log = log; _name = name; }
+		public LogBackend(List<string> log, string name) { _log = log; _name = name; }
 		public void BeginFrame(float nowSeconds) => _log.Add(_name + ".begin");
 		public void EndFrame(float nowSeconds) => _log.Add(_name + ".end");
 	}
@@ -162,12 +162,12 @@ internal static class Program
 
 	private static int Main()
 	{
-		Console.WriteLine("mainloop-core-tests —— O5 Host 抽象层契约验证\n");
+		Console.WriteLine("mainloop-core-tests —— O5 MainLoop/Backend 抽象层契约验证\n");
 
 		Test_双轨判帧();
 		Test_输入注入();
 		Test_Port三通道();
-		Test_Host生命周期序();
+		Test_Backend生命周期序();
 
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
