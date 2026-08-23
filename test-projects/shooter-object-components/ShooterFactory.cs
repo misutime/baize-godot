@@ -20,7 +20,6 @@ public static class ShooterFactory
 		obj.AddComponent<Cooldown>();
 		obj.AddComponent<PlayerControllerAction>();
 		obj.AddComponent<WeaponAction>();
-		obj.AddComponent<MoveAction>();
 		return obj;
 	}
 
@@ -45,7 +44,6 @@ public static class ShooterFactory
 		obj.AddComponent<ProjectileTag>();
 		obj.AddComponent(new Position { X = x, Z = z });
 		obj.AddComponent(new PreviousPosition { X = x, Z = z });
-		obj.AddComponent<MotionPlan>();
 		obj.AddComponent(new Velocity { X = vx, Z = vz });
 		obj.AddComponent(new ProjectileConfig { Damage = damage, MaxRange = maxRange });
 		obj.AddComponent<TravelDistance>();
@@ -59,7 +57,6 @@ public static class ShooterFactory
 	{
 		obj.AddComponent(new Position { X = x, Z = z });
 		obj.AddComponent(new PreviousPosition { X = x, Z = z });
-		obj.AddComponent<MotionPlan>();
 		obj.AddComponent<Velocity>();
 		obj.AddComponent(new MoveSpeed { Value = moveSpeed });
 		obj.AddComponent(new CollisionRadius { Value = radius });

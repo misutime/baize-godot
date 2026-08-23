@@ -17,7 +17,7 @@
 - `ComponentSchema` 用 `[GameComponent]` 与 `[GameComponent(Requires = ...)]` 声明「这个组件需要哪些其它组件」，创建时校验；
 - `[GameProperty]` 标记会被确定性序列化的字段；
 - `GameWorld.AddResource<T>()` / `GetResource<T>()` 承载「这一局只有一份」的全局状态（对局控制器/输入/生成配置）；
-- `MotionPlan` 是这个例子里的关键：**控制器先在 tick 前提交本帧唯一的运动计划，移动与碰撞都只消费这一条**，从而让「先全局移动，再碰撞」的顺序无关语义成立。
+- `GameWorld.Tick` 每帧驱动所有组件的 `OnTick`；`ShooterGame.RunFrame` 用**显式阶段顺序**（先 Move 全部对象，再 Collide 扫掠命中）保证「先全局移动，再碰撞」的顺序无关语义；
 
 ---
 
@@ -25,7 +25,7 @@
 
 `shooter-object-components`（共享库）与 `shooter-object-components-poc`（验收程序）都只引用 `modules/gameobject/`（O1 纯 .NET 内核）。**零 Godot、零 Node、零 Friflo/Baize.Ecs**——玩法层不依赖引擎，也不依赖任何 ECS 框架。这是 O1 的硬门禁：Gameplay 侧调不到引擎 API。
 
-游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 15 项断言把关。
+游戏概念是否成立，全部由 `test-projects/shooter-object-components-poc/Program.cs` 的 16 项断言把关。
 
 #### World 的粒度：一局 = 一个 GameWorld
 
@@ -51,10 +51,9 @@
 
 1. `ShooterGame.cs`：这一局装了什么全局资源、初始对象和宿主；
 2. `ShooterFactory.cs`：玩家/敌人/投射物出生时分别有哪些组件（B1 工厂，一行创建带全套组件）；
-3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记、`MotionPlan`；
-4. `ShooterActions.cs`：规则按什么顺序运行（先是各控制器的 `PlanMotion`，再是 `OnTick` 消费计划）；
-5. `ShooterResources.cs`：全局状态持有者（对局控制器/输入/生成配置）；
-6. 最后才看 `shooter-object-components-poc/Program.cs` 的 15 项断言。
+3. `ShooterComponents.cs`：所有组件的类型——数据组件、参数、状态、标记；
+4. `ShooterActions.cs`：规则按什么顺序运行（先是各控制器的 `Move`，再是命中/接触）；
+6. 最后才看 `shooter-object-components-poc/Program.cs` 的 16 项断言。
 
 唯一游戏装配入口是：
 
@@ -78,7 +77,7 @@ SetupScene(world, withPlayer);           // 建宿主 Game + 初始玩家
 一步推进一帧：
 
 ```csharp
-ShooterGame.RunFrame(world);   // 1) 所有控制器先提交本帧运动计划  2) world.Tick 统一执行移动+碰撞
+ShooterGame.RunFrame(world);   // 1) Move 阶段全部对象移动到本帧终点  2) Collide 阶段子弹扫掠命中  3) world.Tick 执行开火/生成等杂项 OnTick
 ```
 
 这就是 Human-first Authoring 的入口：**先读「世界里有什么」「世界怎么步进」，再读底层查询与被操作的组件。**
@@ -91,9 +90,9 @@ ShooterGame.RunFrame(world);   // 1) 所有控制器先提交本帧运动计划 
 
 对象不是 `Player`/`Enemy` 继承树，也不承载大段行为。在 Shooter 里：
 
-- 玩家对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + PlayerFaction + PlayerInputMarker + WeaponConfig + Cooldown + PlayerControllerAction + WeaponAction + MoveAction`；
-- 敌人对象 = `Position + PreviousPosition + MotionPlan + Velocity + MoveSpeed + CollisionRadius + EnemyFaction + SeekTargetMarker + Health + EnemyControllerAction`；
-- 投射物对象 = `Position + PreviousPosition + MotionPlan + Velocity + ProjectileConfig + TravelDistance + CollisionRadius + ProjectileTag + BulletAction`。
+- 玩家对象 = `Position + PreviousPosition + Velocity + MoveSpeed + CollisionRadius + PlayerFaction + PlayerInputMarker + WeaponConfig + Cooldown + PlayerControllerAction + WeaponAction`；
+- 敌人对象 = `Position + PreviousPosition + Velocity + MoveSpeed + CollisionRadius + EnemyFaction + SeekTargetMarker + Health + EnemyControllerAction`；
+- 投射物对象 = `Position + PreviousPosition + Velocity + ProjectileConfig + TravelDistance + CollisionRadius + ProjectileTag + BulletAction`。
 
 「玩家/敌人/投射物」是人对组件组合的称呼，不是必须存在的基类。
 
@@ -182,32 +181,29 @@ Shooter 示例：
 
 `GameOver` 时 `MatchController.RequestGameOver()` 把 `Phase` 切到 `GameOver`，并设 `world.Paused = true`。O1 的 `Paused` 语义是「所有组件 `OnTick` 停」，因此组件**无需再逐帧自查 `IsPlaying`**——这是等效于 ECS `RunInState(Playing)` 门禁的全局冻结。`GameWorld.Reset()` 会把 `Paused` 归零。
 
-### 2.5 MotionPlan：一个 tick 的唯一运动计划
+### 2.5 阶段顺序：先全局移动，再碰撞
 
-这是本设计最关键、也最容易误解的一点。
+这是本设计最关键的一点。
 
 在大多数游戏里，「移动」是每帧读速度、改位置；但这样会遇到顺序问题：**如果子弹先执行、它读的是敌人上一帧的位置；如果敌人先执行、它读的是敌人本帧的位置——结果依赖执行顺序。**
 
-为了做到**顺序无关**（也即 ECS「先全局移动，再碰撞」的语义），本设计把「一个 tick 的运动」先统一规划出来：
+为了做到**顺序无关**（即 ECS「先全局移动，再碰撞」的语义），本设计用**显式阶段顺序**，而不做每对象的运动计划：
 
 ```
 RunFrame(world)：
-  1) 若未 Paused：tickIndex = world.TickIndex + 1
-     按 PlanPhase 声明序遍历（PlayerInput → Enemy → Projectile）：
-        ShooterWorldHelper.PlanMotion(world, delta, tickIndex, phase)
-        - PlayerInput → 每个 PlayerControllerAction.PlanMotion   // 玩家先规划
-        - Enemy       → 每个 EnemyControllerAction.PlanMotion    // 敌人读玩家本帧终点
-        - Projectile  → 每个 BulletAction.PlanMotion             // 子弹提交自身线段
-  2) world.Tick(delta)                                              // 统一执行所有 OnTick
+  1) 若未 Paused：
+     ShooterWorldHelper.MoveAll(world, delta)     // 阶段1 Move：玩家→敌人→子弹，全部移动到本帧终点
+     ShooterWorldHelper.CollideAll(world, delta)  // 阶段2 Collide：子弹扫掠命中（读各方本帧 prev→pos）
+  2) world.Tick(delta)                              // 执行开火/生成等杂项 OnTick
 ```
 
-`MotionPlan` 组件保存本 tick 的 `(StartX, StartZ, EndX, EndZ)` 与 `TickIndex`。移动（`MoveAction`/子弹/敌人的 `OnTick`）只把 `Position` 设成 `plan.End`，把 `PreviousPosition` 设成 `plan.Start`。
+`Move` 里每个会动组件的 `Move(delta)` 只做「设 `PreviousPosition` 为旧位置、`Position` 累加速度」。`Collide` 里每个子弹的 `Collide(delta)` 用 `CollisionResolver.SegmentSegmentDistance` 对 子弹本帧线段 vs 敌人本帧线段 做同步扫掠最短距离，命中则 `enemy.Health.ApplyDamage`、`Owner.Destroy()`。
 
-**为什么玩家先规划？** 因为敌人要「寻玩家」。如果敌人读玩家**实时**位置，而玩家在同一个 tick 里移动了，两者会分叉。玩家先在 tick 前提交「本帧终点」，敌人的 `PlanMotion` 就直接把玩家的 `plan.End` 当作寻向目标——等价于「玩家先移动」，但不依赖实际 tick 顺序。
+**为什么玩家在 Move 里先动？** 因为敌人要「寻玩家」。Move 阶段顺序固定为 玩家→敌人→子弹：玩家先把 `Position` 移到本帧终点，敌方 `Move` 读取玩家当前位置就拿到「本帧终点」作为寻向目标——等价于「玩家先移动」，但按阶段固定，不依赖实际 tick 顺序。
 
-**为什么 tickIndex 门禁？** `BulletAction.OnTick` 命中时检查 `enemyPlan.TickIndex == world.TickIndex` 才参与；本 tick 内新建的对象（例如刚生成的敌人）其计划属于下一 tick，按 O1「tick 内新建对象下一轮参与」快照语义自然地从下一帧开始参与。
+**为什么阶段顺序能保证顺序无关？** 因为所有 `Move` 先于所有 `Collide` 完成；`Collide` 读的是各方**已经更新好的** `PreviousPosition→Position` 本帧线段，与对象创建顺序/执行顺序无关。本 tick 内新建的对象（例如刚生成的敌人/子弹）在下一次 `RunFrame` 的 Move/Collide 阶段才参与——按 O1「tick 内新建对象下一轮参与」快照语义自然从下一帧开始。
 
-**一句话记忆**：控制器负责「决定本帧去哪」，`MotionPlan` 是「决定好了的组件」，执行与碰撞只消费这个组件——所以顺序无关、且无「快照重算 vs 实际移动」分叉。
+**一句话记忆**：控制器在 Move 阶段先移动，子弹在 Collide 阶段按本帧线段扫掠命中——移动全部完成后再碰撞，所以顺序无关、且没有「快照重算 vs 实际移动」分叉。
 
 ### 2.6 对象工厂：出生时的组件配方（B1）
 
@@ -219,7 +215,7 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
     var obj = world.CreateGameObject("Player");
     obj.AddComponent<PlayerFaction>();
     obj.AddComponent<PlayerInputMarker>();
-    AddMoveStack(obj, x, z, moveSpeed, radius);   // Position + Previous + MotionPlan + Velocity + MoveSpeed + CollisionRadius
+    AddMoveStack(obj, x, z, moveSpeed, radius);   // Position + Previous + Velocity + MoveSpeed + CollisionRadius
     obj.AddComponent(new WeaponConfig { CooldownSeconds = fireCooldown, ProjectileSpeed = projectileSpeed });
     obj.AddComponent<PlayerControllerAction>();  // 行为组件
     ...
@@ -229,20 +225,20 @@ public static GameObject SpawnPlayer(GameWorld world, float x, float z, ...)
 
 **什么时候用工厂？** 当同一组创建代码开始重复，或装配根被 `.AddComponent(...).AddComponent(...)` 长链淹没时使用。
 
-工厂允许重复：玩家和敌人都有 `Position`、`Velocity`、`MoveSpeed`、`CollisionRadius`、`MotionPlan`——这种重复恰好说明组件是可组合数据，不是实体类型字段表。
+工厂允许重复：玩家和敌人都有 `Position`、`Velocity`、`MoveSpeed`、`CollisionRadius`——这种重复恰好说明组件是可组合数据，不是实体类型字段表。
 
 ### 2.7 Action：依赖可见的数据变换规则
 
 Action（行为组件）不拥有玩家、敌人或分数。它读取所属对象（`Owner`）上的组件、读资源/输入，然后改写明确的数据。Shooter 示例：
 
-- `PlayerControllerAction.PlanMotion`：`InputService + MoveSpeed → Velocity → MotionPlan`；
-- `EnemyControllerAction.PlanMotion`：`玩家 MotionPlan.End + MoveSpeed → Velocity → MotionPlan`；
-- `MoveAction.OnTick`：`MotionPlan → Position/PreviousPosition`；
-- `BulletAction.OnTick`：`自身+敌方 MotionPlan → 扫掠命中 → enemy.Health.ApplyDamage → 计分；越界销毁`；
+- `PlayerControllerAction.Move`：`InputService + MoveSpeed → Velocity → Position/PreviousPosition`；
+- `EnemyControllerAction.Move`：`玩家 Position + MoveSpeed → Velocity + 接触判定 → Position/PreviousPosition`；
+- `BulletAction.Move`：`Velocity → Position/PreviousPosition`；
+- `BulletAction.Collide`：`自身+敌方 Position→PreviousPosition → 扫掠命中 → enemy.Health.ApplyDamage → 计分；越界销毁`；
 - `WeaponAction.OnTick`：`Fire 边沿 + Cooldown → SpawnProjectile`；
 - `EnemySpawnerAction.OnTick`：`TickIndex 确定 HashTick → 生成敌人`。
 
-一眼可见的依赖是：`Requires` 里声明的组件、`World!.GetResource<T>()` 取的资源、以及它读写的 `Owner` 组件。`OnStart`（或 `OnCreate`）只缓存这些引用，`OnTick` 只做变换。
+一眼可见的依赖是：`Requires` 里声明的组件、`World!.GetResource<T>()` 取的资源、以及它读写的 `Owner` 组件。`OnCreate`（或 `OnStart`）只缓存这些引用，`Move`/`Collide`/`OnTick` 只做变换。
 
 #### Action 纯函数约束
 
@@ -274,7 +270,7 @@ Action（行为组件）不拥有玩家、敌人或分数。它读取所属对�
 - 玩家位置、移动速度、输入能力、武器间隔、武器剩余冷却；
 - 敌人位置、寻敌能力、移动速度、生命、阵营；
 - 投射物位置、速度、伤害、最大射程、已飞距离；
-- 本局阶段、分数、敌人数、生成间隔、生成剩余时间、本帧运动计划。
+- 本局阶段、分数、敌人数、生成间隔、生成剩余时间。
 
 ### 第三步：分类
 
@@ -289,18 +285,18 @@ Action（行为组件）不拥有玩家、敌人或分数。它读取所属对�
 - 「敌人速度」不是 EnemyAI，而是每实体参数 `MoveSpeed`；
 - 「敌人追玩家」不是身份，而是能力 `SeekTargetMarker`；
 - 「玩家现在位置」不是 `SpawnConfig.PlayerX/Z`，而是玩家对象的 `Position`；
-- 「本帧它到哪」不是临时算出来的，而是 `MotionPlan`。
+- 「本帧它到哪」不是临时算出来的，而是 `Position`（以及它的 `PreviousPosition` 本帧线段）。
 
 ### 第四步：写数据变换
 
 每个 Action 先写成公式，再写 C#：
 
 ```text
-InputService + MoveSpeed -> Velocity -> MotionPlan
-玩家 MotionPlan.End + MoveSpeed -> Velocity -> MotionPlan（敌人）
-MotionPlan -> Position/PreviousPosition
+InputService + MoveSpeed -> Velocity -> Position/PreviousPosition
+玩家 Position + MoveSpeed -> Velocity + 接触判定 -> Position/PreviousPosition（敌人）
+Velocity -> Position/PreviousPosition
 Fire 边沿 + Cooldown -> SpawnProjectile
-自身+敌方 MotionPlan -> 扫掠命中 -> Health.ApplyDamage -> 计分/销毁
+自身+敌方 Position->PreviousPosition -> 扫掠命中 -> Health.ApplyDamage -> 计分/销毁
 TickIndex -> HashTick -> SpawnEnemy
 ```
 
@@ -308,13 +304,14 @@ TickIndex -> HashTick -> SpawnEnemy
 
 ### 第五步：排因果
 
-本设计的因果顺序由 `RunFrame` 的**规划阶段**显式固定：
+本设计的因果顺序由 `RunFrame` 的**阶段顺序**显式固定：
 
 ```text
-PlayerControllerAction.PlanMotion   // 玩家先规划
-  -> EnemyControllerAction.PlanMotion   // 敌人据玩家本帧终点规划
-  -> BulletAction.PlanMotion    // 子弹提交自身线段
-  -> world.Tick                    // 统一执行移动 + 命中 + 生成 + 接触
+ShooterWorldHelper.MoveAll(world, delta)      // 阶段1：玩家→敌人→子弹，全部移动到本帧终点
+  -> 玩家先 Move（玩家 Position 先到本帧终点）
+  -> 敌人 Move（据玩家本帧终点寻向 + 接触判定）
+ShooterWorldHelper.CollideAll(world, delta)   // 阶段2：子弹扫掠命中
+  -> world.Tick                       // 开火/生成等杂项 OnTick
 ```
 
 顺序不是性能细节，而是游戏语义。正是这个顺序，让「先全局移动，再碰撞」的扫掠命中不用再关心谁先谁后。
@@ -348,16 +345,16 @@ public static void Install(GameWorld world, bool withPlayer = true)
 ```text
 shooter-object-components/
 ├─ Shooter.Objects.csproj         # 纯 .NET 共享类库，只引用 modules/gameobject（O1）
-├─ ShooterComponents.cs           # 组件类型：数据组件 / 状态 / 参数 / 标签 / MotionPlan / Health
-├─ ShooterActions.cs            # 规则：控制器 PlanMotion + OnTick 消费 + 命中/生成/接触；含 CollisionResolver 扫掠几何
+├─ ShooterComponents.cs           # 组件类型：数据组件 / 状态 / 参数 / 标签 / Health
+├─ ShooterActions.cs            # 规则：控制器 Move + 子弹 Collide/命中 + 开火/生成/接触；含 CollisionResolver 扫掠几何
 ├─ ShooterResources.cs             # 全局状态持有者：MatchController / InputService / SpawnConfig / SpawnState
 ├─ ShooterFactory.cs              # 出生配方：SpawnPlayer / SpawnEnemy / SpawnProjectile
-├─ ShooterGame.cs                 # 唯一装配根 + RunFrame（规划阶段 + world.Tick）
-├─ ShooterWorldHelper.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ PlanPhase 枚举 / PlanMotion 编排
+├─ ShooterGame.cs                 # 唯一装配根 + RunFrame（Move 阶段 + Collide 阶段 + world.Tick）
+├─ ShooterWorldHelper.cs                # 查询辅助（AllObjects / QueryObjects / CanTick）+ MoveAll / CollideAll 编排
 └─ HUMAN_FIRST_AUTHORING.md
 
 shooter-object-components-poc/
-├─ Program.cs                     # 15 项验收断言（纯 .NET，零引擎）
+├─ Program.cs                     # 16 项验收断言（纯 .NET，零引擎）
 └─ HUMAN_FIRST_AUTHORING.md       # 本文件在共享库侧
 ```
 
@@ -382,19 +379,18 @@ Resources.cs
 | `Entity` | `GameObject` |
 | `IComponent` / `ITag` | `GameComponent`（**Unity 式**：数据组件 / 行为组件（Action）/ 标记组件三种，见下方说明） |
 | `Resource` | `GameWorld` 资源（`AddResource` / `GetResource<T>()`） |
-| `System` | Action 组件（`OnTick` 规则；`PlanMotion` 控制器） |
+| `System` | Action 组件（`OnTick` 规则；`Move`/`Collide` 阶段动作） |
 | `Bundle` | `ShooterFactory`（`SpawnXxx` 一行创建带全套组件） |
 | `CommandBuffer` | **无**（创建/命中/死亡都即时、直接；同步销毁） |
 | `RunInState(Playing)` | `GameWorld.Paused`（全局冻结，组件不再自查） |
 | `Event` | **无**（组件间直接调用，如 `enemy.Health.ApplyDamage`） |
-| 阶段/Phase | `RunFrame` 的规划阶段 + `world.Tick` |
-| （无直接对应物） | `MotionPlan`（本设计为「先全局移动，再碰撞」引入的唯一运动计划） |
+| 阶段/Phase | `RunFrame` 的 Move 阶段 + Collide 阶段 + `world.Tick` |
 
 **⚠️ 一个关键区别：我们的 `GameComponent` 是 Unity 式（数据 + 行为共存），不是 Bevy 的纯数据 `Component`。**
 
 Bevy/Friflo 里 `Component` 是**纯数据 struct**（位置/血量），行为在**独立 `System`** 里。而我们 `GameComponent` 是**带生命周期的 C# 类**，可以同时承担：
 - **数据组件**（如 `Position`/`Health`/`MoveSpeed`，只存数据）；
-- **行为组件 / Action**（如 `MoveAction`/`BulletAction`，既有数据又有 `OnTick` 行为）；
+- **行为组件 / Action**（如 `BulletAction`，既有数据又有 `Move`/`Collide`/`OnTick` 行为）；
 - **标记组件**（如 `PlayerFaction`/`EnemyFaction`，自动标，无数据）。
 
 这正对齐 **Unity 的 `MonoBehaviour` 模型**（数据 + 行为混合挂在对象上），而非 ECS 的"纯数据 Component + 独立 System"。作者创建时用 `[GameComponent]` 作数据/标记/行为标签，用 `AddComponent<T>()` 挂载；同一种 `GameComponent` 基类承载多种形态。如果你熟悉 Bevy，请把这里的 `Component` 理解成"对象上的一块"（数据或行为），而不是"纯数据字段"。
@@ -427,7 +423,7 @@ Bevy/Friflo 里 `Component` 是**纯数据 struct**（位置/血量），行为�
 新增「减速状态」时：
 
 - 先判断它是临时运行状态，不应改写作者参数 `MoveSpeed`；
-- 可以增加 `MoveSpeedModifier` 状态，再由移动规划组合基础参数与修正值。
+- 可以增加 `MoveSpeedModifier` 状态，再由移动（`Move` 阶段）组合基础参数与修正值。
 
 这就是组合优于实体类型树：**规则围绕组件复用，工厂只负责让常见组合好写。**
 
@@ -444,7 +440,7 @@ Bevy/Friflo 里 `Component` 是**纯数据 struct**（位置/血量），行为�
 - [ ] Action 能否写成「读取 A，更新 B」，且类字段没有藏跨帧玩法状态？
 - [ ] Action 的 `Requires`（依赖组件）、取的资源、读写的 Owner 组件是否一眼可见？
 - [ ] 互斥世界阶段是否用 `GameWorld.Paused` 集中冻结（而非逐帧自查）？
-- [ ] 一个 tick 的运动是否统一先规划成 `MotionPlan`，移动与碰撞能否消费同一条线段？
+- [ ] 一个 tick 的运动是否由 `RunFrame` 的 Move 阶段（全部移动到本帧终点）→ Collide 阶段（子弹扫掠命中）显式排定，碰撞读的是各方本帧 `PreviousPosition→Position` 线段？
 - [ ] 是否仍依赖「谁先执行」？测试里是否覆盖了「子弹先建/敌人后建」的顺序无关场景？
 - [ ] 创建长链是否已经提取为 `ShooterFactory`？世界装配是否只从一个 `ShooterGame.Install` 进入？
 - [ ] 测试安排是否和游戏装配分开？

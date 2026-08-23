@@ -29,31 +29,7 @@ public sealed class PreviousPosition : GameComponent
 	public float Z { get; set; }
 }
 
-/// <summary>控制器为一个 tick 提交的瞬态唯一运动计划；移动与碰撞只消费这里的同一条线段。</summary>
-[GameComponent]
-public sealed class MotionPlan : GameComponent
-{
-	public ulong TickIndex { get; private set; }
-
-	public float StartX { get; private set; }
-
-	public float StartZ { get; private set; }
-
-	public float EndX { get; private set; }
-
-	public float EndZ { get; private set; }
-
-	public void Set(ulong tickIndex, float startX, float startZ, float endX, float endZ)
-	{
-		TickIndex = tickIndex;
-		StartX = startX;
-		StartZ = startZ;
-		EndX = endX;
-		EndZ = endZ;
-	}
-}
-
-/// <summary>控制器提交的本帧速度（同时用于生成 MotionPlan）。</summary>
+/// <summary>本帧速度（Move 阶段写：玩家读输入、敌人寻向；子弹用已知初速）。</summary>
 [GameComponent]
 public sealed class Velocity : GameComponent
 {

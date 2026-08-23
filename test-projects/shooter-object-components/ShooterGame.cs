@@ -5,23 +5,10 @@ using Baize.GameObject;
 
 namespace Shooter.Objects;
 
-/// <summary>运动规划阶段：RunFrame 在 Tick 前按此顺序让各控制器提交本帧运动计划。
-/// 顺序即游戏语义（玩家先规划，敌人据玩家本帧终点规划，子弹提交自身线段），
-/// 只用于编排，不构成全局排程器。</summary>
-public enum PlanPhase
-{
-	PlayerInput,
-	Enemy,
-	Projectile,
-}
 
 /// <summary>O2 Shooter 装配根。</summary>
 public static class ShooterGame
 {
-	/// <summary>规划阶段唯一权威顺序（PlayerInput → Enemy → Projectile）。</summary>
-	private static readonly PlanPhase[] _planPhases =
-		{ PlanPhase.PlayerInput, PlanPhase.Enemy, PlanPhase.Projectile };
-
 	public static GameWorld CreateWorld(float fixedDelta = 0.01f, bool withPlayer = true)
 	{
 		var world = new GameWorld(fixedDelta);
@@ -53,22 +40,16 @@ public static class ShooterGame
 		}
 	}
 
-	/// <summary>跑一帧：控制器先提交本 tick 的不可变运动计划，再统一执行移动与碰撞。</summary>
+	/// <summary>跑一帧：先 Move 阶段（玩家→敌人→子弹移动到本帧终点），再 Collide 阶段（子弹扫掠命中），最后统一执行杂项 OnTick（开火/生成）。</summary>
 	public static void RunFrame(GameWorld world, float delta = 0.01f)
 	{
 		if (!world.Paused)
 		{
-			ulong tickIndex = world.TickIndex + 1;
-
-			// 规划阶段按 PlanPhase 声明序执行（PlayerInput → Enemy → Projectile）：
-			// 玩家先规划，敌人据玩家本帧终点寻敌，子弹提交自身线段——顺序即游戏语义，不依赖 tick 顺序。
-			foreach (var phase in _planPhases)
-			{
-				ShooterWorldHelper.PlanMotion(world, delta, tickIndex, phase);
-			}
+			// 阶段1 Move：所有"会动"的对象先移动到本帧终点（移动阶段全部先于碰撞 → 顺序无关）。
+			ShooterWorldHelper.MoveAll(world, delta);
+			// 阶段2 Collide：子弹做扫掠命中（读双方本帧 prev→pos）。
+			ShooterWorldHelper.CollideAll(world, delta);
 		}
-
-
 		world.Tick(delta);
 	}
 

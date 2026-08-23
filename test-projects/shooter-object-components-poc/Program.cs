@@ -38,8 +38,9 @@ internal static class Program
 		TestFireEdge();
 		TestProjectileHitsEnemy();
 		TestOrderIndependence();
-		TestMotionPlanMatchesActual();
+		TestEnemySeeksMovedPlayer();
 		TestDisabledActionStationary();
+		TestMovedThenDisabledEnemyStationary();
 		TestDisabledPlayerNoMove();
 		TestSmallSweepCrossing();
 		TestNonLethalDamage();
@@ -136,8 +137,8 @@ internal static class Program
 		var match = world.GetResource<MatchController>();
 		// 子弹先创建（pre-existing）。但敌人作为高速「移动目标」在子弹路径上横穿——本帧内从 z=2 冲向 z=0，
 		// 子弹 +Z 从 z=0 冲到 z=1——两者在同一 tick 内扫掠相交（t=2/3 处二者同在 z=2/3，距离 0）。
-		// 若碰撞读取敌方实时 prev/pos，会在子弹先执行时看到敌人停在 z=2 而漏判；
-		// 双方都消费 tick 前冻结的 MotionPlan，因此命中与实际执行顺序无关。
+		// Move 阶段先让全部对象走完本帧，Collide 再读敌方 prev/pos——敌人已从 z=2 冲到 z=0，扫掠相交被判中。
+		// 因此命中与创建/执行顺序无关（非逐对象计划快照）。
 		// 玩家移到 z=-5：敌人冲向量不触及玩家（接触半径 1.0），无 GameOver 干扰。
 		var player = FindPlayer(world)!;
 		player.GetComponent<Position>()!.Z = -5f;
@@ -156,9 +157,9 @@ internal static class Program
 		Check("顺序无关：玩家未被接触（无 GameOver）", match.Phase == GamePhase.Playing);
 	}
 
-	// ---------- 3c：计划必须等于实际移动（玩家本帧移动后，敌人按玩家终点重新寻向）----------
+	// ---------- 3c：阶段顺序 = 敌人按玩家终点重新寻向（玩家本帧移动到 (10,0)）----------
 
-	private static void TestMotionPlanMatchesActual()
+	private static void TestEnemySeeksMovedPlayer()
 	{
 		var world = ShooterGame.CreateWorld();
 		world.GetResource<SpawnConfig>().MaxAlive = 0;
@@ -174,14 +175,12 @@ internal static class Program
 		ShooterGame.RunFrame(world);
 
 		var enemyPos = enemy.GetComponent<Position>()!;
-		var enemyPlan = enemy.GetComponent<MotionPlan>()!;
 		float expectedLength = MathF.Sqrt(10f * 10f + 2f * 2f);
-		CheckEqu("运动计划：首个有效 tick 使用玩家计划终点寻向 X", enemyPos.X, 10f / expectedLength * 2f);
-		CheckEqu("运动计划：首个有效 tick 使用玩家计划终点寻向 Z", enemyPos.Z, 2f - 2f / expectedLength * 2f);
-		CheckEqu("运动计划：敌人实际 X 等于计划终点", enemyPos.X, enemyPlan.EndX);
-		CheckEqu("运动计划：敌人实际 Z 等于计划终点", enemyPos.Z, enemyPlan.EndZ);
-		Check("运动计划：玩家帧内移动改变寻向后不产生虚假命中", !enemy.IsDestroyed);
-		Check("运动计划：虚假命中不计分", world.GetResource<MatchController>().Score == 0);
+		// Move 阶段玩家先到 (10,0)，敌人随后按玩家当前位置（帧末终点）寻向——命中与创建顺序无关。
+		CheckEqu("阶段顺序：首个有效 tick 使用玩家终点寻向 X", enemyPos.X, 10f / expectedLength * 2f);
+		CheckEqu("阶段顺序：首个有效 tick 使用玩家终点寻向 Z", enemyPos.Z, 2f - 2f / expectedLength * 2f);
+		Check("阶段顺序：玩家帧内移动改变寻向后不产生虚假命中", !enemy.IsDestroyed);
+		Check("阶段顺序：虚假命中不计分", world.GetResource<MatchController>().Score == 0);
 	}
 
 	// ---------- 3c：禁用行为 → 静止计划，不产生幽灵轨迹 ----------
@@ -214,8 +213,39 @@ internal static class Program
 		Check("禁用行为：命中计分+1", world.GetResource<MatchController>().Score == 1);
 	}
 
-	// ---------- 3d：禁用玩家控制器 → 即使有输入也不移动 ----------
 
+	// ---------- 3c'：先移动后禁用 → prev 退化为当前点，无幽灵扫掠段 ----------
+
+	private static void TestMovedThenDisabledEnemyStationary()
+	{
+		// P2-1 回归：敌人先按玩家寻向移动一帧（产生真实 prev→pos 段），随后被禁用。
+		// 禁用后 EnemyControllerAction.Move 命中 CanTick==false 分支，把 prev 置回当前 pos（退化点），
+		// 否则子弹 Collide 会沿敌人「最后移动段」扫掠——敌人已静止在当前位置，那段是幽灵轨迹。
+		var world = ShooterGame.CreateWorld();
+		world.GetResource<SpawnConfig>().MaxAlive = 0;
+		ClearObjectsExcept(world, "Player");
+		var player = FindPlayer(world)!;
+		// 敌人起始 (0,2)，玩家在 (10,-2)：敌人会朝玩家移动一帧。
+		player.GetComponent<Position>()!.X = 10f;
+		player.GetComponent<Position>()!.Z = -2f;
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 200f);
+		world.GetResource<MatchController>().AliveEnemies = 1;
+
+		ShooterGame.RunFrame(world); // 敌人移动一帧：prev=(0,2)，pos=(朝玩家)。
+		var prev = enemy.GetComponent<PreviousPosition>()!;
+		var pos = enemy.GetComponent<Position>()!;
+		bool moved = MathF.Abs(prev.X - pos.X) > 1e-4f || MathF.Abs(prev.Z - pos.Z) > 1e-4f;
+		Check("先移动后禁用：禁用前敌人确实移动了（有真实段）", moved);
+
+		enemy.GetComponent<EnemyControllerAction>()!.Enabled = false; // 禁用 → 不再移动。
+		ShooterGame.RunFrame(world);
+
+		// 关键断言：禁用后 prev 退化为当前点（ghost 段消失）。
+		Check("先移动后禁用：prev 退化到当前位置（无幽灵段）",
+			MathF.Abs(prev.X - pos.X) <= 1e-4f && MathF.Abs(prev.Z - pos.Z) <= 1e-4f);
+	}
+
+	// ---------- 3d：禁用玩家控制器 → 即使有输入也不移动 ----------
 	private static void TestDisabledPlayerNoMove()
 	{
 		var world = ShooterGame.CreateWorld();

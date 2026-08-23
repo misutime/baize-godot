@@ -12,13 +12,13 @@ public static class ShooterWorldHelper
 	/// <summary>深度优先遍历全部对象（含子树）。</summary>
 	public static IEnumerable<GameObject> AllObjects(GameWorld world)
 	{
+		// 快照一次性物化：命中/越界会即时销毁对象，遍历期间结构变更不破坏枚举（对齐引擎 Tick 快照语义）。
+		var result = new List<GameObject>();
 		foreach (var root in world.Roots)
 		{
-			foreach (var obj in Walk(root))
-			{
-				yield return obj;
-			}
+			Walk(root, result);
 		}
+		return result;
 	}
 
 	/// <summary>按谓词查找对象（存活；含子树）。</summary>
@@ -39,6 +39,11 @@ public static class ShooterWorldHelper
 		{
 			return false;
 		}
+		// 等效 O1 IsTickable：世界暂停（Paused）→ 不参与；对象/父链 Enabled + 组件 Enabled 全通过。
+		if (comp.World!.Paused)
+		{
+			return false;
+		}
 		if (!comp.Enabled)
 		{
 			return false;
@@ -53,42 +58,39 @@ public static class ShooterWorldHelper
 		return true;
 	}
 
-	/// <summary>按阶段提交运动计划：只会为该阶段对应的行为组件调用 PlanMotion，
-	/// 顺序由 <see cref="PlanPhase"/> 声明序决定（无全局排程器）。</summary>
-	public static void PlanMotion(GameWorld world, float delta, ulong tickIndex, PlanPhase phase)
+	/// <summary>阶段1 Move：所有"会动"的对象先移动到本帧终点（玩家 → 敌人 → 子弹）。</summary>
+	public static void MoveAll(GameWorld world, float delta)
 	{
-		switch (phase)
+		foreach (var obj in QueryObjects(world, o => o.GetComponent<PlayerControllerAction>() != null))
 		{
-			case PlanPhase.PlayerInput:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<PlayerControllerAction>() != null))
-				{
-					obj.GetComponent<PlayerControllerAction>()!.PlanMotion(delta, tickIndex);
-				}
-				break;
-			case PlanPhase.Enemy:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<EnemyControllerAction>() != null))
-				{
-					obj.GetComponent<EnemyControllerAction>()!.PlanMotion(delta, tickIndex);
-				}
-				break;
-			case PlanPhase.Projectile:
-				foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletAction>() != null))
-				{
-					obj.GetComponent<BulletAction>()!.PlanMotion(delta, tickIndex);
-				}
-				break;
+			obj.GetComponent<PlayerControllerAction>()!.Move(delta);
+		}
+		foreach (var obj in QueryObjects(world, o => o.GetComponent<EnemyControllerAction>() != null))
+		{
+			obj.GetComponent<EnemyControllerAction>()!.Move(delta);
+		}
+		foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletAction>() != null))
+		{
+			obj.GetComponent<BulletAction>()!.Move(delta);
 		}
 	}
 
-	private static IEnumerable<GameObject> Walk(GameObject obj)
+	/// <summary>阶段2 Collide：子弹做扫掠命中（读双方本帧 prev→pos，顺序无关）。</summary>
+	public static void CollideAll(GameWorld world, float delta)
 	{
-		yield return obj;
+		foreach (var obj in QueryObjects(world, o => o.GetComponent<BulletAction>() != null))
+		{
+			obj.GetComponent<BulletAction>()!.Collide(delta);
+		}
+	}
+
+
+	private static void Walk(GameObject obj, List<GameObject> result)
+	{
+		result.Add(obj);
 		foreach (var child in obj.Children)
 		{
-			foreach (var descendant in Walk(child))
-			{
-				yield return descendant;
-			}
+			Walk(child, result);
 		}
 	}
 }

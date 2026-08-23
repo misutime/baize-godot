@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ShooterActions.cs —— O2 行为组件（控制器先规划，OnTick 消费；组件只操作 Owner 能力）
+// ShooterActions.cs —— O2 行为组件（会动的组件在 RunFrame 的 Move 阶段更新；杂项在 OnTick；组件只操作 Owner 能力）
 //
 // 干净 GameObject-first 模型：
 // - 组件直接读/改自己的 Owner 组件，组件间直接调用（如 bullet → enemy.Health.ApplyDamage）。
@@ -12,24 +12,8 @@ using Baize.GameObject;
 
 namespace Shooter.Objects;
 
-/// <summary>移动：把 PreviousPosition/Position 精确提交为本 tick MotionPlan 的起点/终点。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(MotionPlan) })]
-public sealed class MoveAction : GameComponent
-{
-	public override void OnTick(float delta)
-	{
-		var pos = Owner!.GetComponent<Position>()!;
-		var prev = Owner!.GetComponent<PreviousPosition>()!;
-		var plan = Owner!.GetComponent<MotionPlan>()!;
-		prev.X = plan.StartX;
-		prev.Z = plan.StartZ;
-		pos.X = plan.EndX;
-		pos.Z = plan.EndZ;
-	}
-}
-
-/// <summary>玩家输入控制器：在 tick 前提交本帧唯一运动计划。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(PlayerInputMarker) })]
+/// <summary>玩家控制器：读输入 → 计算本帧速度 → 移动（设 PreviousPosition 为旧位置，Position 累加速度）。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MoveSpeed), typeof(PlayerInputMarker) })]
 public sealed class PlayerControllerAction : GameComponent
 {
 	private InputService? _input;
@@ -39,24 +23,27 @@ public sealed class PlayerControllerAction : GameComponent
 		_input = World!.GetResource<InputService>();
 	}
 
-	public void PlanMotion(float delta, ulong tickIndex)
+	public void Move(float delta)
 	{
 		var pos = Owner!.GetComponent<Position>()!;
+		var prev = Owner!.GetComponent<PreviousPosition>()!;
 		var vel = Owner!.GetComponent<Velocity>()!;
 		var speed = Owner!.GetComponent<MoveSpeed>()!;
-		var plan = Owner!.GetComponent<MotionPlan>()!;
-		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——不因 MoveAction 仍启用而误动。
+		// 未启用（组件/父链禁用、已销毁）：不移动。
 		if (!ShooterWorldHelper.CanTick(this))
 		{
 			vel.X = 0;
 			vel.Z = 0;
-			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
 			return;
 		}
 		vel.X = _input!.MoveX * speed.Value;
 		vel.Z = _input.MoveZ * speed.Value;
-		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
+		prev.X = pos.X;
+		prev.Z = pos.Z;
+		pos.X += vel.X * delta;
+		pos.Z += vel.Z * delta;
 	}
+
 
 }
 
@@ -90,55 +77,49 @@ public sealed class WeaponAction : GameComponent
 }
 
 /// <summary>子弹生命周期：移动 + 扫掠命中敌人（线段-圆距离）。命中 → enemy.Health.ApplyDamage（直接调用），
-/// 若致死则 owner 已销毁、本弹也销毁；越界销毁（即时，非帧末）。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(ProjectileConfig), typeof(TravelDistance), typeof(CollisionRadius), typeof(ProjectileTag) })]
+/// 命中即销毁本弹（无论是否致死）；越界销毁（即时，非帧末）。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(ProjectileConfig), typeof(TravelDistance), typeof(CollisionRadius), typeof(ProjectileTag) })]
 public sealed class BulletAction : GameComponent
 {
 	private GameWorld? _world;
 	private MatchController? _match;
 	private CollisionResolver? _resolver;
 
-	public override void OnStart()
+	public override void OnCreate()
 	{
 		_world = World;
 		_match = _world!.GetResource<MatchController>();
 		_resolver = _world!.GetResource<CollisionResolver>();
 	}
 
-	public void PlanMotion(float delta, ulong tickIndex)
-	{
-		var pos = Owner!.GetComponent<Position>()!;
-		var vel = Owner!.GetComponent<Velocity>()!;
-		var plan = Owner!.GetComponent<MotionPlan>()!;
-		// 未启用：静止计划（不移动；若仍作为可碰撞对象存在则保留在当前位置，避免幽灵轨迹）。
-		if (!ShooterWorldHelper.CanTick(this))
-		{
-			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
-			return;
-		}
-		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
-	}
-
-
-	public override void OnTick(float delta)
+	public void Move(float delta)
 	{
 		var pos = Owner!.GetComponent<Position>()!;
 		var prev = Owner!.GetComponent<PreviousPosition>()!;
 		var vel = Owner!.GetComponent<Velocity>()!;
+		// 未启用（组件/父链禁用、已销毁）：不移动（保留当前位置，避免幽灵轨迹）。
+		if (!ShooterWorldHelper.CanTick(this))
+		{
+			return;
+		}
+		prev.X = pos.X;
+		prev.Z = pos.Z;
+		pos.X += vel.X * delta;
+		pos.Z += vel.Z * delta;
+	}
+
+	public void Collide(float delta)
+	{
+		var pos = Owner!.GetComponent<Position>()!;
+		var prev = Owner!.GetComponent<PreviousPosition>()!;
 		var config = Owner!.GetComponent<ProjectileConfig>()!;
 		var travelled = Owner!.GetComponent<TravelDistance>()!;
 		var radius = Owner!.GetComponent<CollisionRadius>()!;
-
-		var plan = Owner!.GetComponent<MotionPlan>()!;
-
-		// 移动与碰撞共同消费控制器在 tick 前提交的同一计划。
-		prev.X = plan.StartX;
-		prev.Z = plan.StartZ;
-		pos.X = plan.EndX;
-		pos.Z = plan.EndZ;
-
-		// 命中只读双方冻结的本帧计划；不会观察到对方执行到一半的实时位置。
-		var self = plan;
+		if (!ShooterWorldHelper.CanTick(this))
+		{
+			return; // 禁用子弹不参与命中（prev==pos 退化点，避免误命中/误记射程）。
+		}
+		// 扫掠命中：子弹本帧 prev→pos vs 敌人本帧 prev→pos（移动阶段已各自更新，顺序无关）。
 		foreach (var enemy in ShooterWorldHelper.QueryObjects(_world!, o => o.GetComponent<EnemyFaction>() != null))
 		{
 			if (enemy.IsDestroyed)
@@ -150,21 +131,20 @@ public sealed class BulletAction : GameComponent
 			{
 				continue;
 			}
-			var enemyPlan = enemy.GetComponent<MotionPlan>();
-			if (enemyPlan == null || enemyPlan.TickIndex != _world!.TickIndex)
+			var epos = enemy.GetComponent<Position>();
+			var eprev = enemy.GetComponent<PreviousPosition>();
+			if (epos == null || eprev == null)
 			{
-				continue; // 本 tick 内新建的对象按 O1 快照语义从下一 tick 才参与。
+				continue;
 			}
 			float combined = radius.Value + enemyRadius.Value;
 			float distance = _resolver!.SegmentSegmentDistance(
-				self.StartX, self.StartZ, self.EndX, self.EndZ,
-				enemyPlan.StartX, enemyPlan.StartZ, enemyPlan.EndX, enemyPlan.EndZ);
+				prev.X, prev.Z, pos.X, pos.Z,
+				eprev.X, eprev.Z, epos.X, epos.Z);
 			if (distance > combined)
 			{
 				continue;
 			}
-
-
 			// 命中：敌人 Health.ApplyDamage；致死则敌人自动销毁并计分（MatchController.OnEnemyKilled）。
 			var health = enemy.GetComponent<Health>();
 			if (health != null && health.ApplyDamage(config.Damage))
@@ -174,26 +154,24 @@ public sealed class BulletAction : GameComponent
 			Owner!.Destroy();
 			return;
 		}
-
-
-		// 射程清理（即时；受 world 冻结控制——GameOver 时 Paused 停 tick 不执行）。
-		float moveX = plan.EndX - plan.StartX;
-		float moveZ = plan.EndZ - plan.StartZ;
+		// 射程清理（即时，非帧末）。
+		float moveX = pos.X - prev.X;
+		float moveZ = pos.Z - prev.Z;
 		travelled.Value += MathF.Sqrt(moveX * moveX + moveZ * moveZ);
 		if (travelled.Value > config.MaxRange)
 		{
 			Owner!.Destroy();
 		}
 	}
+
 }
 
-/// <summary>敌人控制器：tick 前唯一生成寻敌运动计划；OnTick 只消费该计划并做接触判定。</summary>
-[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MotionPlan), typeof(MoveSpeed), typeof(CollisionRadius), typeof(EnemyFaction), typeof(SeekTargetMarker) })]
+/// <summary>敌人控制器：寻玩家 → 移动 → 接触判定（RunFrame 的 Move 阶段调用）。</summary>
+[GameComponent(Requires = new[] { typeof(Position), typeof(PreviousPosition), typeof(Velocity), typeof(MoveSpeed), typeof(CollisionRadius), typeof(EnemyFaction), typeof(SeekTargetMarker) })]
 public sealed class EnemyControllerAction : GameComponent
 {
 	private GameWorld? _world;
 	private MatchController? _match;
-	private GameObject? _plannedPlayer;
 
 	public override void OnCreate()
 	{
@@ -201,36 +179,33 @@ public sealed class EnemyControllerAction : GameComponent
 		_match = _world!.GetResource<MatchController>();
 	}
 
-	/// <summary>基于玩家本帧计划终点生成敌人的唯一运动计划，并同步提交本帧速度。</summary>
-	public void PlanMotion(float delta, ulong tickIndex)
+	/// <summary>寻玩家 → 移动 → 接触判定（移动后位置 vs 玩家位置）。</summary>
+	public void Move(float delta)
 	{
 		var pos = Owner!.GetComponent<Position>()!;
+		var prev = Owner.GetComponent<PreviousPosition>()!;
 		var vel = Owner.GetComponent<Velocity>()!;
-		var plan = Owner.GetComponent<MotionPlan>()!;
-		// 未启用（组件/父链禁用、已销毁）：只提交静止计划——保持可碰撞但不再移动，
-		// 子弹命中仍按它真实当前位置判定，避免与「O1 跳过 OnTick 的幽灵轨迹」碰撞。
+		var radius = Owner.GetComponent<CollisionRadius>()!;
+		// 未启用（组件/父链禁用、已销毁）：不移动、不寻敌；prev=pos 退化为静止点，避免子弹扫掠过其旧运动段（幽灵轨迹）。
 		if (!ShooterWorldHelper.CanTick(this))
 		{
 			vel.X = 0;
 			vel.Z = 0;
-			_plannedPlayer = null;
-			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
+			prev.X = pos.X;
+			prev.Z = pos.Z;
 			return;
 		}
-		_plannedPlayer = FindPlayer();
-		if (_plannedPlayer == null)
+		var player = FindPlayer();
+		if (player == null)
 		{
 			vel.X = 0;
 			vel.Z = 0;
-			plan.Set(tickIndex, pos.X, pos.Z, pos.X, pos.Z);
 			return;
 		}
-		var playerPos = _plannedPlayer.GetComponent<Position>()!;
-		var playerPlan = _plannedPlayer.GetComponent<MotionPlan>();
-		float targetX = playerPlan != null && playerPlan.TickIndex == tickIndex ? playerPlan.EndX : playerPos.X;
-		float targetZ = playerPlan != null && playerPlan.TickIndex == tickIndex ? playerPlan.EndZ : playerPos.Z;
-		float dx = targetX - pos.X;
-		float dz = targetZ - pos.Z;
+		// 寻玩家：朝玩家当前 Position 计算速度（玩家已在本阶段先移动，故读到的是本帧终点）。
+		var playerPos = player.GetComponent<Position>()!;
+		float dx = playerPos.X - pos.X;
+		float dz = playerPos.Z - pos.Z;
 		float length = MathF.Sqrt(dx * dx + dz * dz);
 		var speed = Owner.GetComponent<MoveSpeed>()!;
 		if (length > 0.01f)
@@ -243,40 +218,21 @@ public sealed class EnemyControllerAction : GameComponent
 			vel.X = 0;
 			vel.Z = 0;
 		}
-		plan.Set(tickIndex, pos.X, pos.Z, pos.X + vel.X * delta, pos.Z + vel.Z * delta);
-	}
-
-
-	public override void OnTick(float delta)
-	{
-		var pos = Owner!.GetComponent<Position>()!;
-		var prev = Owner.GetComponent<PreviousPosition>()!;
-		var plan = Owner.GetComponent<MotionPlan>()!;
-		var radius = Owner.GetComponent<CollisionRadius>()!;
-
-		prev.X = plan.StartX;
-		prev.Z = plan.StartZ;
-		pos.X = plan.EndX;
-		pos.Z = plan.EndZ;
-
-		if (_plannedPlayer == null || _plannedPlayer.IsDestroyed)
-		{
-			return;
-		}
-		var playerRadius = _plannedPlayer.GetComponent<CollisionRadius>()!;
-		var playerPlan = _plannedPlayer.GetComponent<MotionPlan>();
-		float playerX = playerPlan != null && playerPlan.TickIndex == _world!.TickIndex
-			? playerPlan.EndX : _plannedPlayer.GetComponent<Position>()!.X;
-		float playerZ = playerPlan != null && playerPlan.TickIndex == _world!.TickIndex
-			? playerPlan.EndZ : _plannedPlayer.GetComponent<Position>()!.Z;
-		float newDx = playerX - pos.X;
-		float newDz = playerZ - pos.Z;
+		prev.X = pos.X;
+		prev.Z = pos.Z;
+		pos.X += vel.X * delta;
+		pos.Z += vel.Z * delta;
+		// 接触判定（移动后位置）：
+		var playerRadius = player.GetComponent<CollisionRadius>()!;
+		float newDx = playerPos.X - pos.X;
+		float newDz = playerPos.Z - pos.Z;
 		float newDist = MathF.Sqrt(newDx * newDx + newDz * newDz);
 		if (newDist <= playerRadius.Value + radius.Value)
 		{
 			_match!.RequestGameOver();
 		}
 	}
+
 
 	private GameObject? FindPlayer()
 	{
