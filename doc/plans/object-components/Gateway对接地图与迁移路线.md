@@ -72,7 +72,7 @@ StaticCollider/RigidBody 数据组件（gameobject）
 
 | 优先级 | 切片 | 内容 |
 |---|---|---|
-| P0（推荐下一步） | **物理 → 渲染联动闭环** | 物理位姿回传写回 GameWorld Transform → RenderGateway 投影 → 真窗口可见物理物体下落；首次跨 Gateway 协作，验证 ObservationBus 消费端 |
+| P0 | **物理 → 渲染联动闭环** | ✅ 已完成：`PhysicsRenderPreview`（--physics-render）——`PhysicsObservation` 写回 GameWorld Transform → 渲染投影跟随，真窗口可见下落（两个 Gateway 首次协作） |
 | P1 | 动画域 | `AnimatorComponent` + AnimationGateway（AnimationMixer Server API） |
 | P2 | 音频域 / 导航域 | `AudioComponent` + AudioGateway；`NavigationComponent` + NavigationGateway |
 | P3 | UI 域 | UIGateway 真桥（后端元素走 CanvasItem）；产品聚焦 3D，优先级最低 |
@@ -86,7 +86,7 @@ StaticCollider/RigidBody 数据组件（gameobject）
 2. **动态刚体每帧禁止重设 Transform**：GameWorld 投影的初始位姿每帧 `BodySetState(Transform)` 会把刚体钉回起点，重力积分被重置——刚体权威位姿只在物理侧，经 ObservationBus 回传（静态体可每帧跟随）。
 3. **用 `BodyAddShape` 而非 `BodySetShape`**：后者要求 shape 索引已存在，否则 `Index p_index = 0 is out of bounds`。
 4. **RenderingServer 手建 mesh 必须绑真实 shader 材质**：`MaterialCreate()` 是空容器，必须 `ShaderCreate→ShaderSetCode(spatial)→MaterialSetShader→MeshSurfaceSetMaterial`，否则两渲染器都不显示；`MeshAddSurfaceFromArrays` 调用别删（否则 surface_count=0）。
-5. **身份区分**：`GameWorld.CreateGameObject` 不分配文件层 Uid（恒 0），物理命令必须用运行时 `ObjectId`。
+5. **身份区分**：`GameWorld.CreateGameObject` 不分配文件层 Uid（恒 0），物理命令必须用运行时 `ObjectId`；渲染 `SceneProjector` 已做回退（Uid 有效用 Uid，否则编码 `ObjectId`），直接 GameWorld 投影（P0 联动）依赖此回退
 6. **演示未挂 Sola3dMainLoop 时**：ObservationBus 的 `Dispatch()` 需手动驱动（每帧调用），否则观察只入队不派发。
 
 ## 6. 验证命令速查

@@ -48,7 +48,7 @@ public sealed class SceneProjector
 		{
 			commands.Add(new PreviewRenderCommand
 			{
-				ObjectUid = obj.Uid.Value,
+				ObjectUid = EncodeIdentity(obj),
 				MeshPath = mesh.MeshPath,
 				Position = tf.Position,
 				Scale = tf.Scale,
@@ -60,6 +60,10 @@ public sealed class SceneProjector
 			Walk(child, world, commands);
 		}
 	}
+
+	/// <summary>身份编码：文档 Uid 有效时用 Uid（跨预演重建稳定）；否则回退运行时 ObjectId 编码（直接 GameWorld 对象无 Uid，P0 物理→渲染联动）。</summary>
+	private static ulong EncodeIdentity(Sola3d.GameObject.GameObject obj)
+		=> obj.Uid.IsValid ? obj.Uid.Value : ((ulong)obj.Id.Index << 32) | obj.Id.Generation;
 }
 
 /// <summary>

@@ -289,6 +289,27 @@ internal static class Program
 		Check("O8-C：投影单向不反写", cube.GetComponent<RigidBodyComponent>()!.Mass == 2f);
 	}
 
+	private static void Test_O8D_渲染身份回退()
+	{
+		// P0 联动：直接 GameWorld 对象无文档 Uid（恒 0），SceneProjector 必须回退 ObjectId 编码，
+		// 否则两个对象 ObjectUid 相同 → 帧差异去重 → 只渲染 1 个。
+		var world = new GameWorld();
+		world.Schemas.Register<TransformComponent>();
+		world.Schemas.Register<MeshComponent>();
+		var a = world.CreateGameObject("A");
+		a.AddComponent<TransformComponent>();
+		a.AddComponent<MeshComponent>().MeshPath = "res://a.mesh";
+		var b = world.CreateGameObject("B");
+		b.AddComponent<TransformComponent>();
+		b.AddComponent<MeshComponent>().MeshPath = "res://b.mesh";
+
+		var projector = new SceneProjector();
+		var commands = projector.Project(world);
+		Check("O8-D：直接 GameWorld 投影 2 命令", commands.Count == 2);
+		Check("O8-D：无文档 Uid 时 ObjectUid 互不相同（ObjectId 回退）",
+			commands[0].ObjectUid != commands[1].ObjectUid);
+	}
+
 	private static int Main()
 	{
 		Console.WriteLine("editor-core-tests —— O7 编辑器第一切片验证（Design World 编辑闭环）\n");
@@ -301,6 +322,7 @@ internal static class Program
 		Test_O8A_编辑模型();
 		Test_O8B_渲染快照跟踪();
 		Test_O8C_物理投影();
+		Test_O8D_渲染身份回退();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{
