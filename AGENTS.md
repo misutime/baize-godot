@@ -50,6 +50,7 @@ Godot Core（C++ 引擎：渲染/物理/资源/平台管线）
 - **task 是唯一构建入口**（Taskfile.yml：dev/pro/dev-install/pro-install/dev-run）。构建逻辑在 `misc/scripts/build.py`。
 - `task dev` → `build.py` → scons 构建编辑器（原版流程，无外部预构建钩子）。
 - 构建产物：`bin/godot.windows.editor.*.exe` + `*.console.exe`（console 版日志直出终端，CLI/AI 驱动用）。
+- **Sola3d C# 应用统一入口（2026-08-23）**：根目录 Sola3d.slnx 收纳全部 Sola3d.* 库/测试/host（gameobject/mainloop/editor/ecs/ecs-generator + 核心测试 + godot-slice）——dotnet build Sola3d.slnx 一次性构建 C# 侧；Godot 上游绑定（GodotSharp/GodotTools/Godot.NET.Sdk）不在此（属引擎侧独立 sln）。
 
 ## 3. 测试规则（2026-08-21 更新）
 

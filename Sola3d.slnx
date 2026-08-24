@@ -1,0 +1,22 @@
+<Solution>
+  <!-- Sola3d C# 应用统一入口（2026-08-23 建立）：All-in C# 的库 + 测试 + Godot 宿主壳。
+       Godot 上游绑定（GodotTools/GodotSharp/Godot.NET.Sdk）不在此——属引擎侧，各自独立 sln。 -->
+  <Folder Name="/modules/">
+    <Project Path="modules/gameobject/Sola3d.GameObject.csproj" />
+    <Project Path="modules/mainloop/Sola3d.MainLoop.csproj" />
+    <Project Path="modules/editor/Sola3d.Editor.csproj" />
+    <Project Path="modules/ecs/Sola3d.Ecs.csproj" />
+    <Project Path="modules/ecs-generator/Sola3d.Ecs.Generator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="test-projects/gameobject-core-tests/gameobject-core-tests.csproj" />
+    <Project Path="test-projects/mainloop-core-tests/mainloop-core-tests.csproj" />
+    <Project Path="test-projects/vertical-slice-tests/vertical-slice-tests.csproj" />
+    <Project Path="test-projects/editor-core-tests/editor-core-tests.csproj" />
+    <Project Path="test-projects/shooter-object-components/Shooter.Objects.csproj" />
+    <Project Path="test-projects/shooter-object-components-poc/shooter-object-components-poc.csproj" />
+  </Folder>
+  <Folder Name="/hosts/">
+    <Project Path="test-projects/godot-slice/godot-slice.csproj" />
+  </Folder>
+</Solution>
