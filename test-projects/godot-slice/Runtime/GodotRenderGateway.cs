@@ -24,6 +24,7 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 	private readonly System.Collections.Generic.Dictionary<ulong, string> _instanceMesh = new();
 	private readonly System.Collections.Generic.List<Rid> _meshRids = new();
 	private readonly System.Collections.Generic.List<Rid> _ownedRids = new();
+	private readonly System.Collections.Generic.Dictionary<string, Color> _meshColors = new();
 	private bool _disposed;
 
 	/// <summary>注入渲染 scenario（真实 Viewport 环境调用；headless 测试不调）。</summary>
@@ -32,6 +33,11 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 		_scenario = scenario;
 	}
 
+	/// <summary>注册 MeshPath 专属颜色（玩法域人/敌/弹区分用；未注册默认青色）。</summary>
+	public void RegisterMeshColor(string meshPath, Color color)
+	{
+		_meshColors[meshPath] = color;
+	}
 	public void BeginFrame(float nowSeconds) { }
 
 	public void EndFrame(float nowSeconds) { }
@@ -57,7 +63,7 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 		if (!_meshCache.TryGetValue(rc.MeshPath, out Rid meshRid))
 		{
 			meshRid = RenderingServer.MeshCreate();
-			AddCubeSurface(meshRid);
+			AddCubeSurface(meshRid, rc.MeshPath);
 			_meshCache[rc.MeshPath] = meshRid;
 			_meshRids.Add(meshRid);
 		}
@@ -116,6 +122,7 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 			RenderingServer.FreeRid(rid);
 		}
 		_instanceCache.Clear();
+		_meshColors.Clear();
 		_instanceMesh.Clear();
 		_meshCache.Clear();
 		_meshRids.Clear();
@@ -125,8 +132,8 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 	/// <summary>诊断：mesh/实例缓存计数（O7.5 排障用；surface 现为每 mesh 独立）。</summary>
 	public string DebugInfo => $"mesh={_meshCache.Count} instance={_instanceCache.Count} disposed={_disposed} scenario={(_scenario.IsValid ? "valid" : "INVALID")}";
 
-	/// <summary>给 mesh 加立方体 surface（O7.5：24 顶点/36 索引）。</summary>
-	private void AddCubeSurface(Rid mesh)
+	/// <summary>给 mesh 加立方体 surface（O7.5：24 顶点/36 索引；按 MeshPath 注册色，默认青）。</summary>
+	private void AddCubeSurface(Rid mesh, string meshPath)
 	{
 		// Godot 4 数组下标约定（RenderingServer.ArrayType）：0=Vertex, 1=Normal, 12=Index。
 		// Vertex/Normal 用 Vector3[]（Marshaling 自动转 PackedVector3Array），Index 用 int[]。
@@ -150,7 +157,8 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 		RenderingServer.MeshAddSurfaceFromArrays(mesh, RenderingServer.PrimitiveType.Triangles, arrays); // 关键：必须调用，否则 surface=0
 																										 // RenderingServer.MaterialCreate() 只创建空材质；必须绑定 spatial shader。
 		var shader = RenderingServer.ShaderCreate();
-		RenderingServer.ShaderSetCode(shader, "shader_type spatial; render_mode unshaded; void fragment() { ALBEDO = vec3(0.0, 1.0, 1.0); }");
+		var color = _meshColors.TryGetValue(meshPath, out var c) ? c : new Color(0.0f, 1.0f, 1.0f);
+		RenderingServer.ShaderSetCode(shader, $"shader_type spatial; render_mode unshaded; void fragment() {{ ALBEDO = vec3({color.R:0.###}, {color.G:0.###}, {color.B:0.###}); }}");
 		var material = RenderingServer.MaterialCreate();
 		RenderingServer.MaterialSetShader(material, shader);
 		RenderingServer.MeshSurfaceSetMaterial(mesh, 0, material);

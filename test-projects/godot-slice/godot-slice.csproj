@@ -12,5 +12,6 @@
 <ProjectReference Include="..\..\modules\mainloop\Sola3d.MainLoop.csproj" />
     <ProjectReference Include="..\..\modules\gameobject\Sola3d.GameObject.csproj" />
     <ProjectReference Include="..\..\modules\editor\Sola3d.Editor.csproj" />
+    <ProjectReference Include="..\shooter-object-components\Shooter.Objects.csproj" />
   </ItemGroup>
 </Project>
