@@ -336,6 +336,10 @@ internal static class Program
 		Check("载入保真：未知组件保留", unknown != null);
 		Check("载入保真：未知组件属性保留 token", unknown != null && unknown.Properties.Find(kv => kv.Key == "SomeProp").Value?.ToString()?.Contains("token-value") == true);
 		Check("载入保真：保存后未知数据仍在", loaded.SaveSceneText().Contains("Future.UnknownComponent") && loaded.SaveSceneText().Contains("token-value"));
+		// reviewer P1：Inspector 读取路径契约——String 空间 token 的公共读取桥返回解引号值（(1.0,2.0,3.0)，无外层引号）。
+		var tfLoaded = rec.Components.First(c => c.TypeName == typeof(TransformComponent).FullName);
+		var posBridge = tfLoaded.Properties.Find(kv => kv.Key == "Position").Value?.ToString();
+		Check("Inspector 读取桥：String token 无引号", posBridge == "(1.0,2.0,3.0)");
 
 		// reviewer P1：SerializeSceneForSave 不清 dirty；写入成功后才 MarkSaved。
 		var dirtySession = new EditorSession();

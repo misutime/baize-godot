@@ -712,8 +712,12 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 			Value = value;
 		}
 
-		/// <summary>Lexeme（原文）——编辑器等外部按文本解析；类型 internal 不暴露。</summary>
-		public override string ToString() => Lexeme;
+		/// <summary>
+		/// 公共读取桥（类型 internal 不暴露）：String 字面量返回已解引号的 Value（如 "(1.0,2.0,3.0)"→"(1.0,2.0,3.0)"，
+		/// 供编辑器按文本解析）；其余类别返回 Lexeme 原文。幂等输出走 Lexeme 字段，不经此方法。
+		/// </summary>
+		public override string ToString()
+			=> Kind == LiteralKind.String && Value is string s ? s : Lexeme;
 	}
 
 }
