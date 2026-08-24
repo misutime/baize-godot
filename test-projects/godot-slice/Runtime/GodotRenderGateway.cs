@@ -21,9 +21,10 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 	private Rid _scenario;
 	private readonly System.Collections.Generic.Dictionary<string, Rid> _meshCache = new();
 	private readonly System.Collections.Generic.Dictionary<ulong, Rid> _instanceCache = new();
+	private readonly System.Collections.Generic.Dictionary<ulong, string> _instanceMesh = new();
 	private readonly System.Collections.Generic.List<Rid> _meshRids = new();
 	private readonly System.Collections.Generic.List<Rid> _ownedRids = new();
-	private bool _surfaceAdded;
+	private bool _disposed;
 
 	/// <summary>注入渲染 scenario（真实 Viewport 环境调用；headless 测试不调）。</summary>
 	public void Initialize(Rid scenario)
@@ -36,39 +37,54 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 	public void EndFrame(float nowSeconds) { }
 
 	/// <summary>消费投影命令：建实例 + 设 Transform（Godot 侧最小实现）。</summary>
+	/// <summary>消费差异命令流：upsert（PreviewRenderCommand）+ remove（PreviewRemoveCommand）。</summary>
 	public void Consume(System.Collections.Generic.IReadOnlyList<GatewayCommand> commands)
 	{
 		foreach (var c in commands)
 		{
-			if (c is PreviewRenderCommand rc)
+			switch (c)
 			{
-				Apply(rc);
+				case PreviewRenderCommand rc: Apply(rc); break;
+				case PreviewRemoveCommand rm: Remove(rm.ObjectUid); break;
 			}
 		}
 	}
 
 	private void Apply(PreviewRenderCommand rc)
 	{
-		// Mesh RID（首个对象加载 cube 几何 surface——O7.5 最小切片只有 cube）。
+		// Mesh RID：每个 MeshPath 独立加 surface（reviewer P2：去掉全局 _surfaceAdded，
+		// 否则第二种 MeshPath 只有 MeshCreate 无 surface → 不可见）。
 		if (!_meshCache.TryGetValue(rc.MeshPath, out Rid meshRid))
 		{
 			meshRid = RenderingServer.MeshCreate();
-			if (!_surfaceAdded)
-			{
-				AddCubeSurface(meshRid);
-				_surfaceAdded = true;
-			}
+			AddCubeSurface(meshRid);
 			_meshCache[rc.MeshPath] = meshRid;
 			_meshRids.Add(meshRid);
 		}
-		// 按对象 Uid 缓存实例（同一对象重复推送只 SetTransform）。
+		// 按对象 Uid 缓存实例：新对象建实例；同 Uid MeshPath 变更 → rebase（换 base，不重建实例）。
 		if (!_instanceCache.TryGetValue(rc.ObjectUid, out Rid instance))
 		{
 			instance = RenderingServer.InstanceCreate2(meshRid, _scenario);
 			_instanceCache[rc.ObjectUid] = instance;
+			_instanceMesh[rc.ObjectUid] = rc.MeshPath;
+		}
+		else if (_instanceMesh.TryGetValue(rc.ObjectUid, out string? current) && current != rc.MeshPath)
+		{
+			RenderingServer.InstanceSetBase(instance, meshRid);
+			_instanceMesh[rc.ObjectUid] = rc.MeshPath;
 		}
 		var t = BuildTransform(rc.Rotation, rc.Position, rc.Scale); // reviewer P1-3：局部轴缩放 + 保持 origin
 		RenderingServer.InstanceSetTransform(instance, t);
+	}
+
+	/// <summary>释放对象实例（对象从文档删除 → 本帧 remove 命令）。</summary>
+	private void Remove(ulong objectUid)
+	{
+		if (_instanceCache.Remove(objectUid, out Rid instance))
+		{
+			RenderingServer.FreeRid(instance);
+			_instanceMesh.Remove(objectUid);
+		}
 	}
 
 	/// <summary>构造实例变换：局部轴缩放（ScaledLocal）+ 独立 position（reviewer P1-3 语义）。</summary>
@@ -82,6 +98,11 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 
 	public void Dispose()
 	{
+		if (_disposed)
+		{
+			return; // 幂等：重复 Dispose 不重复 FreeRid
+		}
+		_disposed = true;
 		foreach (Rid instance in _instanceCache.Values)
 		{
 			RenderingServer.FreeRid(instance);
@@ -95,12 +116,14 @@ public sealed partial class GodotRenderGateway : IRenderGateway
 			RenderingServer.FreeRid(rid);
 		}
 		_instanceCache.Clear();
+		_instanceMesh.Clear();
 		_meshCache.Clear();
 		_meshRids.Clear();
 		_ownedRids.Clear();
 	}
 	/// <summary>诊断：mesh/实例缓存计数（O7.5 排障用）。</summary>
-	public string DebugInfo => $"mesh={_meshCache.Count} instance={_instanceCache.Count} surface={(_surfaceAdded ? 1 : 0)} scenario={(_scenario.IsValid ? "valid" : "INVALID")}";
+	/// <summary>诊断：mesh/实例缓存计数（O7.5 排障用；surface 现为每 mesh 独立）。</summary>
+	public string DebugInfo => $"mesh={_meshCache.Count} instance={_instanceCache.Count} disposed={_disposed} scenario={(_scenario.IsValid ? "valid" : "INVALID")}";
 
 	/// <summary>给 mesh 加立方体 surface（O7.5：24 顶点/36 索引）。</summary>
 	private void AddCubeSurface(Rid mesh)

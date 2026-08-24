@@ -21,6 +21,7 @@ public sealed partial class DemoPreview : Node3D
 	private GodotRenderGateway? _gateway;
 	private Sola3d.GameObject.TransformComponent? _runtimeTf;
 	private float _angle;
+	private readonly RenderSnapshotTracker _tracker = new();
 	private int _frameCount;
 
 	public override void _Ready()
@@ -46,8 +47,7 @@ public sealed partial class DemoPreview : Node3D
 		_gateway = new GodotRenderGateway();
 		_gateway.Initialize(GetViewport().GetWorld3D().Scenario);
 		var commands = _preview.ProjectToCommands(world);
-		var cmdList = new System.Collections.Generic.List<Sola3d.MainLoop.GatewayCommand>(commands);
-		_gateway.Consume(cmdList);
+		_gateway.Consume(_tracker.Diff(commands));
 
 		var world3d = GetWorld3D();
 		GD.Print($"preview: scenario={world3d.Scenario} gateway={_gateway!.DebugInfo} screen={GetViewport().GetVisibleRect().Size} cam={GetViewport().GetCamera3D()?.Name ?? "null"}");
@@ -113,8 +113,7 @@ public sealed partial class DemoPreview : Node3D
 		{
 			var world = _preview.BuildPreviewWorld(_session.Document);
 			var updated = _preview.ProjectToCommands(world);
-			var list = new System.Collections.Generic.List<Sola3d.MainLoop.GatewayCommand>(updated);
-			_gateway.Consume(list);
+			_gateway.Consume(_tracker.Diff(updated));
 		}
 		// O7.5 验证：渲染 300 帧（约 5 秒）后截 viewport 存 PNG，然后退出。
 		if (_frameCount == 300)

@@ -6,9 +6,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Sola3d.Editor;
 using Sola3d.GameObject;
+using Sola3d.MainLoop;
 
 namespace EditorCoreTests;
 
@@ -208,6 +210,55 @@ internal static class Program
 		Check("O8-A：Redo 删除组件", componentObject.Components.Count == 0);
 	}
 
+	private static PreviewRenderCommand Cmd(ulong uid, string mesh) =>
+		new PreviewRenderCommand { ObjectUid = uid, MeshPath = mesh };
+
+	private static int CountUpsert(System.Collections.Generic.List<GatewayCommand> cmds) =>
+		cmds.Count(c => c is PreviewRenderCommand);
+
+	private static int CountRemove(System.Collections.Generic.List<GatewayCommand> cmds) =>
+		cmds.Count(c => c is PreviewRemoveCommand);
+
+	private static bool HasRemove(System.Collections.Generic.List<GatewayCommand> cmds, ulong uid) =>
+		cmds.Any(c => c is PreviewRemoveCommand rm && rm.ObjectUid == uid);
+
+	private static PreviewRenderCommand? FirstUpsert(System.Collections.Generic.List<GatewayCommand> cmds) =>
+		cmds.OfType<PreviewRenderCommand>().FirstOrDefault();
+
+	private static void Test_O8B_渲染快照跟踪()
+	{
+		var tracker = new RenderSnapshotTracker();
+		var a = Cmd(1, "res://cube.mesh");
+		var b = Cmd(2, "res://sphere.mesh");
+
+		// 首帧：两对象（两个 MeshPath）→ 2 upsert，无 remove。
+		var f1 = tracker.Diff(new[] { a, b });
+		Check("O8-B：首帧两对象多 MeshPath → 2 upsert 无 remove", CountUpsert(f1) == 2 && CountRemove(f1) == 0);
+
+		// 重复刷新：命令稳定，不产生 remove（无 RID 抖动）。
+		var f2 = tracker.Diff(new[] { a, b });
+		Check("O8-B：重复刷新无 remove", CountUpsert(f2) == 2 && CountRemove(f2) == 0);
+
+		// 删除对象 b → 1 upsert + 1 remove（Uid=2）。
+		var f3 = tracker.Diff(new[] { a });
+		Check("O8-B：删除对象 → 1 upsert + 1 remove", CountUpsert(f3) == 1 && CountRemove(f3) == 1 && HasRemove(f3, 2));
+
+		// MeshPath 变更：a 换 mesh → upsert 带新路径，无 remove。
+		var a2 = Cmd(1, "res://cube2.mesh");
+		var f4 = tracker.Diff(new[] { a2 });
+		Check("O8-B：MeshPath 变更 → upsert 新路径且无 remove",
+			CountUpsert(f4) == 1 && CountRemove(f4) == 0 && FirstUpsert(f4)?.MeshPath == "res://cube2.mesh");
+
+		// 空帧 → 上帧全部 remove。
+		var f5 = tracker.Diff(Array.Empty<PreviewRenderCommand>());
+		Check("O8-B：空帧 → 全部 remove", CountUpsert(f5) == 0 && CountRemove(f5) == 1 && HasRemove(f5, 1));
+
+		// 同帧重复 Uid → 去重为最后一个。
+		var f6 = tracker.Diff(new[] { Cmd(9, "res://x.mesh"), Cmd(9, "res://y.mesh") });
+		Check("O8-B：同帧重复 Uid 去重 → 1 upsert（最后一个）",
+			CountUpsert(f6) == 1 && FirstUpsert(f6)?.MeshPath == "res://y.mesh");
+	}
+
 	private static int Main()
 	{
 		Console.WriteLine("editor-core-tests —— O7 编辑器第一切片验证（Design World 编辑闭环）\n");
@@ -218,6 +269,7 @@ internal static class Program
 		Test_重挂_undo_保存();
 		Test_环检测();
 		Test_O8A_编辑模型();
+		Test_O8B_渲染快照跟踪();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{
