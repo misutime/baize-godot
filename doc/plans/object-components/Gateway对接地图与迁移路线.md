@@ -93,16 +93,19 @@ StaticCollider/RigidBody 数据组件（gameobject）
 
 ```text
 # 物理域 headless e2e（360 帧自动退出；日志含 observations=N / lastY < initialY 断言）
-bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --path hosts\godot-slice --quit-after 400 -- --physics
+bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --path src\apps\godot-slice --quit-after 400 -- --physics
 
 # 渲染域真窗口冒烟（300 帧自动截图退出 → user://demo_cube.png）
-bin\godot.windows.editor.dev.x86_64.mono.console.exe --path hosts\godot-slice
+bin\godot.windows.editor.dev.x86_64.mono.console.exe --path src\apps\godot-slice
+
+# 编辑器 3D 预览宿主（跨进程：editor-ui 保存 .bscene 后启动；保存触发 mtime 自动重投影）
+bin\godot.windows.editor.dev.x86_64.mono.console.exe --path src\apps\godot-slice -- --editor-preview <x.bscene>
 
 # 单元测试（纯 .NET）
-dotnet run --project test-projects\editor-core-tests --no-restore   # O7 编辑 + O8-A/B/C
-dotnet run --project test-projects\mainloop-core-tests --no-restore # O5 Host/Port
-dotnet run --project test-projects\vertical-slice-tests --no-restore # O6 垂直切片
-dotnet run --project test-projects\gameobject-core-tests --no-restore# O1-O4 内核
+dotnet run --project src\tests\editor-core-tests --no-restore   # O7 编辑 + O8-A/B/C
+dotnet run --project src\tests\mainloop-core-tests --no-restore # O5 Host/Port
+dotnet run --project src\tests\vertical-slice-tests --no-restore # O6 垂直切片
+dotnet run --project src\tests\gameobject-core-tests --no-restore # O1-O4 内核
 
 # 统一构建
 dotnet build Sola3d.slnx --no-restore

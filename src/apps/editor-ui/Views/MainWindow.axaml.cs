@@ -5,6 +5,9 @@
 // 本层只处理文件选择 I/O：订阅 VM.SaveRequested/LoadRequested → StorageProvider 对话框。
 // 12 推荐：IStorageProvider.OpenFilePickerAsync / SaveFilePickerAsync（旧 FileDialog 已移除）。
 
+using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -18,6 +21,7 @@ namespace Sola3d.EditorUi.Views;
 public partial class MainWindow : Window
 {
 	private static readonly FilePickerFileType BSceneType = new("Sola3d scene") { Patterns = new[] { "*.bscene" } };
+	private Process? _previewProcess; // 预览宿主子进程（godot-slice --editor-preview）
 
 	/// <summary>统一快捷键表（集中一处，构造函数内初始化；后续做“设置→快捷键”重绑定即改此表/配置源）。</summary>
 	private (KeyGesture Gesture, System.Action<KeyEventArgs> Handler)[] _shortcuts = null!;
@@ -87,6 +91,48 @@ public partial class MainWindow : Window
 			Vm.SaveScene(file.Path.LocalPath);
 		}
 	}
+
+	/// <summary>3D 预览：保存当前文档 → 若预览宿主未运行则启动 godot-slice --editor-preview（跨进程）。
+	/// 保存会使 mtime 变化，已运行的宿主自动重投影（无需重启）。</summary>
+	private async void OnPreviewClick(object? sender, RoutedEventArgs e)
+	{
+		if (Vm is null)
+		{
+			return;
+		}
+		if (!Vm.HasPath)
+		{
+			await SaveOrPickAsync();
+		}
+		if (!Vm.HasPath)
+		{
+			return;
+		}
+		Vm.SaveScene(Vm.CurrentPath!);
+
+		if (_previewProcess == null || _previewProcess.HasExited)
+		{
+			string exe = Path.Combine(Environment.CurrentDirectory, "bin", "godot.windows.editor.dev.x86_64.mono.console.exe");
+			if (!File.Exists(exe))
+			{
+				await ShowMessageAsync($"未找到引擎：{exe}");
+				return;
+			}
+			_previewProcess = Process.Start(new ProcessStartInfo(exe)
+			{
+				WorkingDirectory = Environment.CurrentDirectory,
+				UseShellExecute = false,
+				Arguments = $"--path src\\apps\\godot-slice -- --editor-preview \"{Vm.CurrentPath}\"",
+			});
+		}
+	}
+
+	private async Task ShowMessageAsync(string text)
+	{
+		var dialog = new Window { Title = "Sola3d Editor", Content = text, Width = 360, Height = 140 };
+		await dialog.ShowDialog(this);
+	}
+
 
 	private async Task LoadPickAsync()
 	{

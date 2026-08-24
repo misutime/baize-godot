@@ -19,25 +19,36 @@ public partial class Main : Node3D
 		bool physicsRender = false;
 		bool input = false;
 		bool shooter = false;
-		foreach (var arg in userArgs)
+		string? editorPreviewPath = null;
+		for (int i = 0; i < userArgs.Length; i++)
 		{
-			if (arg == "--physics")
+			if (userArgs[i] == "--physics")
 			{
 				physics = true;
 			}
-			else if (arg == "--physics-render")
+			else if (userArgs[i] == "--physics-render")
 			{
 				physicsRender = true;
 			}
-			else if (arg == "--input")
+			else if (userArgs[i] == "--input")
 			{
 				input = true;
 			}
-			else if (arg == "--shooter")
+			else if (userArgs[i] == "--shooter")
 			{
 				shooter = true;
 			}
+			else if (userArgs[i] == "--editor-preview" && i + 1 < userArgs.Length)
+			{
+				editorPreviewPath = userArgs[++i];
+			}
 		}
+		if (editorPreviewPath != null)
+		{
+			GD.Print($"godot-slice: --editor-preview 启动（{editorPreviewPath}）");
+			AddChild(new EditorPreview(editorPreviewPath));
+		}
+		else if (shooter)
 		if (shooter)
 		{
 			GD.Print("godot-slice: Sola3d Object 宿主启动（--shooter 玩法对接演示）");

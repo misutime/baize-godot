@@ -36,7 +36,14 @@
       </Border>
       <GridSplitter Grid.Column="1" Width="1" ResizeDirection="Columns" Background="Transparent" />
       <Border Grid.Column="2">
-        <TextBlock Margin="12" Text="3D View（下一步：接入 GodotDesignPreview/预演投影）" VerticalAlignment="Center" HorizontalAlignment="Center" />
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+          <TextBlock Text="3D View（godot-slice 渲染预览）" TextAlignment="Center" />
+          <TextBlock Text="保存 .bscene 后自动重投影渲染（跨进程预览宿主）"
+                     FontSize="11"
+                     TextAlignment="Center"
+                     Foreground="{DynamicResource SystemControlForegroundChromeDisabledLowBrush}" />
+          <Button Content="打开 / 刷新 3D 预览" HorizontalAlignment="Center" Click="OnPreviewClick" />
+        </StackPanel>
       </Border>
       <GridSplitter Grid.Column="3" Width="1" ResizeDirection="Columns" Background="Transparent" />
       <Border Grid.Column="4" MinWidth="180" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
