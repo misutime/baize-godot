@@ -1,0 +1,38 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- MainWindow.axaml —— 编辑器主窗口布局骨架（Avalonia 12 编译绑定 + Design.DataContext）
+     布局：顶部标题栏 + 三面板（Hierarchy | 3D view 占位 | Inspector）——下一步逐面板接 VM。 -->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:Sola3d.EditorUi.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="720"
+        x:Class="Sola3d.EditorUi.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding DocumentTitle}"
+        Width="1280" Height="720">
+
+  <Design.DataContext>
+    <vm:MainWindowViewModel />
+  </Design.DataContext>
+
+  <DockPanel>
+    <!-- 顶部标题栏 -->
+    <Border DockPanel.Dock="Top" Padding="12,6" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+      <TextBlock Text="{Binding DocumentTitle}" FontWeight="SemiBold" />
+    </Border>
+
+    <!-- 三面板：Hierarchy | 3D view 占位 | Inspector -->
+    <Grid ColumnDefinitions="250,*,300">
+      <Border Grid.Column="0" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="0,0,1,0">
+        <TextBlock Margin="12" Text="Hierarchy（下一步：对象树）" VerticalAlignment="Top" />
+      </Border>
+      <Border Grid.Column="1">
+        <TextBlock Margin="12" Text="3D View（下一步：GodotDesignPreview/预演投影）" VerticalAlignment="Center" HorizontalAlignment="Center" />
+      </Border>
+      <Border Grid.Column="2" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="1,0,0,0">
+        <TextBlock Margin="12" Text="Inspector（下一步：Transform 编辑 + Save/Load .bscene）" VerticalAlignment="Top" />
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

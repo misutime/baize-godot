@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- editor-ui.csproj —— 编辑器 UI 应用（src/apps；引擎核心可交付）
-     职责：Avalonia UI（Hierarchy/Inspector）+ 复用 src/libs/editor 的 EditorSession。
-     门禁：本宿主可引 Avalonia；src/libs/editor 保持零 Godot 零 UI 依赖。 -->
+     分层：editor-ui = Avalonia UI（Hierarchy/Inspector）；编辑核心在 src/libs/editor（Sola3d.Editor，纯 .NET）。
+     技术基线（Avalonia 12.1.1 + CommunityToolkit.Mvvm 官方推荐；编译绑定默认启用）。 -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -11,12 +11,14 @@
     <RootNamespace>Sola3d.EditorUi</RootNamespace>
     <AssemblyName>editor-ui</AssemblyName>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\libs\editor\Sola3d.Editor.csproj" />
     <ProjectReference Include="..\..\libs\gameobject\Sola3d.GameObject.csproj" />
-    <PackageReference Include="Avalonia" Version="11.2.7" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.2.7" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.7" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
 </Project>

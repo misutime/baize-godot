@@ -1,0 +1,14 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- App.axaml —— 应用根：ViewLocator 数据模板 + Fluent 主题（Avalonia 12 模板结构） -->
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Sola3d.EditorUi"
+             x:Class="Sola3d.EditorUi.App">
+  <Application.DataTemplates>
+    <local:ViewLocator />
+  </Application.DataTemplates>
+
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+</Application>
