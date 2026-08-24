@@ -310,6 +310,43 @@ internal static class Program
 			commands[0].ObjectUid != commands[1].ObjectUid);
 	}
 
+	private static void Test_语义化加载与保存dirty()
+	{
+		// reviewer P1：LoadSceneWithSchemas 把 token→typed（Inspector 可读非默认 Transform）；编辑单轴不覆盖其余。
+		var reg = new ComponentSchemaRegistry();
+		reg.Register<TransformComponent>();
+		reg.Register<MeshComponent>();
+
+		var session = new EditorSession(schemas: reg);
+		var obj = session.CreateGameObject("O");
+		var tf = session.AddComponent(obj, reg.Get<TransformComponent>());
+		session.SetProperty(tf, "Position", new System.Numerics.Vector3(1, 2, 3));
+		session.SetProperty(tf, "Scale", new System.Numerics.Vector3(2, 2, 2));
+		string text = session.SaveSceneText();
+
+		var loaded = EditorSession.LoadSceneWithSchemas(text, reg);
+		var rec = loaded.FindObject(obj.Uid)!;
+		var ltf = rec.Components.First(c => c.TypeName == typeof(TransformComponent).FullName);
+		var pos = ltf.Properties.Find(kv => kv.Key == "Position").Value;
+		var scale = ltf.Properties.Find(kv => kv.Key == "Scale").Value;
+		Check("语义化载入：Position 为 typed Vector3（非 token）", pos is System.Numerics.Vector3 p && p == new System.Numerics.Vector3(1, 2, 3));
+		Check("语义化载入：Scale 为 typed Vector3", scale is System.Numerics.Vector3 sv && sv == new System.Numerics.Vector3(2, 2, 2));
+		// 编辑单轴不覆盖其余：改 Position 后 Scale 仍是 2,2,2。
+		session = loaded;
+		session.SetProperty(ltf, "Position", new System.Numerics.Vector3(1, 5, 3));
+		var scaleAfter = ltf.Properties.Find(kv => kv.Key == "Scale").Value;
+		Check("编辑单轴不覆盖其余轴", scaleAfter is System.Numerics.Vector3 sa && sa == new System.Numerics.Vector3(2, 2, 2));
+
+		// reviewer P1：SerializeSceneForSave 不清 dirty；写入成功后才 MarkSaved。
+		var dirtySession = new EditorSession();
+		dirtySession.CreateGameObject("X");
+		Check("保存前 dirty=true", dirtySession.IsDirty);
+		string serialized = dirtySession.SerializeSceneForSave();
+		Check("SerializeSceneForSave 不清 dirty", dirtySession.IsDirty && serialized.Length > 0);
+		dirtySession.MarkSaved();
+		Check("MarkSaved 清 dirty", !dirtySession.IsDirty);
+	}
+
 	private static int Main()
 	{
 		Console.WriteLine("editor-core-tests —— O7 编辑器第一切片验证（Design World 编辑闭环）\n");
@@ -323,6 +360,7 @@ internal static class Program
 		Test_O8B_渲染快照跟踪();
 		Test_O8C_物理投影();
 		Test_O8D_渲染身份回退();
+		Test_语义化加载与保存dirty();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{

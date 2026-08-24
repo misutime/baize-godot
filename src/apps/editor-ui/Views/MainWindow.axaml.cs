@@ -53,6 +53,16 @@ public partial class MainWindow : Window
 			(new KeyGesture(Key.Delete, KeyModifiers.None), _ => Vm?.DeleteSelected()),
 		};
 		DataContextChanged += (_, _) => BindVmEvents();
+		// reviewer P2：关闭时终止本窗口启动的预览宿主进程。
+		Closed += (_, _) =>
+		{
+			if (_previewProcess != null && !_previewProcess.HasExited)
+			{
+				try { _previewProcess.Kill(); } catch { /* 已退出 */ }
+				_previewProcess.Dispose();
+				_previewProcess = null;
+			}
+		};
 	}
 
 	private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;

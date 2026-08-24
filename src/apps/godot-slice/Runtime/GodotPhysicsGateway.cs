@@ -142,6 +142,7 @@ public sealed partial class GodotPhysicsGateway : IPhysicsGateway
 		}
 		if (_shapes.Remove(objectId, out var shape))
 		{
+			_ownedRids.Remove(shape); // reviewer P1：从 owned 移除，Dispose 不再重复 FreeRid
 			PhysicsServer3D.FreeRid(shape);
 		}
 		GD.Print($"physics: body 释放 id={objectId}");

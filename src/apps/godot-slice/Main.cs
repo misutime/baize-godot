@@ -49,7 +49,6 @@ public partial class Main : Node3D
 			AddChild(new EditorPreview(editorPreviewPath));
 		}
 		else if (shooter)
-		if (shooter)
 		{
 			GD.Print("godot-slice: Sola3d Object 宿主启动（--shooter 玩法对接演示）");
 			AddChild(new ShooterGamePreview());

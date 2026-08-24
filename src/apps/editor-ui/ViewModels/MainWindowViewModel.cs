@@ -354,15 +354,27 @@ public partial class MainWindowViewModel : ViewModelBase
 	}
 
 	/// <summary>撤销（Ctrl+Z）。</summary>
-	public void Undo() => _session.Undo();
+	public void Undo()
+	{
+		_session.Undo();
+		SyncHierarchyTree(); // reviewer P1：撤销可能改结构（创建/删除/SetParent），须同步树
+	}
 
 	/// <summary>重做（Ctrl+Shift+Z / Ctrl+Y）。</summary>
-	public void Redo() => _session.Redo();
+	public void Redo()
+	{
+		_session.Redo();
+		SyncHierarchyTree(); // reviewer P1：重做可能改结构，须同步树
+	}
 
 	public void LoadScene(string path)
 	{
 		var text = File.ReadAllText(path);
-		var loaded = EditorSession.LoadScene(text, new ComponentSchemaRegistry());
+		// reviewer P1：语义化载入（token→typed），Inspector 才能读到非默认 Transform。
+		var schemas = new ComponentSchemaRegistry();
+		schemas.Register<TransformComponent>();
+		schemas.Register<MeshComponent>();
+		var loaded = EditorSession.LoadSceneWithSchemas(text, schemas);
 		_session = loaded;
 		HookSession(loaded);
 		_nodesByUid.Clear();
@@ -403,7 +415,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
 	private static bool TryParse3(string x, string y, string z, out Vector3 v)
 	{
-		if (float.TryParse(x, out var fx) && float.TryParse(y, out var fy) && float.TryParse(z, out var fz))
+		// reviewer P2：解析与显示统一 InvariantCulture（避免逗号小数分隔符系统不可解析）。
+		if (float.TryParse(x, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fx)
+			&& float.TryParse(y, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fy)
+			&& float.TryParse(z, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fz))
 		{
 			v = new Vector3(fx, fy, fz);
 			return true;

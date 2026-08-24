@@ -438,10 +438,33 @@ public sealed class EditorSession
 		return text;
 	}
 
+	/// <summary>序列化（不清 dirty）：保存前取文本，落盘成功后再 <see cref="MarkSaved"/>（reviewer P1：写入失败不得误清 dirty）。</summary>
+	public string SerializeSceneForSave() => GameWorldTextSerializer.Serialize(Document);
+
+	/// <summary>落盘成功后标记已保存（清 dirty）。</summary>
+	public void MarkSaved() => IsDirty = false;
+
 	/// <summary>载入：.bscene 文本 → 新 EditorSession（未注册组件按 R24 缺省策略保留 token）。</summary>
 	public static EditorSession LoadScene(string text, ComponentSchemaRegistry? schemas = null)
 	{
 		var document = GameWorldTextSerializer.Deserialize(text);
 		return new EditorSession(document, schemas);
+	}
+
+	/// <summary>
+	/// 语义化载入（reviewer P1）：反序列化（token）→ 按已注册 schema Restore（Skip 容错）→ Capture
+	/// 得 typed 属性的文档——Inspector 可直接读 Vector3/Quaternion，编辑单轴不覆盖其余未显示值。
+	/// </summary>
+	public static EditorSession LoadSceneWithSchemas(string text, ComponentSchemaRegistry schemas)
+	{
+		var parsed = GameWorldTextSerializer.Deserialize(text);
+		var restoreOptions = new RestoreOptions
+		{
+			UnknownComponentPolicy = UnknownMemberPolicy.Skip,
+			UnknownPropertyPolicy = UnknownMemberPolicy.Skip,
+		};
+		var world = GameWorldSerializer.Restore(parsed, restoreOptions, schemas, null);
+		var typed = GameWorldSerializer.Capture(world);
+		return new EditorSession(typed, schemas);
 	}
 }
