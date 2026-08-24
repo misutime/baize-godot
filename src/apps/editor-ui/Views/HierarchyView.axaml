@@ -1,0 +1,26 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- HierarchyView.axaml —— Hierarchy 面板：TreeView，绑定主 VM 的 Hierarchy / SelectedNode（12 TreeDataTemplate + 编译绑定） -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sola3d.EditorUi.ViewModels"
+             x:Class="Sola3d.EditorUi.Views.HierarchyView"
+             x:DataType="vm:MainWindowViewModel">
+  <TreeView ItemsSource="{Binding Hierarchy}"
+            SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
+    <TreeView.Styles>
+      <Style Selector="TreeViewItem">
+        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay, DataType=vm:HierarchyNodeViewModel}" />
+      </Style>
+    </TreeView.Styles>
+    <TreeView.ItemTemplate>
+      <TreeDataTemplate DataType="vm:HierarchyNodeViewModel" ItemsSource="{Binding Children}">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Text="{Binding Name}" />
+          <TextBlock Text="{Binding UidText}"
+                     FontSize="11"
+                     Foreground="{DynamicResource SystemControlForegroundChromeDisabledLowBrush}" />
+        </StackPanel>
+      </TreeDataTemplate>
+    </TreeView.ItemTemplate>
+  </TreeView>
+</UserControl>

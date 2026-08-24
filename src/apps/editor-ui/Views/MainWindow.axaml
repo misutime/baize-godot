@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- MainWindow.axaml —— 编辑器主窗口布局骨架（Avalonia 12 编译绑定 + Design.DataContext）
-     布局：顶部标题栏 + 三面板（Hierarchy | 3D view 占位 | Inspector）——下一步逐面板接 VM。 -->
+<!-- MainWindow.axaml —— 编辑器主窗口：工具栏（新建/删除/保存/加载）+ Hierarchy | 3D view | Inspector
+     面板可拖拽调宽（1px GridSplitter）；Hierarchy/Inspector 为独立 UserControl（M2 可直接搬入 dock）。 -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:Sola3d.EditorUi.ViewModels"
+        xmlns:views="using:Sola3d.EditorUi.Views"
         mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="720"
         x:Class="Sola3d.EditorUi.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -17,21 +18,29 @@
   </Design.DataContext>
 
   <DockPanel>
-    <!-- 顶部标题栏 -->
-    <Border DockPanel.Dock="Top" Padding="12,6" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
-      <TextBlock Text="{Binding DocumentTitle}" FontWeight="SemiBold" />
+    <!-- 顶部工具栏 -->
+    <Border DockPanel.Dock="Top" Padding="8,4" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+        <TextBlock Text="{Binding DocumentTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="新建" Command="{Binding NewCommand}" />
+        <Button Grid.Column="2" Content="删除" Command="{Binding DeleteCommand}" />
+        <Button Grid.Column="3" Content="保存" Command="{Binding SaveCommand}" />
+        <Button Grid.Column="4" Content="加载" Command="{Binding LoadCommand}" />
+      </Grid>
     </Border>
 
-    <!-- 三面板：Hierarchy | 3D view 占位 | Inspector -->
-    <Grid ColumnDefinitions="250,*,300">
-      <Border Grid.Column="0" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="0,0,1,0">
-        <TextBlock Margin="12" Text="Hierarchy（下一步：对象树）" VerticalAlignment="Top" />
+    <!-- 三面板：Hierarchy | 3D view 占位 | Inspector（GridSplitter 1px 拖拽条） -->
+    <Grid ColumnDefinitions="250,1,*,1,300">
+      <Border Grid.Column="0" MinWidth="140" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+        <views:HierarchyView />
       </Border>
-      <Border Grid.Column="1">
-        <TextBlock Margin="12" Text="3D View（下一步：GodotDesignPreview/预演投影）" VerticalAlignment="Center" HorizontalAlignment="Center" />
+      <GridSplitter Grid.Column="1" Width="1" ResizeDirection="Columns" Background="Transparent" />
+      <Border Grid.Column="2">
+        <TextBlock Margin="12" Text="3D View（下一步：接入 GodotDesignPreview/预演投影）" VerticalAlignment="Center" HorizontalAlignment="Center" />
       </Border>
-      <Border Grid.Column="2" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" BorderThickness="1,0,0,0">
-        <TextBlock Margin="12" Text="Inspector（下一步：Transform 编辑 + Save/Load .bscene）" VerticalAlignment="Top" />
+      <GridSplitter Grid.Column="3" Width="1" ResizeDirection="Columns" Background="Transparent" />
+      <Border Grid.Column="4" MinWidth="180" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+        <views:InspectorView />
       </Border>
     </Grid>
   </DockPanel>

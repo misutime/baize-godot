@@ -1,0 +1,50 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- InspectorView.axaml —— Inspector 面板：选中对象 Transform（Position/Rotation 度/Scale）编辑 -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sola3d.EditorUi.ViewModels"
+             x:Class="Sola3d.EditorUi.Views.InspectorView"
+             x:DataType="vm:MainWindowViewModel">
+  <StackPanel Margin="10" Spacing="8">
+	<TextBlock Text="Inspector"
+			   FontWeight="SemiBold"
+			   FontSize="14" />
+	<TextBlock Text="{Binding InspectorHint}"
+			   Foreground="{DynamicResource SystemControlForegroundChromeDisabledLowBrush}"
+			   TextWrapping="Wrap" />
+	<StackPanel Spacing="4">
+	  <TextBlock Text="Transform（Position）" FontWeight="SemiBold" />
+	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
+		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
+		<TextBox Grid.Column="1" Text="{Binding PositionX, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
+		<TextBox Grid.Column="3" Text="{Binding PositionY, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
+		<TextBox Grid.Column="5" Text="{Binding PositionZ, UpdateSourceTrigger=LostFocus}" />
+	  </Grid>
+	</StackPanel>
+	<StackPanel Spacing="4">
+	  <TextBlock Text="Rotation（度）" FontWeight="SemiBold" />
+	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
+		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
+		<TextBox Grid.Column="1" Text="{Binding RotationX, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
+		<TextBox Grid.Column="3" Text="{Binding RotationY, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
+		<TextBox Grid.Column="5" Text="{Binding RotationZ, UpdateSourceTrigger=LostFocus}" />
+	  </Grid>
+	</StackPanel>
+	<StackPanel Spacing="4">
+	  <TextBlock Text="Scale" FontWeight="SemiBold" />
+	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
+		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
+		<TextBox Grid.Column="1" Text="{Binding ScaleX, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
+		<TextBox Grid.Column="3" Text="{Binding ScaleY, UpdateSourceTrigger=LostFocus}" />
+		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
+		<TextBox Grid.Column="5" Text="{Binding ScaleZ, UpdateSourceTrigger=LostFocus}" />
+	  </Grid>
+	</StackPanel>
+
+  </StackPanel>
+</UserControl>
