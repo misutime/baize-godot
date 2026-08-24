@@ -72,7 +72,7 @@ public sealed class WeaponAction : GameComponent
 			return;
 		}
 		cooldown.Remaining = weapon.CooldownSeconds;
-		ShooterFactory.SpawnProjectile(_world!, pos.X, pos.Z, 0, weapon.ProjectileSpeed);
+		ShooterFactory.SpawnProjectile(_world!, pos.X, pos.Z, 0, -weapon.ProjectileSpeed); // 统一 Godot 坐标：-Z = 前方
 	}
 }
 

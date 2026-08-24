@@ -112,9 +112,9 @@ internal static class Program
 		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 		var match = world.GetResource<MatchController>();
-		ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0);
+		ShooterFactory.SpawnEnemy(world, 0, -2, moveSpeed: 0); // -Z = 前方（Godot 坐标统一）
 		match.AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30);
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, -30);
 
 		for (int i = 0; i < 20 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
@@ -136,15 +136,15 @@ internal static class Program
 		ClearObjectsExcept(world, "Player");
 
 		var match = world.GetResource<MatchController>();
-		// 子弹先创建（pre-existing）。但敌人作为高速「移动目标」在子弹路径上横穿——本帧内从 z=2 冲向 z=0，
-		// 子弹 +Z 从 z=0 冲到 z=1——两者在同一 tick 内扫掠相交（t=2/3 处二者同在 z=2/3，距离 0）。
-		// Move 阶段先让全部对象走完本帧，Collide 再读敌方 prev/pos——敌人已从 z=2 冲到 z=0，扫掠相交被判中。
+		// 子弹先创建（pre-existing）。敌人高速「移动目标」朝玩家（z=-5）俯冲——本帧内从 z=-0.5 冲到 z=-2.5；
+		// 子弹 -Z 从 z=0 冲到 z=-1——两者同一 tick 内扫掠相交（t≈1/3 处同在 z≈-1/3，距离 0）。
+		// Move 阶段先让全部对象走完本帧，Collide 再读敌方 prev/pos——敌人已从 z=-0.5 冲到 z=-2.5，扫掠相交被判中。
 		// 因此命中与创建/执行顺序无关（非逐对象计划快照）。
 		// 玩家移到 z=-5：敌人冲向量不触及玩家（接触半径 1.0），无 GameOver 干扰。
 		var player = FindPlayer(world)!;
 		player.GetComponent<Position>()!.Z = -5f;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
-		var fastEnemy = ShooterFactory.SpawnEnemy(world, 0, 2.0f, moveSpeed: 200.0f, health: 1);
+		var fastEnemy = ShooterFactory.SpawnEnemy(world, 0, -0.5f, moveSpeed: 200.0f, health: 1);
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, -100);
 		match.AliveEnemies = 1;
 
 		for (int i = 0; i < 10 && CountWith<EnemyFaction>(world) > 0; i++)
@@ -171,7 +171,7 @@ internal static class Program
 
 		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 200f);
 		world.GetResource<MatchController>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 200f); // 本 tick 沿 +Z 从 0 到 2。
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, -200f); // 本 tick 沿 -Z 从 0 到 -2。
 
 		ShooterGame.RunFrame(world);
 
@@ -194,14 +194,14 @@ internal static class Program
 		world.GetResource<SpawnConfig>().MaxAlive = 0;
 		ClearObjectsExcept(world, "Player");
 
-		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 30f);
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, -2, moveSpeed: 30f); // -Z = 前方
 		enemy.GetComponent<EnemyControllerAction>()!.Enabled = false; // 禁用行为：不寻敌、不移动。
 		world.GetResource<MatchController>().AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 100);
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, -100);
 
-		// 首帧后敌人仍应停在 z=2（静止计划）；子弹尚未到达，且敌人未被禁用逻辑误动。
+		// 首帧后敌人仍应停在 z=-2（静止计划）；子弹尚未到达，且敌人未被禁用逻辑误动。
 		ShooterGame.RunFrame(world);
-		Check("禁用行为：敌人停在 z=2（不产生幽灵轨迹）", enemy.GetComponent<Position>()!.Z == 2f);
+		Check("禁用行为：敌人停在 z=-2（不产生幽灵轨迹）", enemy.GetComponent<Position>()!.Z == -2f);
 		Check("禁用行为：首帧敌人仍存活", !enemy.IsDestroyed);
 
 		for (int i = 0; i < 5 && CountWith<EnemyFaction>(world) > 0; i++)
@@ -288,9 +288,9 @@ internal static class Program
 		ClearObjectsExcept(world, "Player");
 
 		var match = world.GetResource<MatchController>();
-		var enemy = ShooterFactory.SpawnEnemy(world, 0, 2, moveSpeed: 0, health: 2);
+		var enemy = ShooterFactory.SpawnEnemy(world, 0, -2, moveSpeed: 0, health: 2); // -Z = 前方
 		match.AliveEnemies = 1;
-		ShooterFactory.SpawnProjectile(world, 0, 0, 0, 30, damage: 1);
+		ShooterFactory.SpawnProjectile(world, 0, 0, 0, -30, damage: 1);
 
 		for (int i = 0; i < 30 && CountWith<EnemyFaction>(world) > 0; i++)
 		{
