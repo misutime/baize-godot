@@ -34,11 +34,14 @@ public partial class MainWindowViewModel : ViewModelBase
 		_session = new EditorSession();
 		// 注册编辑器可用的组件 Schema（Hierarchy/Inspector 编辑用）。
 		_session.Schemas.Register<TransformComponent>();
+		_session.Schemas.Register<MeshComponent>();
 		HookSession(_session);
 		var root = _session.CreateGameObject("Root");
 		_session.AddComponent(root, _session.Schemas.Get<TransformComponent>());
 		var child = _session.CreateGameObject("Child");
 		_session.AddComponent(child, _session.Schemas.Get<TransformComponent>());
+		// Child 补一个可渲染 Mesh（预览立即可见）；Root 保持空组织根语义。
+		_session.AddComponent(child, _session.Schemas.Get<MeshComponent>());
 		_session.SetParent(child, root);
 		SyncHierarchyTree();
 		_session.SelectObject(root.Uid);
