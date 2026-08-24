@@ -9,7 +9,7 @@
 
 ## 1. 代码现状：接口族与真桥状态
 
-接口族定义在 `modules/mainloop/Sola3dMainLoop.cs`（O5，纯 .NET 零依赖）：
+接口族定义在 `src/libs/mainloop/Sola3dMainLoop.cs`（O5，纯 .NET 零依赖）：
 
 | 接口 | 职责 | 实现状态 |
 |---|---|---|
@@ -20,7 +20,7 @@
 | `IPhysicsGateway` | 物理世界宿主 | ✅ `GodotPhysicsGateway` 第一刀（O8 物理域：下落 + 位姿回传） |
 | `IUIGateway` | UI 宿主 | ⚠️ 接口已定义，无真桥 |
 
-Port 三通道（`modules/mainloop/Ports.cs`）：`EventBus`（Gateway→Gameplay 碰撞/命中）、`CommandBus`（Gameplay→Gateway 画/注册）、`ObservationBus`（Gateway→Gameplay 权威位姿回传，fixed 边界统一分发）。
+Port 三通道（`src/libs/mainloop/Ports.cs`）：`EventBus`（Gateway→Gameplay 碰撞/命中）、`CommandBus`（Gameplay→Gateway 画/注册）、`ObservationBus`（Gateway→Gameplay 权威位姿回传，fixed 边界统一分发）。
 
 ## 2. 规划全集：Godot 内核待对接点（O0 地图汇总）
 
@@ -44,9 +44,9 @@ Port 三通道（`modules/mainloop/Ports.cs`）：`EventBus`（Gateway→Gamepla
 
 ```text
 Transform/Mesh 数据组件（gameobject）
-  → SceneProjector（modules/editor，纯 .NET 投影 → PreviewRenderCommand）
+  → SceneProjector（src/libs/editor，纯 .NET 投影 → PreviewRenderCommand）
   → RenderSnapshotTracker（帧差异：删除消失 Uid / 同帧去重）
-  → GodotRenderGateway.Consume（test-projects/godot-slice）
+  → GodotRenderGateway.Consume（src/apps/godot-slice）
   → RenderingServer RID（MeshCreate + AddCubeSurface 绑 shader 材质 + InstanceCreate2 + InstanceSetTransform）
 生命周期：多 MeshPath 独立 surface；同 Uid 换 mesh 用 InstanceSetBase rebase；PreviewRemoveCommand 释放实例；Dispose 幂等
 ```
@@ -55,7 +55,7 @@ Transform/Mesh 数据组件（gameobject）
 
 ```text
 StaticCollider/RigidBody 数据组件（gameobject）
-  → PhysicsProjector（modules/editor，纯 .NET 投影 → PhysicsBodyCommand）
+  → PhysicsProjector（src/libs/editor，纯 .NET 投影 → PhysicsBodyCommand）
   → GodotPhysicsGateway.Consume（内部存活差异：上帧有本帧无 → 释放 RID）
   → PhysicsServer3D RID（SpaceCreate/SetActive → BodyCreate → BodySetSpace → BoxShapeCreate → BodyAddShape → 模式/质量/初速/初始 Transform）
   → 每帧 EndFrame：BodyGetState(Transform) 采样 → PhysicsObservation → ObservationBus → Gameplay
@@ -63,7 +63,7 @@ StaticCollider/RigidBody 数据组件（gameobject）
 
 ### 3.3 通用要点（新域照抄）
 
-1. **命令/观察负载放 `modules/editor`（纯 .NET）**：引 gameobject+mainloop，零 Godot 依赖，可 headless 单测；Godot 实现放 `test-projects/godot-slice/Runtime/`。
+1. **命令/观察负载放 `src/libs/editor`（纯 .NET）**：引 gameobject+mainloop，零 Godot 依赖，可 headless 单测；Godot 实现放 `src/apps/godot-slice/Runtime/`。
 2. **单向投影**：Gateway 永不隐式修改 Gameplay；回传只经 ObservationBus，GameWorld 在 fixed tick 边界收集（O1 §10）。
 3. **身份语义**：物理/运行时用 `ObjectId`（Index+Generation，防复用）；渲染演示用文档 `Uid`（文件层稳定身份）。两者勿混。
 4. **验证三件套**：纯 .NET 投影断言（editor-core-tests）→ headless e2e（godot-slice，`--quit-after` + 日志断言）→ 真窗口冒烟（AGENTS §9 三十秒 + .tmp 日志）。
@@ -93,10 +93,10 @@ StaticCollider/RigidBody 数据组件（gameobject）
 
 ```text
 # 物理域 headless e2e（360 帧自动退出；日志含 observations=N / lastY < initialY 断言）
-bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --path test-projects\godot-slice --quit-after 400 -- --physics
+bin\godot.windows.editor.dev.x86_64.mono.console.exe --headless --path hosts\godot-slice --quit-after 400 -- --physics
 
 # 渲染域真窗口冒烟（300 帧自动截图退出 → user://demo_cube.png）
-bin\godot.windows.editor.dev.x86_64.mono.console.exe --path test-projects\godot-slice
+bin\godot.windows.editor.dev.x86_64.mono.console.exe --path hosts\godot-slice
 
 # 单元测试（纯 .NET）
 dotnet run --project test-projects\editor-core-tests --no-restore   # O7 编辑 + O8-A/B/C

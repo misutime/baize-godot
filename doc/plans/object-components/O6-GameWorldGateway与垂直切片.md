@@ -6,7 +6,7 @@
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§14.6/§15.6/§4.7）。
 > 契约：`O1-GameObject语义契约.md` §10（Backend Observation）/§7（Transform 不属于层级内核，由 TransformComponent+TransformGateway 承担）。
 > 双世界：组件在 **Runtime World** 侧（GameObject 实例持有），Gateway 投影是其触碰 Godot 内核的全部触点（状态 C：Server-backed，无 Node）。
-> 实现：`modules/gameobject/`（数据组件）+ `test-projects/vertical-slice-tests/`（纯 .NET headless 验证）+ `test-projects/godot-slice/`（Godot RenderingServer 真桥）。
+> 实现：`src/libs/gameobject/`（数据组件）+ `src/tests/vertical-slice-tests/`（纯 .NET headless 验证）+ `src/apps/godot-slice/`（Godot RenderingServer 真桥）。
 
 ## 1. 目标与非目标
 
@@ -20,7 +20,7 @@
   - 编辑器显示（O7）；
   - 动画/UI/Audio（O8 域迁移）。
 
-## 2. 数据组件（modules/gameobject，纯 .NET 零依赖）
+## 2. 数据组件（src/libs/gameobject，纯 .NET 零依赖）
 
 ```csharp
 [GameComponent] public sealed class TransformComponent : GameComponent {

@@ -5,7 +5,7 @@
 > 本文是 **O4 阶段权威**：格式编码规则引用 `O3-可读格式契约草案.md`（R26，不改动其确定性/校验语义）；
 > 本阶段在此基础上定义**文件层扩展**：Uid 双身份、prefab 引用与实例化、override 记录、loader 链路。
 > 决策权威：`D:\MisuNotes\3D游戏开发\Godot_ALL_IN_C#\Godot_Fork_GameObject-Components替换Node_源码级落地方案.md`（§6.1/6.2/6.3/§8、§14.10）。
-> 实现：`modules/gameobject/`（`GameWorldTextSerializer` @id 扩展 + `BSceneLoader`）；验证：`test-projects/gameobject-core-tests/`。
+> 实现：`src/libs/gameobject/`（`GameWorldTextSerializer` @id 扩展 + `BSceneLoader`）；验证：`src/tests/gameobject-core-tests/`。
 
 ## 1. 目标与非目标
 

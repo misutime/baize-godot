@@ -18,7 +18,7 @@ GameWorldNodeHost : Node  // 迁移期 SceneTree 宿主（O5，桥接）
 EditorPreviewHost         // 编辑器预览宿主（O7）
 ```
 
-- C# 类型名：`GameObject` / `GameWorld` / `GameComponent`；命名空间 `Sola3d.GameObject`；程序集 `Sola3d.GameObject`（模块 `modules/gameobject/`）。
+- C# 类型名：`GameObject` / `GameWorld` / `GameComponent`；命名空间 `Sola3d.GameObject`；程序集 `Sola3d.GameObject`（模块 `src/libs/gameobject/`）。
 - 身份分层（§14.7）：`Uid`（.bscene/.bprefab 内稳定作者 ID，O4 用）与 `ObjectId`（运行时身份 = Index + Generation，防 ID 复用）。`RuntimeGameObjectHandle` 即 `ObjectId`。
 
 ## 1. Component 是否允许重复
@@ -108,7 +108,7 @@ Disable / 父链禁用 / Pause
 
 ## 12. 本契约生效范围与验证
 
-- 本契约的所有条目由 `test-projects/gameobject-core-tests/`（headless 纯 .NET 控制台）逐条断言验证。
+- 本契约的所有条目由 `src/tests/gameobject-core-tests/`（headless 纯 .NET 控制台）逐条断言验证。
 - 变更契约必须先改本文档再改代码（文档是权威）。
 
 ## 13. reviewer 审查后补充决策（2026-08-22，已实现）

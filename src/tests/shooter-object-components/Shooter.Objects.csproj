@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Shooter.Objects</RootNamespace>
+    <AssemblyName>Shooter.Objects</AssemblyName>
+    <!-- O2 硬门禁：纯 .NET + Sola3d.GameObject，零 Friflo/Sola3d.Ecs/Godot/Node -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\libs\gameobject\Sola3d.GameObject.csproj" />
+  </ItemGroup>
+</Project>

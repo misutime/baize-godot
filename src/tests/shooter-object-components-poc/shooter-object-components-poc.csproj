@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>ShooterObjectsPoc</RootNamespace>
+    <AssemblyName>shooter-object-components-poc</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\libs\gameobject\Sola3d.GameObject.csproj" />
+    <ProjectReference Include="..\shooter-object-components\Shooter.Objects.csproj" />
+  </ItemGroup>
+</Project>
