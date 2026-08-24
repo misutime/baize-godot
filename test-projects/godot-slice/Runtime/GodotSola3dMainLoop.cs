@@ -13,29 +13,34 @@ namespace Sola3d.GodotSlice;
 /// Godot 进程入口：自定义 MainLoop 取代 SceneTree 作为语义入口（§15.5），
 /// 内部驱动 Sola3dMainLoop（GameWorld + Host + Port）。
 /// </summary>
+[GlobalClass]
 public sealed partial class GodotSola3dMainLoop : Godot.MainLoop
 {
-	private readonly GameLoopNs.Sola3dMainLoop _loop;
+	private GameLoopNs.Sola3dMainLoop? _loop;
 
-	public GodotSola3dMainLoop(GameLoopNs.Sola3dMainLoop loop)
+	/// <summary>由 Godot 通过 application/run/main_loop_type 无参构造。</summary>
+	public GodotSola3dMainLoop()
 	{
-		_loop = loop ?? throw new System.ArgumentNullException(nameof(loop));
 	}
 
 	public override void _Initialize()
 	{
 		bool headless = DisplayServer.GetName() == "headless";
-		GD.Print($"godot-slice: Sola3dMainLoop 启动（headless={headless}）");
+		var world = new Sola3d.GameObject.GameWorld();
+		var driver = new GameWorldDriver(world);
+		_loop = new GameLoopNs.Sola3dMainLoop(driver);
+		GD.Print($"godot-slice: Sola3dMainLoop 启动（headless={headless}，fixed_delta={world.FixedDelta:0.###}）");
 	}
 
 	public override bool _Process(double delta)
 	{
-		_loop.Frame((float)delta);
+		_loop?.Frame((float)delta);
 		return false; // false = 继续运行（返回 true 退出进程）
 	}
 
 	public override void _Finalize()
 	{
+		_loop = null;
 		GD.Print("godot-slice: Sola3dMainLoop 结束");
 	}
 }
