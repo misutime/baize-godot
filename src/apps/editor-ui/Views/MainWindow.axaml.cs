@@ -54,15 +54,7 @@ public partial class MainWindow : Window
 		};
 		DataContextChanged += (_, _) => BindVmEvents();
 		// reviewer P2：关闭时终止本窗口启动的预览宿主进程。
-		Closed += (_, _) =>
-		{
-			if (_previewProcess != null && !_previewProcess.HasExited)
-			{
-				try { _previewProcess.Kill(); } catch { /* 已退出 */ }
-				_previewProcess.Dispose();
-				_previewProcess = null;
-			}
-		};
+		Closed += (_, _) => DisposePreviewProcess();
 	}
 
 	private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
@@ -122,6 +114,8 @@ public partial class MainWindow : Window
 
 		if (_previewProcess == null || _previewProcess.HasExited)
 		{
+			DisposePreviewProcess(); // reviewer P2：覆盖前释放已退出旧句柄
+
 			string exe = Path.Combine(Environment.CurrentDirectory, "bin", "godot.windows.editor.dev.x86_64.mono.console.exe");
 			if (!File.Exists(exe))
 			{
@@ -135,6 +129,21 @@ public partial class MainWindow : Window
 				Arguments = $"--path src\\apps\\godot-slice -- --editor-preview \"{Vm.CurrentPath}\"",
 			});
 		}
+	}
+
+	/// <summary>终止并释放预览宿主（Kill 仅活进程；Dispose/null 无条件执行——reviewer P2 句柄不泄漏）。</summary>
+	private void DisposePreviewProcess()
+	{
+		if (_previewProcess == null)
+		{
+			return;
+		}
+		if (!_previewProcess.HasExited)
+		{
+			try { _previewProcess.Kill(); } catch { /* 已退出 */ }
+		}
+		_previewProcess.Dispose();
+		_previewProcess = null;
 	}
 
 	private async Task ShowMessageAsync(string text)

@@ -310,9 +310,9 @@ internal static class Program
 			commands[0].ObjectUid != commands[1].ObjectUid);
 	}
 
-	private static void Test_语义化加载与保存dirty()
+	private static void Test_载入保真与保存dirty()
 	{
-		// reviewer P1：LoadSceneWithSchemas 把 token→typed（Inspector 可读非默认 Transform）；编辑单轴不覆盖其余。
+		// reviewer P1：LoadScene 保留 token（未知组件/属性保真——用户只改已知属性，未知数据不丢失）。
 		var reg = new ComponentSchemaRegistry();
 		reg.Register<TransformComponent>();
 		reg.Register<MeshComponent>();
@@ -321,21 +321,21 @@ internal static class Program
 		var obj = session.CreateGameObject("O");
 		var tf = session.AddComponent(obj, reg.Get<TransformComponent>());
 		session.SetProperty(tf, "Position", new System.Numerics.Vector3(1, 2, 3));
-		session.SetProperty(tf, "Scale", new System.Numerics.Vector3(2, 2, 2));
+		// 未知组件（无 schema，token 保真场景）：直接操作记录列表。
+		obj.Components.Add(new GameComponentRecord
+		{
+			TypeName = "Future.UnknownComponent",
+			Properties = { new("SomeProp", "token-value") },
+		});
 		string text = session.SaveSceneText();
 
-		var loaded = EditorSession.LoadSceneWithSchemas(text, reg);
+		// 含未知组件/未知属性的文本 → LoadScene 后 token 保真（不丢未知数据）。
+		var loaded = EditorSession.LoadScene(text, reg);
 		var rec = loaded.FindObject(obj.Uid)!;
-		var ltf = rec.Components.First(c => c.TypeName == typeof(TransformComponent).FullName);
-		var pos = ltf.Properties.Find(kv => kv.Key == "Position").Value;
-		var scale = ltf.Properties.Find(kv => kv.Key == "Scale").Value;
-		Check("语义化载入：Position 为 typed Vector3（非 token）", pos is System.Numerics.Vector3 p && p == new System.Numerics.Vector3(1, 2, 3));
-		Check("语义化载入：Scale 为 typed Vector3", scale is System.Numerics.Vector3 sv && sv == new System.Numerics.Vector3(2, 2, 2));
-		// 编辑单轴不覆盖其余：改 Position 后 Scale 仍是 2,2,2。
-		session = loaded;
-		session.SetProperty(ltf, "Position", new System.Numerics.Vector3(1, 5, 3));
-		var scaleAfter = ltf.Properties.Find(kv => kv.Key == "Scale").Value;
-		Check("编辑单轴不覆盖其余轴", scaleAfter is System.Numerics.Vector3 sa && sa == new System.Numerics.Vector3(2, 2, 2));
+		var unknown = rec.Components.FirstOrDefault(c => c.TypeName == "Future.UnknownComponent");
+		Check("载入保真：未知组件保留", unknown != null);
+		Check("载入保真：未知组件属性保留 token", unknown != null && unknown.Properties.Find(kv => kv.Key == "SomeProp").Value?.ToString()?.Contains("token-value") == true);
+		Check("载入保真：保存后未知数据仍在", loaded.SaveSceneText().Contains("Future.UnknownComponent") && loaded.SaveSceneText().Contains("token-value"));
 
 		// reviewer P1：SerializeSceneForSave 不清 dirty；写入成功后才 MarkSaved。
 		var dirtySession = new EditorSession();
@@ -360,7 +360,7 @@ internal static class Program
 		Test_O8B_渲染快照跟踪();
 		Test_O8C_物理投影();
 		Test_O8D_渲染身份回退();
-		Test_语义化加载与保存dirty();
+		Test_载入保真与保存dirty();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{

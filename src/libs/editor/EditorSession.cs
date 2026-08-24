@@ -451,20 +451,4 @@ public sealed class EditorSession
 		return new EditorSession(document, schemas);
 	}
 
-	/// <summary>
-	/// 语义化载入（reviewer P1）：反序列化（token）→ 按已注册 schema Restore（Skip 容错）→ Capture
-	/// 得 typed 属性的文档——Inspector 可直接读 Vector3/Quaternion，编辑单轴不覆盖其余未显示值。
-	/// </summary>
-	public static EditorSession LoadSceneWithSchemas(string text, ComponentSchemaRegistry schemas)
-	{
-		var parsed = GameWorldTextSerializer.Deserialize(text);
-		var restoreOptions = new RestoreOptions
-		{
-			UnknownComponentPolicy = UnknownMemberPolicy.Skip,
-			UnknownPropertyPolicy = UnknownMemberPolicy.Skip,
-		};
-		var world = GameWorldSerializer.Restore(parsed, restoreOptions, schemas, null);
-		var typed = GameWorldSerializer.Capture(world);
-		return new EditorSession(typed, schemas);
-	}
 }

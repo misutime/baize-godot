@@ -711,5 +711,9 @@ int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
 			Lexeme = lexeme;
 			Value = value;
 		}
+
+		/// <summary>Lexeme（原文）——编辑器等外部按文本解析；类型 internal 不暴露。</summary>
+		public override string ToString() => Lexeme;
 	}
+
 }

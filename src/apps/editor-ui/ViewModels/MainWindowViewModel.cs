@@ -348,7 +348,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
 	public void SaveScene(string path)
 	{
-		File.WriteAllText(path, _session.SaveSceneText());
+		// reviewer P1：写入失败不得误清 dirty——先取文本（不动 dirty），落盘成功后再 MarkSaved。
+		string text = _session.SerializeSceneForSave();
+		File.WriteAllText(path, text);
+		_session.MarkSaved();
 		_currentPath = path;
 		UpdateTitle();
 	}
@@ -370,11 +373,8 @@ public partial class MainWindowViewModel : ViewModelBase
 	public void LoadScene(string path)
 	{
 		var text = File.ReadAllText(path);
-		// reviewer P1：语义化载入（token→typed），Inspector 才能读到非默认 Transform。
-		var schemas = new ComponentSchemaRegistry();
-		schemas.Register<TransformComponent>();
-		schemas.Register<MeshComponent>();
-		var loaded = EditorSession.LoadSceneWithSchemas(text, schemas);
+		// reviewer P1：保留 token 文档（未知组件/属性保真）；Inspector 层在读取时把 token 解析为 typed。
+		var loaded = EditorSession.LoadScene(text);
 		_session = loaded;
 		HookSession(loaded);
 		_nodesByUid.Clear();
@@ -393,9 +393,18 @@ public partial class MainWindowViewModel : ViewModelBase
 	{
 		foreach (var kv in comp.Properties)
 		{
-			if (kv.Key == key && kv.Value is Vector3 v)
+			if (kv.Key != key)
+			{
+				continue;
+			}
+			if (kv.Value is Vector3 v)
 			{
 				return v;
+			}
+			// token 文档（LoadScene 保留字面量）："(x,y,z)" → typed（reviewer P1：Inspector 可读非默认值且保真未知数据）。
+			if (kv.Value?.ToString() is string lex && TryParseSpatial(lex, out var parsed))
+			{
+				return parsed;
 			}
 		}
 		return null;
@@ -405,12 +414,57 @@ public partial class MainWindowViewModel : ViewModelBase
 	{
 		foreach (var kv in comp.Properties)
 		{
-			if (kv.Key == key && kv.Value is Quaternion q)
+			if (kv.Key != key)
+			{
+				continue;
+			}
+			if (kv.Value is Quaternion q)
 			{
 				return q;
 			}
+			if (kv.Value?.ToString() is string lex && TryParseSpatial4(lex, out var parsed))
+			{
+				return parsed;
+			}
 		}
 		return null;
+	}
+
+	/// <summary>解析文本 token "(x,y,z)"（InvariantCulture；reviewer P2 与显示一致）。</summary>
+	private static bool TryParseSpatial(string token, out Vector3 v)
+	{
+		v = default;
+		if (token.Length < 2 || token[0] != '(' || token[^1] != ')')
+		{
+			return false;
+		}
+		var parts = token.Substring(1, token.Length - 2).Split(',');
+		if (parts.Length != 3 || !TryParse3(parts[0], parts[1], parts[2], out v))
+		{
+			return false;
+		}
+		return true;
+	}
+
+	/// <summary>解析文本 token "(x,y,z,w)"。</summary>
+	private static bool TryParseSpatial4(string token, out Quaternion q)
+	{
+		q = default;
+		if (token.Length < 2 || token[0] != '(' || token[^1] != ')')
+		{
+			return false;
+		}
+		var parts = token.Substring(1, token.Length - 2).Split(',');
+		if (parts.Length != 4 || !TryParse3(parts[0], parts[1], parts[2], out var xyz))
+		{
+			return false;
+		}
+		if (!float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
+		{
+			return false;
+		}
+		q = new Quaternion(xyz.X, xyz.Y, xyz.Z, w);
+		return true;
 	}
 
 	private static bool TryParse3(string x, string y, string z, out Vector3 v)
