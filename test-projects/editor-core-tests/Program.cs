@@ -259,6 +259,36 @@ internal static class Program
 			CountUpsert(f6) == 1 && FirstUpsert(f6)?.MeshPath == "res://y.mesh");
 	}
 
+	private static void Test_O8C_物理投影()
+	{
+		var world = new GameWorld();
+		world.Schemas.Register<TransformComponent>();
+		world.Schemas.Register<StaticColliderComponent>();
+		world.Schemas.Register<RigidBodyComponent>();
+
+		var ground = world.CreateGameObject("Ground");
+		ground.AddComponent<TransformComponent>().Position = new System.Numerics.Vector3(0, 0, 0);
+		ground.AddComponent<StaticColliderComponent>().BoxSize = new System.Numerics.Vector3(20, 1, 20);
+
+		var cube = world.CreateGameObject("Cube");
+		cube.AddComponent<TransformComponent>().Position = new System.Numerics.Vector3(0, 5, 0);
+		var rb = cube.AddComponent<RigidBodyComponent>();
+		rb.BoxSize = new System.Numerics.Vector3(1, 1, 1);
+		rb.Mass = 2f;
+		rb.LinearVelocity = new System.Numerics.Vector3(1, 0, 0);
+
+		var projector = new PhysicsProjector();
+		var commands = projector.Project(world);
+		Check("O8-C：投影 2 个物理体", commands.Count == 2);
+		var staticCmd = commands.FirstOrDefault(c => c.Kind == PhysicsBodyKind.Static);
+		var rigidCmd = commands.FirstOrDefault(c => c.Kind == PhysicsBodyKind.Rigid);
+		Check("O8-C：静态体命令正确",
+			staticCmd != null && staticCmd.BoxSize == new System.Numerics.Vector3(20, 1, 20) && staticCmd.Position == new System.Numerics.Vector3(0, 0, 0));
+		Check("O8-C：动态体命令正确",
+			rigidCmd != null && rigidCmd.Mass == 2f && rigidCmd.LinearVelocity == new System.Numerics.Vector3(1, 0, 0) && rigidCmd.Position == new System.Numerics.Vector3(0, 5, 0));
+		Check("O8-C：投影单向不反写", cube.GetComponent<RigidBodyComponent>()!.Mass == 2f);
+	}
+
 	private static int Main()
 	{
 		Console.WriteLine("editor-core-tests —— O7 编辑器第一切片验证（Design World 编辑闭环）\n");
@@ -270,6 +300,7 @@ internal static class Program
 		Test_环检测();
 		Test_O8A_编辑模型();
 		Test_O8B_渲染快照跟踪();
+		Test_O8C_物理投影();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{
