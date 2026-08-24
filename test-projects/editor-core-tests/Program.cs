@@ -161,6 +161,53 @@ internal static class Program
 		Check("层级：环被拒绝", threw);
 	}
 
+	private static void Test_O8A_编辑模型()
+	{
+		var reg = new ComponentSchemaRegistry();
+		reg.Register<TransformComponent>();
+		var session = new EditorSession(schemas: reg);
+		int changed = 0;
+		session.Changed += (_, _) => changed++;
+		var root = session.CreateGameObject("Root");
+		var child = session.CreateGameObject("Child");
+		session.SetParent(child, root);
+		var other = session.CreateGameObject("Other");
+		session.Document.Relations.Add(new RelationRecord
+		{
+			TypeName = "Test.Rel",
+			SourceIndex = session.Document.Objects.IndexOf(root),
+			TargetIndex = session.Document.Objects.IndexOf(other)
+		});
+		session.SelectObject(child.Uid);
+		Check("O8-A：Uid 选择稳定", session.SelectedObjectUid == child.Uid && session.SelectedObject == child);
+		Check("O8-A：选择不标记 dirty", session.IsDirty);
+		string saved = session.SaveSceneText();
+		Check("O8-A：保存清除 dirty", !session.IsDirty && saved.Length > 0);
+		session.RenameGameObject(root, "Renamed");
+		Check("O8-A：重命名标记 dirty", session.IsDirty && root.Name == "Renamed");
+		session.Undo();
+		Check("O8-A：Undo 重命名", root.Name == "Root");
+		session.Redo();
+		Check("O8-A：Redo 重命名", root.Name == "Renamed");
+		session.DeleteGameObject(root);
+		Check("O8-A：删除对象子树", session.FindObject(root.Uid) == null && session.FindObject(child.Uid) == null);
+		Check("O8-A：删除对象清理关系", session.Document.Relations.Count == 0);
+		session.Undo();
+		Check("O8-A：Undo 恢复对象与关系", session.FindObject(root.Uid) == root && session.FindObject(child.Uid) == child && session.Document.Relations.Count == 1);
+		session.Redo();
+		Check("O8-A：Redo 再次删除", session.FindObject(root.Uid) == null && session.Document.Relations.Count == 0);
+		Check("O8-A：变更通知触发", changed >= 5);
+
+		var componentObject = session.CreateGameObject("ComponentOwner");
+		var component = session.AddComponent(componentObject, reg.Get<TransformComponent>());
+		session.RemoveComponent(componentObject, component);
+		Check("O8-A：删除组件", componentObject.Components.Count == 0);
+		session.Undo();
+		Check("O8-A：Undo 恢复组件", componentObject.Components.Count == 1);
+		session.Redo();
+		Check("O8-A：Redo 删除组件", componentObject.Components.Count == 0);
+	}
+
 	private static int Main()
 	{
 		Console.WriteLine("editor-core-tests —— O7 编辑器第一切片验证（Design World 编辑闭环）\n");
@@ -170,6 +217,7 @@ internal static class Program
 		Test_层级编辑();
 		Test_重挂_undo_保存();
 		Test_环检测();
+		Test_O8A_编辑模型();
 		Console.WriteLine($"\n通过 {_passed} 项，失败 {_failed.Count} 项");
 		if (_failed.Count > 0)
 		{

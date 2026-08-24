@@ -15,13 +15,36 @@ namespace Sola3d.Editor;
 /// <summary>Design World 编辑会话：内存文档（GameWorldSnapshot） + 编辑操作 + undo 栈。</summary>
 public sealed class EditorSession
 {
+	private sealed record EditCommand(Action Undo, Action Redo);
+	private sealed class LayoutState
+	{
+		public required List<GameObjectRecord> Order { get; init; }
+		public required Dictionary<GameObjectRecord, GameObjectRecord?> Parents { get; init; }
+		public required List<(RelationRecord Record, GameObjectRecord? Source, GameObjectRecord? Target)> Relations { get; init; }
+	}
 	/// <summary>Design 文档模型（.bscene 数据；对象序 = 物理顺序，Uid 稳定身份）。</summary>
 	public GameWorldSnapshot Document { get; }
 
 	private readonly ComponentSchemaRegistry _schemas;
-	private readonly Stack<Action> _undoStack = new();
+	private readonly Stack<EditCommand> _undoStack = new();
+	private readonly Stack<EditCommand> _redoStack = new();
 	private ulong _nextUid = 1;
+	private ulong? _selectedObjectUid;
 
+	/// <summary>文档是否有未保存的 Design 修改。</summary>
+	public bool IsDirty { get; private set; }
+
+	/// <summary>当前选中对象的稳定 Uid；选择不依赖列表索引。</summary>
+	public ulong? SelectedObjectUid => _selectedObjectUid;
+
+	/// <summary>当前选中对象；对象被删除后自动清除。</summary>
+	public GameObjectRecord? SelectedObject => _selectedObjectUid.HasValue ? FindObject(_selectedObjectUid.Value) : null;
+
+	/// <summary>文档编辑变化通知。</summary>
+	public event EventHandler? Changed;
+
+	/// <summary>选择变化通知；选择不改变 dirty 状态。</summary>
+	public event EventHandler? SelectionChanged;
 	/// <summary>编辑器可以使用的组件 Schema 注册表（O3 元数据）。</summary>
 	public ComponentSchemaRegistry Schemas => _schemas;
 
@@ -46,101 +69,99 @@ public sealed class EditorSession
 	{
 		var record = new GameObjectRecord { Name = name, Uid = _nextUid++, ParentIndex = -1 };
 		Document.Objects.Add(record);
-		_undoStack.Push(() => Document.Objects.Remove(record));
+		PushEdit(() => Document.Objects.Remove(record), () => Document.Objects.Add(record));
 		return record;
 	}
 
 	/// <summary>设置父对象（层级编辑；null = 顶层）。父必须在文档中且非自身。</summary>
 	public void SetParent(GameObjectRecord obj, GameObjectRecord? parent)
 	{
+		EnsureObject(obj);
 		if (obj == parent)
 		{
 			throw new InvalidOperationException("对象不能成为自己的父。");
 		}
+		if (parent != null)
+		{
+			EnsureObject(parent);
+		}
 		int objIdx = Document.Objects.IndexOf(obj);
-		if (objIdx < 0)
-		{
-			throw new InvalidOperationException("对象不在文档中。");
-		}
-		if (parent != null && Document.Objects.IndexOf(parent) < 0)
-		{
-			throw new InvalidOperationException("父对象不在文档中。");
-		}
-		// 环检测：parent 不能是 obj 的后代（子树内）。
 		if (parent != null && IsDescendant(parent, objIdx))
 		{
 			throw new InvalidOperationException("父对象不能是子对象的后代（环）。");
 		}
-		if (obj.ParentIndex == (parent == null ? -1 : Document.Objects.IndexOf(parent)))
+		int parentIndex = parent == null ? -1 : Document.Objects.IndexOf(parent);
+		if (obj.ParentIndex == parentIndex)
 		{
-			return; // 无变化
+			return;
 		}
-
-		// 快照：原列表顺序、每对象原父、原关系端点（引用身份）——undo 用。
-		var beforeOrder = new List<GameObjectRecord>(Document.Objects);
-		var beforeParent = new Dictionary<GameObjectRecord, GameObjectRecord?>();
-		foreach (var o in beforeOrder)
-		{
-			int pi = o.ParentIndex;
-			beforeParent[o] = pi >= 0 && pi < beforeOrder.Count ? beforeOrder[pi] : null;
-		}
-		var relSnapshot = new List<(GameObjectRecord? Src, GameObjectRecord? Dst)>();
-		foreach (var r in Document.Relations)
-		{
-			relSnapshot.Add((
-				r.SourceIndex >= 0 && r.SourceIndex < beforeOrder.Count ? beforeOrder[r.SourceIndex] : null,
-				r.TargetIndex >= 0 && r.TargetIndex < beforeOrder.Count ? beforeOrder[r.TargetIndex] : null));
-		}
-
-		// 1) obj 的 DFS 连续子树区间。
-		int subStart = objIdx;
-		int subEnd = subStart + SubtreeSpan(subStart);
-		var subtree = Document.Objects.GetRange(subStart, subEnd - subStart);
-
-		// 2) 先移除子树。
-		Document.Objects.RemoveRange(subStart, subEnd - subStart);
-
-		// 3) 在"移除后"的列表上定位新插入点：父 DFS 子树末尾；顶层 = 末尾。
-		int insertAt;
-		if (parent == null)
-		{
-			insertAt = Document.Objects.Count;
-		}
-		else
-		{
-			int pIdx = Document.Objects.IndexOf(parent);
-			insertAt = pIdx + SubtreeSpan(pIdx);
-		}
-		Document.Objects.InsertRange(insertAt, subtree);
-
-		// 4) 全表按身份重建父引用：obj → parent，其余保持原父（beforeParent）。
-		foreach (var o in Document.Objects)
-		{
-			var p = ReferenceEquals(o, obj) ? parent : beforeParent[o];
-			o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
-		}
-
-		// 5) 关系端点按引用重算（reviewer P1-2：重排对象必须同步关系索引）。
-		ApplyRelationSnapshot(relSnapshot);
-
-		// undo：恢复原顺序、原父、原关系端点。
-		_undoStack.Push(() =>
-		{
-			var current = new List<GameObjectRecord>(Document.Objects);
-			Document.Objects.Clear();
-			foreach (var o in beforeOrder)
-			{
-				Document.Objects.Add(current[current.IndexOf(o)]);
-			}
-			for (int i = 0; i < Document.Objects.Count; i++)
-			{
-				var o = Document.Objects[i];
-				var p = beforeParent[o];
-				o.ParentIndex = p == null ? -1 : Document.Objects.IndexOf(p);
-			}
-			ApplyRelationSnapshot(relSnapshot);
-		});
+		LayoutState before = CaptureLayout();
+		MoveParentCore(obj, parent);
+		LayoutState after = CaptureLayout();
+		PushEdit(() => RestoreLayout(before), () => RestoreLayout(after));
 	}
+	private LayoutState CaptureLayout()
+	{
+		var order = new List<GameObjectRecord>(Document.Objects);
+		var parents = new Dictionary<GameObjectRecord, GameObjectRecord?>();
+		foreach (var item in order)
+		{
+			int parentIndex = item.ParentIndex;
+			parents[item] = parentIndex >= 0 && parentIndex < order.Count ? order[parentIndex] : null;
+		}
+		var relations = new List<(RelationRecord, GameObjectRecord?, GameObjectRecord?)>();
+		foreach (var relation in Document.Relations)
+		{
+			relations.Add((relation,
+				relation.SourceIndex >= 0 && relation.SourceIndex < order.Count ? order[relation.SourceIndex] : null,
+				relation.TargetIndex >= 0 && relation.TargetIndex < order.Count ? order[relation.TargetIndex] : null));
+		}
+		return new LayoutState { Order = order, Parents = parents, Relations = relations };
+	}
+
+	private void RestoreLayout(LayoutState state)
+	{
+		Document.Objects.Clear();
+		Document.Objects.AddRange(state.Order);
+		foreach (var item in state.Order)
+		{
+			GameObjectRecord? parent = state.Parents[item];
+			item.ParentIndex = parent == null ? -1 : Document.Objects.IndexOf(parent);
+		}
+		Document.Relations.Clear();
+		foreach (var (record, source, target) in state.Relations)
+		{
+			record.SourceIndex = source == null ? -1 : Document.Objects.IndexOf(source);
+			record.TargetIndex = target == null ? -1 : Document.Objects.IndexOf(target);
+			Document.Relations.Add(record);
+		}
+	}
+
+	private void MoveParentCore(GameObjectRecord obj, GameObjectRecord? parent)
+	{
+		LayoutState before = CaptureLayout();
+		int start = Document.Objects.IndexOf(obj);
+		int span = SubtreeSpan(start);
+		var subtree = Document.Objects.GetRange(start, span);
+		Document.Objects.RemoveRange(start, span);
+		int insertAt = parent == null ? Document.Objects.Count : Document.Objects.IndexOf(parent) + SubtreeSpan(Document.Objects.IndexOf(parent));
+		Document.Objects.InsertRange(insertAt, subtree);
+		foreach (var item in Document.Objects)
+		{
+			GameObjectRecord? oldParent = before.Parents[item];
+			item.ParentIndex = ReferenceEquals(item, obj)
+				? (parent == null ? -1 : Document.Objects.IndexOf(parent))
+				: (oldParent == null ? -1 : Document.Objects.IndexOf(oldParent));
+		}
+		ApplyRelationSnapshot(before.Relations.ConvertAll(r => (r.Source, r.Target)));
+	}
+
+	private List<GameObjectRecord> CollectSubtree(GameObjectRecord obj)
+	{
+		int start = Document.Objects.IndexOf(obj);
+		return Document.Objects.GetRange(start, SubtreeSpan(start));
+	}
+
 
 	/// <summary>按对象引用重写 Document.Relations 的端点索引（引用稳定，index 随重排变）。</summary>
 	private void ApplyRelationSnapshot(List<(GameObjectRecord? Src, GameObjectRecord? Dst)> relSnapshot)
@@ -192,44 +213,196 @@ public sealed class EditorSession
 	}
 
 	/// <summary>添加组件（Design：给对象 record 加组件 record；TypeName = Schema 稳定名）。</summary>
+	private static void SetPropertyCore(GameComponentRecord comp, string propertyName, object? value)
+	{
+		int index = comp.Properties.FindIndex(kv => kv.Key == propertyName);
+		var pair = new KeyValuePair<string, object?>(propertyName, value);
+		if (index >= 0)
+		{
+			comp.Properties[index] = pair;
+		}
+		else
+		{
+			comp.Properties.Add(pair);
+		}
+	}
+
+	/// <summary>添加组件（Design：给对象 record 加组件；TypeName = Schema 稳定名）。</summary>
 	public GameComponentRecord AddComponent(GameObjectRecord obj, ComponentSchema schema)
 	{
 		var rec = new GameComponentRecord { TypeName = schema.TypeName };
 		obj.Components.Add(rec);
-		_undoStack.Push(() => obj.Components.Remove(rec));
+		PushEdit(() => obj.Components.Remove(rec), () => obj.Components.Add(rec));
 		return rec;
 	}
 
 	/// <summary>写组件属性（Design：Properties 键值对，值可序列化；undo 恢复旧值）。</summary>
 	public void SetProperty(GameComponentRecord comp, string propertyName, object? value)
 	{
-		int i = comp.Properties.FindIndex(kv => kv.Key == propertyName);
-		object? old = i >= 0 ? comp.Properties[i].Value : null;
-		if (i >= 0)
-		{
-			comp.Properties[i] = new KeyValuePair<string, object?>(propertyName, value);
-		}
-		else
-		{
-			comp.Properties.Add(new KeyValuePair<string, object?>(propertyName, value));
-		}
-		// undo：删到旧状态（无旧值 → 移除；有旧值 → 还原）。
-		_undoStack.Push(() =>
-		{
-			int j = comp.Properties.FindIndex(kv => kv.Key == propertyName);
-			if (i >= 0)
+		ArgumentNullException.ThrowIfNull(comp);
+		ArgumentNullException.ThrowIfNull(propertyName);
+		int index = comp.Properties.FindIndex(kv => kv.Key == propertyName);
+		bool existed = index >= 0;
+		object? old = existed ? comp.Properties[index].Value : null;
+		SetPropertyCore(comp, propertyName, value);
+		PushEdit(
+			() =>
 			{
-				comp.Properties[j] = new KeyValuePair<string, object?>(propertyName, old);
-			}
-			else if (j >= 0)
-			{
-				comp.Properties.RemoveAt(j);
-			}
-		});
+				if (existed)
+				{
+					comp.Properties[index] = new KeyValuePair<string, object?>(propertyName, old);
+				}
+				else
+				{
+					int current = comp.Properties.FindIndex(kv => kv.Key == propertyName);
+					if (current >= 0) comp.Properties.RemoveAt(current);
+				}
+			},
+			() => SetPropertyCore(comp, propertyName, value));
 	}
 
 	// ---------- Undo ----------
+	// ---------- Undo / Redo ----------
 
+	private void PushEdit(Action undo, Action redo)
+	{
+		_undoStack.Push(new EditCommand(undo, redo));
+		_redoStack.Clear();
+		MarkChanged();
+	}
+
+	private void MarkChanged()
+	{
+		IsDirty = true;
+		Changed?.Invoke(this, EventArgs.Empty);
+	}
+
+	private void EnsureObject(GameObjectRecord obj)
+	{
+		ArgumentNullException.ThrowIfNull(obj);
+		if (Document.Objects.IndexOf(obj) < 0)
+		{
+			throw new InvalidOperationException("对象不在文档中。");
+		}
+	}
+
+	/// <summary>按稳定 Uid 查找对象。</summary>
+	public GameObjectRecord? FindObject(ulong uid)
+	{
+		foreach (var obj in Document.Objects)
+		{
+			if (obj.Uid == uid)
+			{
+				return obj;
+			}
+		}
+		return null;
+	}
+
+	/// <summary>选择对象。null 清除选择；选择不进入 Undo 栈。</summary>
+	public void SelectObject(ulong? uid)
+	{
+		if (uid.HasValue && FindObject(uid.Value) == null)
+		{
+			throw new InvalidOperationException("不能选择不在文档中的对象。");
+		}
+		if (_selectedObjectUid == uid)
+		{
+			return;
+		}
+		_selectedObjectUid = uid;
+		SelectionChanged?.Invoke(this, EventArgs.Empty);
+	}
+
+	public void ClearSelection() => SelectObject(null);
+
+	/// <summary>重命名对象。</summary>
+	public void RenameGameObject(GameObjectRecord obj, string name)
+	{
+		EnsureObject(obj);
+		ArgumentNullException.ThrowIfNull(name);
+		if (obj.Name == name)
+		{
+			return;
+		}
+		string oldName = obj.Name;
+		obj.Name = name;
+		PushEdit(() => obj.Name = oldName, () => obj.Name = name);
+	}
+
+	/// <summary>删除对象及其连续 DFS 子树，并清理相关关系。</summary>
+	public void DeleteGameObject(GameObjectRecord obj)
+	{
+		EnsureObject(obj);
+		LayoutState before = CaptureLayout();
+		var removed = CollectSubtree(obj);
+		var removedSet = new HashSet<GameObjectRecord>(removed);
+		Document.Objects.RemoveAll(removedSet.Contains);
+		var relationEndpoints = new Dictionary<RelationRecord, (GameObjectRecord? Source, GameObjectRecord? Target)>();
+		foreach (var relation in Document.Relations)
+		{
+			relationEndpoints[relation] = (
+				relation.SourceIndex >= 0 && relation.SourceIndex < before.Order.Count ? before.Order[relation.SourceIndex] : null,
+				relation.TargetIndex >= 0 && relation.TargetIndex < before.Order.Count ? before.Order[relation.TargetIndex] : null);
+		}
+		for (int i = Document.Relations.Count - 1; i >= 0; i--)
+		{
+			var relation = Document.Relations[i];
+			var endpoints = relationEndpoints[relation];
+			if (endpoints.Source == null || endpoints.Target == null || removedSet.Contains(endpoints.Source) || removedSet.Contains(endpoints.Target))
+			{
+				Document.Relations.RemoveAt(i);
+			}
+		}
+		foreach (var relation in Document.Relations)
+		{
+			var endpoints = relationEndpoints[relation];
+			relation.SourceIndex = endpoints.Source == null ? -1 : Document.Objects.IndexOf(endpoints.Source);
+			relation.TargetIndex = endpoints.Target == null ? -1 : Document.Objects.IndexOf(endpoints.Target);
+		}
+		LayoutState after = CaptureLayout();
+		bool selectedRemoved = false;
+		if (_selectedObjectUid.HasValue)
+		{
+			foreach (var item in removed)
+			{
+				if (item.Uid == _selectedObjectUid.Value)
+				{
+					selectedRemoved = true;
+					break;
+				}
+			}
+		}
+		if (selectedRemoved)
+		{
+			SelectObject(null);
+		}
+		PushEdit(
+			() =>
+			{
+				RestoreLayout(before);
+				if (selectedRemoved) SelectObject(obj.Uid);
+			},
+			() =>
+			{
+				RestoreLayout(after);
+				if (selectedRemoved) SelectObject(null);
+			});
+	}
+
+	/// <summary>删除对象上的组件。</summary>
+	public void RemoveComponent(GameObjectRecord obj, GameComponentRecord component)
+	{
+		EnsureObject(obj);
+		ArgumentNullException.ThrowIfNull(component);
+		int index = obj.Components.IndexOf(component);
+		if (index < 0)
+		{
+			throw new InvalidOperationException("组件不属于该对象。");
+		}
+		obj.Components.RemoveAt(index);
+		PushEdit(() => obj.Components.Insert(index, component), () => obj.Components.Remove(component));
+	}
 	/// <summary>回滚最近一次编辑操作（栈内）。</summary>
 	public void Undo()
 	{
@@ -237,13 +410,33 @@ public sealed class EditorSession
 		{
 			return;
 		}
-		_undoStack.Pop()();
+		var command = _undoStack.Pop();
+		command.Undo();
+		_redoStack.Push(command);
+		MarkChanged();
+	}
+
+	/// <summary>重做最近一次被撤销的编辑操作。</summary>
+	public void Redo()
+	{
+		if (_redoStack.Count == 0)
+		{
+			return;
+		}
+		var command = _redoStack.Pop();
+		command.Redo();
+		_undoStack.Push(command);
+		MarkChanged();
 	}
 
 	// ---------- 保存 / 载入（Design ↔ .bscene 文本闭环） ----------
-
-	/// <summary>保存：文档 → .bscene 文本（Serialize，确定性）。</summary>
-	public string SaveSceneText() => GameWorldTextSerializer.Serialize(Document);
+	/// <summary>保存：文档 → .bscene 文本（Serialize，确定性），并清除 dirty。</summary>
+	public string SaveSceneText()
+	{
+		string text = GameWorldTextSerializer.Serialize(Document);
+		IsDirty = false;
+		return text;
+	}
 
 	/// <summary>载入：.bscene 文本 → 新 EditorSession（未注册组件按 R24 缺省策略保留 token）。</summary>
 	public static EditorSession LoadScene(string text, ComponentSchemaRegistry? schemas = null)
