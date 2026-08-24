@@ -16,33 +16,33 @@
 	  <TextBlock Text="Transform（Position）" FontWeight="SemiBold" />
 	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
 		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
-		<TextBox Grid.Column="1" Text="{Binding PositionX, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="1" Text="{Binding PositionX}" />
 		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
-		<TextBox Grid.Column="3" Text="{Binding PositionY, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="3" Text="{Binding PositionY}" />
 		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
-		<TextBox Grid.Column="5" Text="{Binding PositionZ, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="5" Text="{Binding PositionZ}" />
 	  </Grid>
 	</StackPanel>
 	<StackPanel Spacing="4">
 	  <TextBlock Text="Rotation（度）" FontWeight="SemiBold" />
 	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
 		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
-		<TextBox Grid.Column="1" Text="{Binding RotationX, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="1" Text="{Binding RotationX}" />
 		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
-		<TextBox Grid.Column="3" Text="{Binding RotationY, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="3" Text="{Binding RotationY}" />
 		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
-		<TextBox Grid.Column="5" Text="{Binding RotationZ, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="5" Text="{Binding RotationZ}" />
 	  </Grid>
 	</StackPanel>
 	<StackPanel Spacing="4">
 	  <TextBlock Text="Scale" FontWeight="SemiBold" />
 	  <Grid ColumnDefinitions="Auto,*,12,*,12,*">
 		<TextBlock Grid.Column="0" Text="X" VerticalAlignment="Center" />
-		<TextBox Grid.Column="1" Text="{Binding ScaleX, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="1" Text="{Binding ScaleX}" />
 		<TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" />
-		<TextBox Grid.Column="3" Text="{Binding ScaleY, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="3" Text="{Binding ScaleY}" />
 		<TextBlock Grid.Column="4" Text="Z" VerticalAlignment="Center" />
-		<TextBox Grid.Column="5" Text="{Binding ScaleZ, UpdateSourceTrigger=LostFocus}" />
+		<TextBox Grid.Column="5" Text="{Binding ScaleZ}" />
 	  </Grid>
 	</StackPanel>
 
