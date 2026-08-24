@@ -14,7 +14,7 @@
 | 接口 | 职责 | 实现状态 |
 |---|---|---|
 | `IGateway` | 帧生命周期钩子（BeginFrame/EndFrame） | ✅ 基类 |
-| `IInputGateway` | 输入采集（fixed 边界采样 → InputFrame） | ⚠️ 接口已定义，无 Godot 真桥 |
+| `IInputGateway` | 输入采集（fixed 边界采样 → InputFrame） | ✅ `GodotInputGateway`（InputMap 动作采样，WASD/空格；`InputPreview` --input 演示，headless 空帧 + 真窗口按键待用户协助验证） |
 | `IWindowGateway` | 窗口宿主 | ⚠️ 接口已定义，无真桥 |
 | `IRenderGateway` | 渲染世界宿主 | ✅ `GodotRenderGateway` 完整（O6/O7.5 建立，O8-B 闭合生命周期） |
 | `IPhysicsGateway` | 物理世界宿主 | ✅ `GodotPhysicsGateway` 第一刀（O8 物理域：下落 + 位姿回传） |
@@ -34,7 +34,7 @@ Port 三通道（`modules/mainloop/Ports.cs`）：`EventBus`（Gateway→Gamepla
 | 音频 | `AudioGateway` | AudioStreamPlayer 2D/3D、AudioStreamPreviewGenerator | `AudioComponent` | ❌ 未定义未实现 |
 | UI/2D | `UIGateway` | CanvasItem/CanvasLayer/StatusIndicator | UI/2D 组件 | ⚠️ 接口已定义无真桥；产品聚焦风格化 3D，UI 长期保留 backend |
 | 导航 | `NavigationGateway` | NavigationAgent/Region/Link/Obstacle | `NavigationComponent` | ❌ 未定义未实现 |
-| 输入/窗口 | `InputGateway`/`WindowGateway` | 输入底层/平台窗口后端 | — | ⚠️ 接口已定义无真桥 |
+| 输入/窗口 | `InputGateway`/`WindowGateway` | 输入底层/平台窗口后端 | — | ✅ 输入真桥（GodotInputGateway）；窗口仍走 SceneTree |
 
 **后移/不迁移**（O0 标注）：GI（lightmap/lightmap_probe，Render 后移）、XR（平台域保留 backend）、HTTPRequest/Multiplayer（NetService 后移）、弹簧约束/IK（高级后移）。
 
