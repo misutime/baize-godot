@@ -191,7 +191,10 @@ static void __cdecl detach_impl(void *ctx, uint64_t token, EditorNativeError *e)
 			if (e) { e->code = 1; }
 			return;
 		}
-		SetWindowPos(child, nullptr, 0, 0, 320, 240, SWP_NOACTIVATE | SWP_NOZORDER);
+		if (!SetWindowPos(child, nullptr, 0, 0, 320, 240, SWP_NOACTIVATE | SWP_NOZORDER)) {
+			if (e) { e->code = 1; } // review 2: SetWindowPos 返回值也必须检查
+			return;
+		}
 	}
 	g_attached = GetParent(child) == g_parking_hwnd;
 	if (!g_attached && e) { e->code = 1; }
@@ -208,14 +211,18 @@ static void __cdecl resize_impl(void *ctx, uint32_t w, uint32_t h, EditorNativeE
 		if (e) { e->code = 1; } // SetWindowPos 失败 → 非零（review）
 		return;
 	}
-	// 验证最终窗矩（GetClientRect）是否匹配请求尺寸 → 防“调用成功但没生效”（review）
+	// 遥测（review 2）：GetClientRect 失败 → 报错；尺寸不匹配仅打印，不判硬失败——
+	// P0 阶段 DPI 单位未正式定义，实际尺寸与 DPI 语义留到 P1 严格验证。
 	RECT rc = {};
-	if (GetClientRect(child, &rc)) {
+	if (!GetClientRect(child, &rc)) {
+		if (e) { e->code = 1; } // GetClientRect 失败本身即异常
+		return;
+	}
+	{
 		long cw = rc.right - rc.left;
 		long ch = rc.bottom - rc.top;
 		if (cw != (long)w || ch != (long)h) {
-			std::printf("[EditorNative] resize: warn client=%ldx%ld vs req=%ux%u\n", cw, ch, w, h); std::fflush(stdout);
-			// 不视为硬失败（DPI 可能让客户区 ≠ 请求逻辑尺寸），仅警告；由宿主层决定是否判失败。
+			std::printf("[EditorNative] resize: telemetry client=%ldx%ld vs req=%ux%u (DPI 未定义, P1 严格验证)\n", cw, ch, w, h); std::fflush(stdout);
 		}
 	}
 }

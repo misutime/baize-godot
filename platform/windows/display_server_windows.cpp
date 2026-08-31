@@ -7525,6 +7525,12 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 
 void DisplayServerWindows::_destroy_window(DisplayServerEnums::WindowID p_window_id) {
 	WindowData &wd = windows[p_window_id];
+#if defined(EDITOR_NATIVE_DLL)
+	// FORK-M2（review 3）：主窗销毁时清空保存的 HWND，句柄生命周期闭环。
+	if (p_window_id == DisplayServerEnums::MAIN_WINDOW_ID) {
+		s_editor_native_engine_hwnd = nullptr;
+	}
+#endif
 
 	IPropertyStore *prop_store;
 	HRESULT hr = SHGetPropertyStoreForWindow(wd.hWnd, IID_IPropertyStore, (void **)&prop_store);
