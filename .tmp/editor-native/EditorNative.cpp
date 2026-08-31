@@ -84,38 +84,45 @@ static GodotInstance *ctx_instance(void *ctx) {
 	return (GodotInstance *)ctx;
 }
 
+static bool GetClassNameIsEngine(HWND h); // 前置声明
+
 static HWND engine_window_handle() {
-	// engine main window HWND via pure Win32 enumeration；优先按类名 "Engine"（Godot 注册的窗口类）
-	// 精确匹配——兼容顶层（--no-cross-process/P0-1 早期）与 WS_CHILD 子窗口（--wid 创建即嵌入）两种形态。
-	// 旧实现只 EnumWindows（顶层），--wid 子窗模式找不到主窗口会误抓到其它顶层窗。
+	// 引擎主窗 HWND：按类名 "Engine" + **本 EditorHost PID** 双重校验的全桌面遍历（含一层子窗）。
+	// 同事 review：不能只按类名枚举——会误伤其它 Godot 实例(其它进程/其它 EditorHost)的窗口。
+	// 故必须校验创建线程所属进程 == 本进程；跨进程子窗形态(WS_CHILD)也由 EnumChildWindows 覆盖。
+	// 注：Godot 有 window_get_native_handle() API 可直接取 HWND，但实测在引擎迭代期跨调用会段错误(时序/线程)，
+	// 故不用它，改用干净的 Win32 枚举 + PID 过滤（只影响本进程窗口，无跨进程误伤）。
 	if (g_engine_hwnd) {
 		return g_engine_hwnd;
 	}
-	DWORD tid = GetCurrentThreadId();
-	std::printf("[EditorNative] ewh: enum windows by class \"Engine\" (tid=%lu)\n", tid); std::fflush(stdout);
+	DWORD self_pid = GetCurrentProcessId();
+	std::printf("[EditorNative] ewh: enum class \"Engine\" pid=%lu\n", self_pid); std::fflush(stdout);
 	g_walk_result = nullptr;
-	// 全桌面遍历顶层 + 一层子窗口，找类名 == "Engine"（Godot 专用类名，跨进程/子窗形态均可命中）。
-	// 不能做线程过滤：--wid 嵌入时 Engine 是 Electron 进程（unigo）的子窗口，EnumWindows 只给顶层，
-	// 必须进它的子窗口搜。
-	EnumWindows([](HWND h, LPARAM) -> BOOL {
-		wchar_t cls[64] = {};
-		if (GetClassNameW(h, cls, 64) && wcscmp(cls, L"Engine") == 0) {
+	EnumWindows([](HWND h, LPARAM lp) -> BOOL {
+		// 顶层窗口：必须本进程 + 类名 Engine
+		if (GetWindowThreadProcessId(h, nullptr) == (DWORD)lp && GetClassNameIsEngine(h)) {
 			g_walk_result = h;
 			return FALSE;
 		}
+		// 子窗口：本进程顶层窗口的 children 里找类名 Engine（--wid 嵌入时 Engine 是 Electron 的子窗，
+		// 但属本进程 —— 跨进程父窗不影响子窗 PID）
 		EnumChildWindows(h, [](HWND ch, LPARAM) -> BOOL {
-			wchar_t ccls[64] = {};
-			if (GetClassNameW(ch, ccls, 64) && wcscmp(ccls, L"Engine") == 0) {
+			if (GetClassNameIsEngine(ch)) {
 				g_walk_result = ch;
 				return FALSE;
 			}
 			return TRUE;
 		}, 0);
 		return g_walk_result == nullptr;
-	}, 0);
+	}, (LPARAM)self_pid);
 	g_engine_hwnd = g_walk_result;
 	std::printf("[EditorNative] ewh: found=%p\n", (void *)g_engine_hwnd); std::fflush(stdout);
 	return g_engine_hwnd;
+}
+
+static bool GetClassNameIsEngine(HWND h) {
+	wchar_t cls[64] = {};
+	return GetClassNameW(h, cls, 64) && wcscmp(cls, L"Engine") == 0;
 }
 
 // 嵌入视口可见性修复（P0-2 关键）:
@@ -155,7 +162,10 @@ static void ensure_engine_z_top() {
 		SetWindowLongPtrW(child, GWL_STYLE, style);
 		HWND sp = SetParent(child, parent_h);
 		std::printf("[EditorNative] attach: SetParent hwnd=%p\n", (void *)sp); std::fflush(stdout);
-		SetWindowPos(child, nullptr, 0, 0, 320, 240, SWP_NOACTIVATE | SWP_NOZORDER);
+		if (!SetWindowPos(child, nullptr, 0, 0, 320, 240, SWP_NOACTIVATE | SWP_NOZORDER)) {
+			if (e) { e->code = 1; } // SetWindowPos 失败 → 非零退出码（review 补强）
+			return nullptr;
+		}
 	}
 	if (GetParent(child) == parent_h) {
 		g_attached = true;
@@ -170,7 +180,10 @@ static void __cdecl detach_impl(void *ctx, uint64_t token, EditorNativeError *e)
 	if (e) { e->code = 0; }
 	HWND child = engine_window_handle();
 	if (child && g_parking_hwnd) {
-		SetParent(child, g_parking_hwnd);
+		if (!SetParent(child, g_parking_hwnd)) {
+			if (e) { e->code = 1; }
+			return;
+		}
 		SetWindowPos(child, nullptr, 0, 0, 320, 240, SWP_NOACTIVATE | SWP_NOZORDER);
 	}
 	g_attached = GetParent(child) == g_parking_hwnd;
@@ -180,9 +193,23 @@ static void __cdecl detach_impl(void *ctx, uint64_t token, EditorNativeError *e)
 static void __cdecl resize_impl(void *ctx, uint32_t w, uint32_t h, EditorNativeError *e) {
 	if (e) { e->code = 0; }
 	HWND child = engine_window_handle();
-	if (child) {
-		// 固定面板客户区左上 + 面板尺寸（SWP_NOMOVE 保留 0,0；精确跟随避免子窗边界与面板不齐导致光标闪）
-		SetWindowPos(child, nullptr, 0, 0, (int)w, (int)h, SWP_NOACTIVATE | SWP_NOZORDER);
+	if (!child) {
+		if (e) { e->code = 1; } // 无引擎窗 → 失败（review 补强：不再默认为成功）
+		return;
+	}
+	if (!SetWindowPos(child, nullptr, 0, 0, (int)w, (int)h, SWP_NOACTIVATE | SWP_NOZORDER)) {
+		if (e) { e->code = 1; } // SetWindowPos 失败 → 非零（review）
+		return;
+	}
+	// 验证最终窗矩（GetClientRect）是否匹配请求尺寸 → 防“调用成功但没生效”（review）
+	RECT rc = {};
+	if (GetClientRect(child, &rc)) {
+		long cw = rc.right - rc.left;
+		long ch = rc.bottom - rc.top;
+		if (cw != (long)w || ch != (long)h) {
+			std::printf("[EditorNative] resize: warn client=%ldx%ld vs req=%ux%u\n", cw, ch, w, h); std::fflush(stdout);
+			// 不视为硬失败（DPI 可能让客户区 ≠ 请求逻辑尺寸），仅警告；由宿主层决定是否判失败。
+		}
 	}
 }
 static void __cdecl stub_detach(void *ctx, uint64_t token, EditorNativeError *e) {
@@ -317,7 +344,9 @@ extern "C" __declspec(dllexport) void __cdecl engine_destroy(EditorNativeAbiV1 *
 			libgodot_destroy_godot_instance(g_godot);
 			g_godot = nullptr;
 		}
-		// 复位生命周期状态，支持 destroy→create 循环
+		// 复位生命周期状态：允许同进程二次 engine_create（P0-2 review 修正——此前未复位 version 导致二次 create 仍 EALREADY）。
+		// 注：虽支持重复 create，正式 EditorHost 第一阶段定为“一个进程一个 Godot 生命周期”（重启引擎=重启宿主进程），
+		// 重复 create 仅用于测试/自愈场景。
 		g_started = false;
 		g_start_failed = false;
 		g_embedded_init = false;
@@ -325,6 +354,7 @@ extern "C" __declspec(dllexport) void __cdecl engine_destroy(EditorNativeAbiV1 *
 		g_walk_result = nullptr;
 		g_attached = false;
 		g_host_parent = nullptr;
+		g_abi.version = 0; // ← review 修正：必须复位，否则二次 create 返回 EALREADY
 		g_abi.freed = 1;
 		g_abi.busy = 0;
 		if (err) { err->code = 0; }
