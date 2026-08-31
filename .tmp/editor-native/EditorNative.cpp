@@ -78,20 +78,20 @@ static bool g_attached = false;
 static HWND g_attach_parent = nullptr;
 static HWND g_host_parent = nullptr;
 static bool g_embedded_init = false;
-static HWND g_walk_result = nullptr;
 
 static GodotInstance *ctx_instance(void *ctx) {
 	return (GodotInstance *)ctx;
 }
 
-static bool GetClassNameIsEngine(HWND h); // 前置声明
 
+static bool GetClassNameIsEngine(HWND h); // 前置声明
+static HWND g_walk_result = nullptr;
 static HWND engine_window_handle() {
-	// 引擎主窗 HWND：按类名 "Engine" + **本 EditorHost PID** 双重校验的全桌面遍历（含一层子窗）。
-	// 同事 review：不能只按类名枚举——会误伤其它 Godot 实例(其它进程/其它 EditorHost)的窗口。
-	// 故必须校验创建线程所属进程 == 本进程；跨进程子窗形态(WS_CHILD)也由 EnumChildWindows 覆盖。
-	// 注：Godot 有 window_get_native_handle() API 可直接取 HWND，但实测在引擎迭代期跨调用会段错误(时序/线程)，
-	// 故不用它，改用干净的 Win32 枚举 + PID 过滤（只影响本进程窗口，无跨进程误伤）。
+	// 引擎主窗 HWND：类名 "Engine" + 本 EditorHost PID 双重校验的全桌面遍历（含一层子窗）。
+	// 同事 review 指出：子窗口枚举也必须校验 PID（--wid 嵌入时 Engine 是 Electron 的子窗但属本进程；
+	// 若只按类名会误伤其它 Godot 实例的子窗）。故顶层与子窗都校验 GetWindowThreadProcessId==本进程。
+	// 注：v18 曾尝试让 Godot 创建时回调 set_engine_hwnd 原子保存（需重编引擎+momo 依赖），
+	// 因重编译链路阻塞未采用；当前用 PID 受限枚举（仅本进程窗口，无跨进程误伤）。
 	if (g_engine_hwnd) {
 		return g_engine_hwnd;
 	}
@@ -99,20 +99,21 @@ static HWND engine_window_handle() {
 	std::printf("[EditorNative] ewh: enum class \"Engine\" pid=%lu\n", self_pid); std::fflush(stdout);
 	g_walk_result = nullptr;
 	EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-		// 顶层窗口：必须本进程 + 类名 Engine
+		// 顶层窗口：类名 + 本进程 PID
 		if (GetWindowThreadProcessId(h, nullptr) == (DWORD)lp && GetClassNameIsEngine(h)) {
 			g_walk_result = h;
 			return FALSE;
 		}
-		// 子窗口：本进程顶层窗口的 children 里找类名 Engine（--wid 嵌入时 Engine 是 Electron 的子窗，
-		// 但属本进程 —— 跨进程父窗不影响子窗 PID）
-		EnumChildWindows(h, [](HWND ch, LPARAM) -> BOOL {
-			if (GetClassNameIsEngine(ch)) {
+		// 子窗口：同样校验 PID（同事 review 关键修复——此前缺 PID，多实例会误伤）
+		EnumChildWindows(h, [](HWND ch, LPARAM cLp) -> BOOL {
+			DWORD pid = 0;
+			GetWindowThreadProcessId(ch, &pid);
+			if (pid == (DWORD)cLp && GetClassNameIsEngine(ch)) {
 				g_walk_result = ch;
 				return FALSE;
 			}
 			return TRUE;
-		}, 0);
+		}, lp);
 		return g_walk_result == nullptr;
 	}, (LPARAM)self_pid);
 	g_engine_hwnd = g_walk_result;
@@ -351,7 +352,6 @@ extern "C" __declspec(dllexport) void __cdecl engine_destroy(EditorNativeAbiV1 *
 		g_start_failed = false;
 		g_embedded_init = false;
 		g_engine_hwnd = nullptr;
-		g_walk_result = nullptr;
 		g_attached = false;
 		g_host_parent = nullptr;
 		g_abi.version = 0; // ← review 修正：必须复位，否则二次 create 返回 EALREADY

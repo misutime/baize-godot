@@ -602,6 +602,11 @@ if env["library_type"] != "executable":
         print_error(f"Library builds unsupported for {env['platform']}")
         Exit(255)
     env.Append(CPPDEFINES=["LIBGODOT_ENABLED"])
+    # FORK-M2（EditorNative 共享库）：library_type=shared_library 时注入 EDITOR_NATIVE_DLL 宏。
+    # 该宏驱动：display_server 嵌入窗口 WS_CHILD（创建即子窗）、os_windows 导出控制（GPU 符号不导出）、
+    # libgodot.h LIBGODOT_API 置空（libgodot_* 仅供 DLL 内部）。Shared library + nomono 是 EditorNative.dll
+    # 的固定构建形态；改引擎代码后一键 scons library_type=shared_library module_mono_enabled=no 即可重建。
+    env.Append(CPPDEFINES=["EDITOR_NATIVE_DLL"])
 
 # Default num_jobs to local cpu count if not user specified.
 # SCons has a peculiarity where user-specified options won't be overridden
