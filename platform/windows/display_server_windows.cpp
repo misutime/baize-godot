@@ -38,6 +38,14 @@
 #include "wgl_detect_version.h"
 #include "winrt_utils.h"
 
+#if defined(EDITOR_NATIVE_DLL)
+// FORK-M2（v18 彻底方案）：引擎侧保存自身主窗 HWND，经 C ABI getter 供 EditorNative 读取。
+// 彻底取消全桌面类名/PID 枚举（多 EditorHost 并存 / 跨进程子窗形态都不再误伤/漏找）。
+static HWND s_editor_native_engine_hwnd = nullptr;
+extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void);
+extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void) { return s_editor_native_engine_hwnd; }
+#endif
+
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
@@ -7362,6 +7370,13 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 
 		wd.parent_hwnd = p_parent_hwnd;
 
+#if defined(EDITOR_NATIVE_DLL)
+		// FORK-M2（v18 彻底方案，同事 review 建议）：创建窗口成功后，引擎侧保存主窗 HWND。
+		// EditorNative 经 editor_native_query_engine_hwnd() 读取——彻底取消全局枚举。
+		if (id == DisplayServerEnums::MAIN_WINDOW_ID) {
+			s_editor_native_engine_hwnd = wd.hWnd;
+		}
+#endif
 		if (has_winrt_queue) {
 			wd.wrt_wd = WinRTUtils::create_wd(wd.hWnd, callable_mp(this, &DisplayServerWindows::_winrt_adv_color_info_cb), wd.id);
 		}

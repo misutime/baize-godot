@@ -83,20 +83,26 @@ static GodotInstance *ctx_instance(void *ctx) {
 	return (GodotInstance *)ctx;
 }
 
+// v18（彻底方案，同事 review 建议）：引擎 DisplayServerWindows._create_window 保存主窗 HWND 后，
+// 经 C ABI getter 暴露给 EditorNative。engine_window_handle() 直接读取——不再全桌面枚举。
+extern "C" void *editor_native_query_engine_hwnd(void);
 
 static bool GetClassNameIsEngine(HWND h); // 前置声明
 static HWND g_walk_result = nullptr;
+static volatile LONG g_engine_hwnd_is_child = 0;
 static HWND engine_window_handle() {
-	// 引擎主窗 HWND：类名 "Engine" + 本 EditorHost PID 双重校验的全桌面遍历（含一层子窗）。
-	// 同事 review 指出：子窗口枚举也必须校验 PID（--wid 嵌入时 Engine 是 Electron 的子窗但属本进程；
-	// 若只按类名会误伤其它 Godot 实例的子窗）。故顶层与子窗都校验 GetWindowThreadProcessId==本进程。
-	// 注：v18 曾尝试让 Godot 创建时回调 set_engine_hwnd 原子保存（需重编引擎+momo 依赖），
-	// 因重编译链路阻塞未采用；当前用 PID 受限枚举（仅本进程窗口，无跨进程误伤）。
+	// v18：直接读引擎保存的主窗 HWND（无枚举、无跨实例误伤）。
+	void *h = editor_native_query_engine_hwnd();
+	if (h && IsWindow((HWND)h)) {
+		g_engine_hwnd = (HWND)h;
+		return g_engine_hwnd;
+	}
+	// 兜底（仅当引擎 setter 尚未写入——如 start 前 attach/resize 预调用）：PID 受限枚举（仅本进程）。
 	if (g_engine_hwnd) {
 		return g_engine_hwnd;
 	}
 	DWORD self_pid = GetCurrentProcessId();
-	std::printf("[EditorNative] ewh: enum class \"Engine\" pid=%lu\n", self_pid); std::fflush(stdout);
+	std::printf("[EditorNative] ewh: fallback enum class \"Engine\" pid=%lu\n", self_pid); std::fflush(stdout);
 	g_walk_result = nullptr;
 	EnumWindows([](HWND h, LPARAM lp) -> BOOL {
 		// 顶层窗口：类名 + 本进程 PID
