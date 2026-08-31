@@ -2658,7 +2658,13 @@ void DisplayServerWindows::_get_window_style(bool p_main_window, bool p_initiali
 	}
 
 	if (p_embed_child) {
+#if defined(EDITOR_NATIVE_DLL)
+		// FORK-M2（v17 真 WS_CHILD）：EditorNative 嵌入模式下引擎窗口为真子窗口
+		//（创建即 WS_CHILD，引擎自知嵌入，attach SetParent 换父后不会被自我复位为顶层）。
+		r_style |= WS_CHILD | WS_CLIPSIBLINGS;
+#else
 		r_style |= WS_POPUP;
+#endif
 	} else if (p_fullscreen || p_borderless) {
 		r_style |= WS_POPUP; // p_borderless was WS_EX_TOOLWINDOW in the past.
 		if (p_minimized) {

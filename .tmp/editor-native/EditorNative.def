@@ -1,0 +1,6 @@
+; SPDX-License-Identifier: MIT
+; EditorNative.def —— S1 首步导出面（仅两个入口；v15 〇 导出闭环）
+LIBRARY "EditorNative"
+EXPORTS
+    engine_create
+    engine_destroy

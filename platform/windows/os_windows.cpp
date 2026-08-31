@@ -98,11 +98,21 @@ extern "C" {
 #endif
 
 extern "C" {
+// FORK-M2（v15 〇 导出闭环）：EDITOR_NATIVE_DLL=1 时这些符号保持普通全局、不导出
+//（避免 /exports 超集；引擎主体（executable）构建时行为不变）。
+#if defined(EDITOR_NATIVE_DLL)
+#ifdef ENABLE_PREFER_HIGH_PERFORMANCE_GPU
+DWORD NvOptimusEnablement = 1;
+int AmdPowerXpressRequestHighPerformance = 1;
+#endif // ENABLE_PREFER_HIGH_PERFORMANCE_GPU
+void NoHotPatch() {} // Disable Nahimic code injection.
+#else
 #ifdef ENABLE_PREFER_HIGH_PERFORMANCE_GPU
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
 __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #endif // ENABLE_PREFER_HIGH_PERFORMANCE_GPU
 __declspec(dllexport) void NoHotPatch() {} // Disable Nahimic code injection.
+#endif // EDITOR_NATIVE_DLL
 }
 
 // Workaround mingw-w64 < 4.0 bug
@@ -2058,8 +2068,9 @@ String OS_Windows::get_system_font_path(const String &p_font_name, int p_weight,
 
 String OS_Windows::get_executable_path() const {
 	WCHAR bufname[4096];
-	GetModuleFileNameW(nullptr, bufname, 4096);
+	GetModuleFileNameW(hInstance, bufname, 4096);
 	String s = String::utf16((const char16_t *)bufname).replace_char('\\', '/');
+	// FORK-M2（S1a1）：基于构造时传入的模块句柄（EXE=宿主自身；DLL 嵌入=引擎 DLL）
 	return s;
 }
 
