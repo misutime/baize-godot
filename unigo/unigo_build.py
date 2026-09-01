@@ -9,8 +9,8 @@ UniGo Godot 内核构建入口。
 职责:
   1. 读取 unigo_modules.cfg 白名单;
   2. 从各模块 config.py 解析真实依赖图(unigo_module_deps.json,自动生成);
-  3. 校验白名单内模块的依赖是否齐全(缺依赖直接报错,不产出半成品);
-  4. 校验"白名单自动补全后是否拉入了我们明确排除的模块"(报警提示);
+  3. 校验白名单内模块的必需依赖是否显式启用(缺依赖直接报错,不产出半成品);
+  4. 校验依赖名称和明确排除模块,避免 SCons 静默禁用目标模块;
   5. 生成完整 scons 命令并执行;
   6. 校验产物 DLL 存在。
 
@@ -91,37 +91,41 @@ def parse_whitelist(cfg_text: str) -> tuple[set[str], dict[str, list[str]]]:
     return modules, declared_deps
 
 
-def extract_dependencies_from_configs() -> dict[str, list[str]]:
-    """从各模块 config.py 的 env.module_add_dependencies() 解析真实依赖图。"""
+def extract_dependencies_from_configs() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """解析真实依赖图,返回(全部依赖,必需依赖)。
+
+    Godot 的第三个参数名为 optional:省略或 False 表示必需依赖,
+    True 表示仅在依赖模块已启用时参与排序的可选依赖。
+    """
     deps: dict[str, list[str]] = {}
+    required_deps: dict[str, list[str]] = {}
     if not MODULES_DIR.is_dir():
-        return deps
+        return deps, required_deps
     for config_file in MODULES_DIR.glob("*/config.py"):
         module_name = config_file.parent.name
         text = config_file.read_text(encoding="utf-8", errors="ignore")
-        # 匹配: module_add_dependencies("模块", ["dep1", "dep2"], True)
         for m in re.finditer(
             r'module_add_dependencies\(\s*"([a-z0-9_]+)"\s*,\s*\[([^\]]*)\]\s*(?:,\s*(True|False))?\s*\)',
             text,
         ):
             dep_module = m.group(1)
             dep_list = [d.strip().strip('"').strip("'") for d in m.group(2).split(",") if d.strip()]
-            if dep_module == module_name:
-                deps.setdefault(module_name, []).extend(dep_list)
-    return deps
+            if dep_module != module_name:
+                continue
+            deps.setdefault(module_name, []).extend(dep_list)
+            if m.group(3) != "True":
+                required_deps.setdefault(module_name, []).extend(dep_list)
+    return deps, required_deps
 
 
-def build_dependency_graph() -> dict[str, list[str]]:
-    """构建全量依赖图:{模块: 直接依赖列表}。优先用真实 config.py,回退白名单声明。"""
-    real = extract_dependencies_from_configs()
+def build_dependency_graph() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """构建全量依赖图和必需依赖图,白名单声明只补充审计信息。"""
+    graph, required_graph = extract_dependencies_from_configs()
     _, declared = parse_whitelist(CFG_FILE.read_text(encoding="utf-8"))
-    graph: dict[str, list[str]] = {}
-    for m in real:
-        graph[m] = real[m]
-    # 白名单显式声明的依赖(覆盖/补充)
-    for m, deps in declared.items():
-        graph[m] = deps
-    return graph
+    for module, dependencies in declared.items():
+        current = graph.setdefault(module, [])
+        current.extend(dep for dep in dependencies if dep not in current)
+    return graph, required_graph
 
 
 def resolve_transitive(module: str, graph: dict[str, list[str]], seen: set[str] | None = None) -> set[str]:
@@ -135,40 +139,31 @@ def resolve_transitive(module: str, graph: dict[str, list[str]], seen: set[str] 
     return seen
 
 
-def check_dependencies(whitelist: set[str], graph: dict[str, list[str]], declared: dict[str, list[str]]) -> list[str]:
-    """校验白名单内模块的依赖是否齐全。
+def check_dependencies(
+    whitelist: set[str], graph: dict[str, list[str]], required_graph: dict[str, list[str]]
+) -> list[str]:
+    """校验依赖名称有效,并确保必需依赖已显式加入白名单。
 
-    scons 的 modules_enabled_by_default=no 机制会“自动补全”白名单模块的依赖,
-    所以“闭包内不在白名单”的依赖是正常的自动补全项,不是错误。
-    真正的错误只有两类:
-      1. 白名单内某模块的依赖在真实图里未知(拼写错误/模块不存在);
-      2. 自动补全拉入了 EXCLUDED_MODULES 里明确排除的模块。
-    返回: 无法满足的依赖描述列表(空=通过)。
+    SCons 只检查必需依赖是否启用,不会替调用方自动启用依赖模块;
+    缺失时目标模块会被静默禁用,因此构建前必须在这里失败。
     """
     problems = []
-    all_graph_deps = {d for dd in graph.values() for d in dd}
-    for m in sorted(whitelist):
-        for dep in graph.get(m, []):
-            if dep not in whitelist and dep not in all_graph_deps and dep not in EXCLUDED_MODULES:
-                # 依赖既不在白名单、也不在任何模块的依赖声明里、也不在排除集 → 拼写错误
-                problems.append(f"{m} -> {dep}(依赖未知,可能拼写错误或模块不存在)")
+    for module in sorted(whitelist):
+        for dependency in graph.get(module, []):
+            if not (MODULES_DIR / dependency).is_dir():
+                problems.append(f"{module} -> {dependency}(依赖未知,modules/{dependency} 不存在)")
+        for dependency in required_graph.get(module, []):
+            if dependency not in whitelist:
+                problems.append(f"{module} -> {dependency}(必需依赖未加入白名单)")
     return problems
 
 
-def check_excluded_pulled_in(whitelist: set[str], graph: dict[str, list[str]]) -> list[str]:
-    """校验:白名单自动补全后,是否拉入了我们明确排除的模块。
-
-    scons 会自动启用白名单模块的全部依赖(含传递),若某个被排除模块
-    出现在闭包中,说明它会被编进内核,违背排除意图,必须报警。
-    """
+def check_excluded_dependencies(whitelist: set[str], required_graph: dict[str, list[str]]) -> list[str]:
+    """校验白名单模块的必需依赖链是否触及明确排除模块。"""
     closure_all = set()
-    for m in whitelist:
-        closure_all |= resolve_transitive(m, graph)
-    pulled = []
-    for excluded in EXCLUDED_MODULES:
-        if excluded in closure_all and excluded not in whitelist:
-            pulled.append(excluded)
-    return pulled
+    for module in whitelist:
+        closure_all |= resolve_transitive(module, required_graph)
+    return sorted(excluded for excluded in EXCLUDED_MODULES if excluded in closure_all)
 
 
 def print_error(msg: str) -> None:
@@ -209,23 +204,23 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg_text = CFG_FILE.read_text(encoding="utf-8")
-    whitelist, declared = parse_whitelist(cfg_text)
-    graph = build_dependency_graph()
+    whitelist, _ = parse_whitelist(cfg_text)
+    graph, required_graph = build_dependency_graph()
 
     print_info(f"白名单模块({len(whitelist)}): {', '.join(sorted(whitelist))}")
 
     # 依赖校验闭环
-    missing = check_dependencies(whitelist, graph, declared)
+    missing = check_dependencies(whitelist, graph, required_graph)
     if missing:
         print_error("以下白名单模块存在缺失/未知依赖,请修正 unigo_modules.cfg:")
         for item in missing:
             print_error(f"  - {item}")
         sys.exit(1)
 
-    pulled = check_excluded_pulled_in(whitelist, graph)
-    if pulled:
-        print_error(f"以下明确排除的模块被白名单依赖拉回: {', '.join(pulled)}")
-        print_error("请决定:加入白名单,或调整白名单模块避免依赖它们。")
+    excluded_dependencies = check_excluded_dependencies(whitelist, required_graph)
+    if excluded_dependencies:
+        print_error(f"以下明确排除的模块是白名单模块的必需依赖: {', '.join(excluded_dependencies)}")
+        print_error("请调整白名单模块,或从明确排除集合移除对应依赖。")
         sys.exit(1)
 
     generate_deps_file(graph)
@@ -247,6 +242,9 @@ def main() -> None:
     if result.returncode != 0:
         print_error(f"scons 构建失败(exit={result.returncode})")
         sys.exit(result.returncode)
+    if args.clean:
+        print_info("清理完成。")
+        return
 
     # 校验产物
     suffix = "editor" if DEFAULT_SCONS_ARGS["target"] == "editor" else "template_release"

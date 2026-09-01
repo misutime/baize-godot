@@ -69,12 +69,12 @@ UNIGO_API int32_t unigo_engine_iterate(unigo_handle p_handle);
 
 /**
  * 请求内核退出(设置退出标志,由后续 iterate 返回 1 或直接停止)。
- * 幂等;可在任意线程调用。
+ * 幂等;可在任意线程调用;shutdown 后返回正值 UNIGO_ERR_SHUTDOWN。
  */
 UNIGO_API int32_t unigo_engine_request_exit(unigo_handle p_handle);
 
 /**
- * 销毁内核实例(内部 Main::cleanup)。幂等;句柄此后失效。
+ * 销毁内核实例(内部 Main::cleanup)。幂等;句柄此后调用其他接口会安全返回错误。
  */
 UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle);
 

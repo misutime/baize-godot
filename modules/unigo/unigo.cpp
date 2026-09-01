@@ -24,6 +24,8 @@
 #include "core/os/os.h"
 #include "main/main.h"
 
+#include <atomic>
+#include <mutex>
 #include <string.h>
 
 /* ---- 最小 GDExtension 初始化函数 ---- */
@@ -62,8 +64,9 @@ static GDExtensionBool unigo_minimal_extension_init(
 /* ---- 内部状态:一个 Godot 内核实例 + 退出标志 ---- */
 struct UnigoEngineState {
 	GodotInstance *instance; /* 内核实例(libgodot create 返回的 GodotInstance) */
-	bool requested_exit;     /* 宿主请求退出标志(幂等置位) */
-	bool shutdown_done;      /* 已销毁标志(幂等保护) */
+	std::atomic<bool> requested_exit; /* 宿主请求退出标志(幂等置位) */
+	std::atomic<bool> shutdown_done; /* 已销毁标志(幂等保护) */
+	std::mutex instance_mutex; /* 防止迭代与销毁并发访问内核实例 */
 };
 
 /* ---- 线程局部错误缓冲(每次调用后写入,供 unigo_last_error 读取) ---- */
@@ -106,16 +109,20 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 		return nullptr;
 	}
 
-	/* 构造 argv:优先用宿主提供的 argv;否则以 argv[0]=execpath 的最小形态。 */
-	/* 上限 16 是第一阶段保护(冒烟场景参数极少),宿主需要复杂 argv 时再扩展。 */
+	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
+	/* project_path 转成 --path 参数并插在 argv[0] 后,其余宿主参数保持原序。 */
+	/* 上限 16 是第一阶段保护(冒烟场景参数极少),超出部分按尾部参数截断。 */
 	const char *argv_buf[16];
+	const bool has_host_argv = p_cfg->argc > 0 && p_cfg->argv != nullptr;
+	const int host_argc = has_host_argv ? p_cfg->argc : 0;
 	int argc = 1;
-	argv_buf[0] = p_cfg->execpath;
-	if (p_cfg->argc > 0 && p_cfg->argv != nullptr) {
-		argc = MIN(p_cfg->argc, 16);
-		for (int i = 0; i < argc; i++) {
-			argv_buf[i] = p_cfg->argv[i];
-		}
+	argv_buf[0] = has_host_argv && p_cfg->argv[0] != nullptr ? p_cfg->argv[0] : p_cfg->execpath;
+	if (p_cfg->project_path != nullptr && p_cfg->project_path[0] != '\0') {
+		argv_buf[argc++] = "--path";
+		argv_buf[argc++] = p_cfg->project_path;
+	}
+	for (int i = has_host_argv ? 1 : 0; i < host_argc && argc < 16; i++) {
+		argv_buf[argc++] = p_cfg->argv[i];
 	}
 	char *argv_ptrs[16];
 	for (int i = 0; i < argc; i++) {
@@ -140,8 +147,8 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 
 	UnigoEngineState *state = new UnigoEngineState();
 	state->instance = instance;
-	state->requested_exit = false;
-	state->shutdown_done = false;
+	state->requested_exit.store(false);
+	state->shutdown_done.store(false);
 
 	return (unigo_handle)state;
 }
@@ -152,24 +159,29 @@ UNIGO_API int32_t unigo_engine_iterate(unigo_handle p_handle) {
 
 	if (p_handle == nullptr) {
 		unigo_set_error("unigo_engine_iterate: 句柄为空");
-		return UNIGO_ERR_INVALID_ARG;
+		return -UNIGO_ERR_INVALID_ARG;
 	}
 
 	UnigoEngineState *state = (UnigoEngineState *)p_handle;
-	if (state->shutdown_done || state->instance == nullptr) {
-		unigo_set_error("unigo_engine_iterate: 句柄已失效(shutdown 后)");
-		return UNIGO_ERR_INVALID_HANDLE;
+	std::lock_guard<std::mutex> lock(state->instance_mutex);
+	if (state->shutdown_done.load()) {
+		unigo_set_error("unigo_engine_iterate: 句柄已进入 shutdown 状态");
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	if (state->instance == nullptr) {
+		unigo_set_error("unigo_engine_iterate: 句柄无有效内核实例");
+		return -UNIGO_ERR_INVALID_HANDLE;
 	}
 
 	/* 退出标志已置位:返回 1 让宿主结束循环(幂等语义,与 request_exit 呼应)。 */
-	if (state->requested_exit) {
+	if (state->requested_exit.load()) {
 		return 1;
 	}
 
 	bool ok = state->instance->iteration();
 	if (!ok) {
 		/* 引擎自身请求退出(如窗口关闭):置位标志并通知宿主结束循环。 */
-		state->requested_exit = true;
+		state->requested_exit.store(true);
 		return 1;
 	}
 
@@ -186,11 +198,12 @@ UNIGO_API int32_t unigo_engine_request_exit(unigo_handle p_handle) {
 	}
 
 	UnigoEngineState *state = (UnigoEngineState *)p_handle;
-	if (state->shutdown_done) {
-		return UNIGO_OK; /* 已销毁:幂等成功。 */
+	if (state->shutdown_done.load()) {
+		unigo_set_error("unigo_engine_request_exit: 句柄已进入 shutdown 状态");
+		return UNIGO_ERR_SHUTDOWN;
 	}
 
-	state->requested_exit = true;
+	state->requested_exit.store(true);
 	return UNIGO_OK;
 }
 
@@ -201,10 +214,10 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	}
 
 	UnigoEngineState *state = (UnigoEngineState *)p_handle;
-	if (state->shutdown_done) {
-		return; /* 幂等:已销毁。 */
+	std::lock_guard<std::mutex> lock(state->instance_mutex);
+	if (state->shutdown_done.exchange(true)) {
+		return; /* 幂等:内核已销毁。 */
 	}
-	state->shutdown_done = true;
 
 	if (state->instance != nullptr) {
 		state->instance->stop();
@@ -212,7 +225,7 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 		state->instance = nullptr;
 	}
 
-	delete state;
+	/* C ABI 没有独立的句柄释放入口,保留轻量状态作为 shutdown 后的安全墓碑。 */
 }
 
 /* ---- query_render_support:窗口渲染支持探测 ---- */

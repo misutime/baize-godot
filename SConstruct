@@ -315,7 +315,7 @@ opts.Add(
         ("executable", "static_library", "shared_library"),
     )
 )
-opts.Add(BoolVariable("editor_native", "Build as UniGo EditorNative DLL (inject EDITOR_NATIVE_DLL, requires shared_library). Default: shared_library builds auto-enable.", True))
+opts.Add(BoolVariable("editor_native", "Build as UniGo EditorNative DLL (inject EDITOR_NATIVE_DLL, requires shared_library).", False))
 
 # Thirdparty libraries
 opts.Add(BoolVariable("builtin_brotli", "Use the built-in Brotli library", True))
@@ -1234,8 +1234,8 @@ SConscript("main/SCsub")
 # FORK-M2(UniGo C ABI 强制导出):unigo_engine_* 只被外部(C# 宿主)调用,
 # 引擎内部无人引用,静态库按需拉取会被 /OPT:REF 丢弃。这里在链接目标
 # 定义前用 /INCLUDE 强制链接器拉入 unigo.obj,保证 C ABI 符号进入 DLL。
-# 仅 MSVC 平台生效(当前 UniGo 宿主平台)。
-if env["platform"] == "windows" and env.msvc:
+# 仅 MSVC 平台且 unigo 模块启用时生效(当前 UniGo 宿主平台)。
+if env["platform"] == "windows" and env.msvc and env["module_unigo_enabled"]:
     env.Append(LINKFLAGS=["/INCLUDE:unigo_engine_create"])
 
 SConscript("platform/" + env["platform"] + "/SCsub")  # Build selected platform.
