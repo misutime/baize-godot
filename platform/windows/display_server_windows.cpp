@@ -68,6 +68,29 @@ extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void) { r
 #include "drivers/sdl/joypad_sdl.h"
 #endif
 
+/* FORK-UniGo:标准光标表(文件级,供 WM_SETCURSOR 嵌入分支按形状恢复光标)。
+ * 与 cursor_set_shape 的映射一致;嵌入分支用 LoadCursor(nullptr, ...) 系统加载。 */
+static const LPCTSTR unigo_win_cursors[DisplayServerEnums::CURSOR_MAX] = {
+	IDC_ARROW,
+	IDC_IBEAM,
+	IDC_HAND, // Finger.
+	IDC_CROSS,
+	IDC_WAIT,
+	IDC_APPSTARTING,
+	IDC_SIZEALL,
+	IDC_ARROW,
+	IDC_NO,
+	IDC_SIZENS,
+	IDC_SIZEWE,
+	IDC_SIZENESW,
+	IDC_SIZENWSE,
+	IDC_SIZEALL,
+	IDC_SIZENS,
+	IDC_SIZEWE,
+	IDC_HELP
+};
+
+
 #if defined(VULKAN_ENABLED)
 #include "rendering_context_driver_vulkan_windows.h"
 #endif
@@ -3376,30 +3399,10 @@ void DisplayServerWindows::cursor_set_shape(DisplayServerEnums::CursorShape p_sh
 		return;
 	}
 
-	static const LPCTSTR win_cursors[DisplayServerEnums::CURSOR_MAX] = {
-		IDC_ARROW,
-		IDC_IBEAM,
-		IDC_HAND, // Finger.
-		IDC_CROSS,
-		IDC_WAIT,
-		IDC_APPSTARTING,
-		IDC_SIZEALL,
-		IDC_ARROW,
-		IDC_NO,
-		IDC_SIZENS,
-		IDC_SIZEWE,
-		IDC_SIZENESW,
-		IDC_SIZENWSE,
-		IDC_SIZEALL,
-		IDC_SIZENS,
-		IDC_SIZEWE,
-		IDC_HELP
-	};
-
 	if (cursors_cache.has(p_shape)) {
 		SetCursor(cursors[p_shape]);
 	} else {
-		SetCursor(LoadCursor(hInstance, win_cursors[p_shape]));
+		SetCursor(LoadCursor(hInstance, unigo_win_cursors[p_shape]));
 	}
 
 	cursor_shape = p_shape;
@@ -7011,10 +7014,8 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 		} break;
 		case WM_SETCURSOR: {
 			/* FORK-UniGo(光标修复):嵌入子窗下鼠标悬停光标消失。
-			 * 根因:else 分支依赖 hCursor != nullptr 才恢复;首次后置 null 导致后续跳过。
-			 * 修复:仅对嵌入窗口(parent_hwnd 非空)特殊处理——可见模式按 cursor_shape
-			 * 重应用光标(保留 IBEAM/自定义光标),隐藏模式保留 window_focused 条件;
-			 * 独立窗口(parent_hwnd=0)走 Godot 原逻辑。 */
+			 * 根因:review 版用 cursor_shape=CURSOR_MAX 中转重应用,高频 WM_SETCURSOR 下
+			 * 状态机处于非法中间态导致鼠标锁死。修复:直接按当前形状 SetCursor,不污染状态机。 */
 			if (LOWORD(lParam) == HTCLIENT) {
 #if defined(EDITOR_NATIVE_DLL)
 				bool is_embedded = windows[window_id].parent_hwnd != nullptr;
@@ -7027,10 +7028,14 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 							SetCursor(nullptr);
 						}
 					} else {
-						/* 嵌入 + 可见模式:按 cursor_shape 重应用光标(修复消失,保留 IBEAM/自定义)。 */
+						/* 嵌入 + 可见模式:按当前 cursor_shape 直接 SetCursor,不修改 cursor_shape 状态。
+						 * 不设 CURSOR_MAX 中转:避免状态机中途被打断停在非法值导致光标锁死。 */
 						DisplayServerEnums::CursorShape c = cursor_shape;
-						cursor_shape = DisplayServerEnums::CURSOR_MAX;
-						cursor_set_shape(c);
+						if (c >= 0 && c < DisplayServerEnums::CURSOR_MAX) {
+							SetCursor(LoadCursor(nullptr, unigo_win_cursors[c]));
+						} else {
+							SetCursor(LoadCursor(nullptr, IDC_ARROW));
+						}
 						hCursor = nullptr;
 					}
 				} else
