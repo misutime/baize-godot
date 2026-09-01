@@ -116,6 +116,13 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 		return nullptr;
 	}
 
+	/* 兼容校验:size 必须 >= 含 parent_hwnd 的结构大小,否则旧宿主结构
+	 * 不完整,不能安全读取扩展字段。 */
+	if (p_cfg->size < (int)sizeof(unigo_config)) {
+		unigo_set_error("unigo_engine_create: config 结构过小(宿主与内核版本不匹配)");
+		return nullptr;
+	}
+
 	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
 	/* project_path 转成 --path 参数并插在 argv[0] 后,其余宿主参数保持原序。 */
 	/* parent_hwnd 非 0 时注入 Godot 官方 --wid 嵌入参数(创建即 WS_CHILD 子窗)。 */
@@ -254,6 +261,8 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
  * resize 时会把合成子窗重排到上方。宿主每帧调用本函数,把 Engine 子窗提升到
  * 父窗口 Z-order 顶部(HWND_TOP,不抢焦点、不跨应用置顶)。实验证实:缺失时嵌入不可见。 */
 UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle) {
+	unigo_set_error(nullptr); /* 清旧错误,避免伪报。 */
+
 	if (p_handle == nullptr) {
 		unigo_set_error("unigo_engine_ensure_view_top: 句柄为空");
 		return -UNIGO_ERR_INVALID_ARG;
@@ -279,7 +288,11 @@ UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle) {
 	/* 判顶:父窗口的首个子窗是否就是 Engine;不是则提升。 */
 	HWND top_child = GetWindow(parent, GW_CHILD);
 	if (top_child != engine_hwnd) {
-		SetWindowPos(engine_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		BOOL ok = SetWindowPos(engine_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		if (!ok) {
+			unigo_set_error("unigo_engine_ensure_view_top: SetWindowPos 失败");
+			return -UNIGO_ERR_INTERNAL;
+		}
 	}
 #endif
 

@@ -47,7 +47,11 @@ enum {
 typedef void *unigo_handle;
 
 /* ---- 引擎配置(POD,UTF-8 字符串) ---- */
+/* 兼容约定:首字段 size = sizeof(unigo_config),宿主按自身编译填充;
+ * 内核用 size 判断是否包含扩展字段(如 parent_hwnd),避免结构扩展时
+ * 旧宿主越界读取。当前版本要求 size >= 40(含 parent_hwnd)。 */
 typedef struct unigo_config {
+	int size;                   /* 结构体字节数(宿主填充,兼容校验) */
 	const char *project_path;   /* Godot 项目路径(可选,传 NULL 用内置默认) */
 	const char *execpath;       /* 宿主可执行文件路径(必填,Main::setup 需要) */
 	const char **argv;          /* 命令行参数(可选) */

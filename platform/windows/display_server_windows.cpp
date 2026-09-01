@@ -7010,25 +7010,28 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 			}
 		} break;
 		case WM_SETCURSOR: {
-			/* FORK-UniGo(光标修复):嵌入子窗(EDITOR_NATIVE_DLL)下,鼠标悬停时光标消失。
-			 * 根因:else 分支依赖 hCursor != nullptr 才恢复光标;首次执行后 hCursor 置 null,
-			 * 后续 WM_SETCURSOR 因 hCursor==null 跳过恢复,光标永久隐藏。
-			 * 修复:嵌入模式下,非隐藏鼠标模式时总是恢复标准光标(不依赖 hCursor 状态)。 */
+			/* FORK-UniGo(光标修复):嵌入子窗下鼠标悬停光标消失。
+			 * 根因:else 分支依赖 hCursor != nullptr 才恢复;首次后置 null 导致后续跳过。
+			 * 修复:仅对嵌入窗口(parent_hwnd 非空)强制恢复光标;
+			 * 独立窗口(parent_hwnd=0)走 Godot 原逻辑(保留 IBEAM/自定义光标/焦点语义)。 */
 			if (LOWORD(lParam) == HTCLIENT) {
 #if defined(EDITOR_NATIVE_DLL)
-				if (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN) {
-					// 隐藏模式:按 Godot 原逻辑隐藏。
-					if (hCursor == nullptr) {
-						hCursor = SetCursor(nullptr);
+				bool is_embedded = windows[window_id].parent_hwnd != nullptr;
+				if (is_embedded) {
+					if (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN) {
+						/* 嵌入 + 隐藏模式:隐藏光标。 */
+						if (hCursor == nullptr) {
+							hCursor = SetCursor(nullptr);
+						} else {
+							SetCursor(nullptr);
+						}
 					} else {
-						SetCursor(nullptr);
+						/* 嵌入 + 可见模式:强制恢复光标(修复光标消失,不依赖 hCursor 状态)。 */
+						SetCursor(LoadCursor(nullptr, IDC_ARROW));
+						hCursor = nullptr;
 					}
-				} else {
-					// 非隐藏模式:强制恢复标准光标(修复光标消失)。
-					SetCursor(LoadCursor(nullptr, IDC_ARROW));
-					hCursor = nullptr;
-				}
-#else
+				} else
+#endif
 				if (windows[window_id].window_focused && (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN)) {
 					// Hide the cursor.
 					if (hCursor == nullptr) {
@@ -7044,7 +7047,6 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 						hCursor = nullptr;
 					}
 				}
-#endif
 			}
 		} break;
 		default: {
