@@ -28,6 +28,12 @@
 #include <mutex>
 #include <string.h>
 
+#if defined(EDITOR_NATIVE_DLL) && defined(WINDOWS_ENABLED)
+#include <windows.h>
+/* 引擎主窗 HWND getter(定义于 platform/windows/display_server_windows.cpp)。 */
+extern "C" void *editor_native_query_engine_hwnd(void);
+#endif
+
 /* ---- 最小 GDExtension 初始化函数 ---- */
 /* libgodot 强制要求宿主提供一个 GDExtension 初始化函数(内部经它注册伪  */
 /* GDExtension 并走完整引擎初始化)。UniGo 不是 GDExtension,不注册任何    */
@@ -92,47 +98,84 @@ extern "C" {
 /* 与 libgodot.h 的 EDITOR_NATIVE_DLL "导出闭环" 思路一致(只导出 UniGo 需要的)。 */
 #ifdef _MSC_VER
 #pragma comment(linker, "/export:unigo_engine_create")
+#pragma comment(linker, "/export:unigo_engine_create_v2")
 #pragma comment(linker, "/export:unigo_engine_iterate")
 #pragma comment(linker, "/export:unigo_engine_request_exit")
 #pragma comment(linker, "/export:unigo_engine_shutdown")
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
+#pragma comment(linker, "/export:unigo_engine_ensure_view_top")
 #pragma comment(linker, "/export:unigo_last_error")
 #endif
 
-/* ---- create:创建并启动 Godot 内核 ---- */
+/* ---- create 公共实现前置声明(v1/v2 共用) ---- */
+static unigo_handle unigo_engine_create_impl(const char *project_path, const char *execpath, const char **argv, int argc, uint64_t parent_hwnd);
+
+/* ---- create(v1):创建并启动 Godot 内核(无父窗口嵌入,旧宿主兼容) ---- */
 UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
+	if (p_cfg == nullptr) {
+		unigo_set_error("unigo_engine_create: 缺少 config");
+		return nullptr;
+	}
+	return unigo_engine_create_impl(p_cfg->project_path, p_cfg->execpath, p_cfg->argv, p_cfg->argc, 0);
+}
+
+/* ---- create(v2):创建并启动 Godot 内核(支持父窗口嵌入) ---- */
+UNIGO_API unigo_handle unigo_engine_create_v2(const unigo_config_v2 *p_cfg) {
+	if (p_cfg == nullptr) {
+		unigo_set_error("unigo_engine_create_v2: 缺少 config");
+		return nullptr;
+	}
+	return unigo_engine_create_impl(p_cfg->project_path, p_cfg->execpath, p_cfg->argv, p_cfg->argc, p_cfg->parent_hwnd);
+}
+
+/* ---- create 公共实现 ---- */
+static unigo_handle unigo_engine_create_impl(const char *project_path, const char *execpath, const char **argv, int argc, uint64_t parent_hwnd) {
 	unigo_set_error(nullptr);
 
 	/* 参数校验:execpath 是 Main::setup 的硬性要求,缺失直接失败。 */
-	if (p_cfg == nullptr || p_cfg->execpath == nullptr) {
+	if (execpath == nullptr) {
 		unigo_set_error("unigo_engine_create: 缺少 execpath");
 		return nullptr;
 	}
 
 	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
 	/* project_path 转成 --path 参数并插在 argv[0] 后,其余宿主参数保持原序。 */
+	/* parent_hwnd 非 0 时注入 Godot 官方 --wid 嵌入参数(创建即 WS_CHILD 子窗)。 */
 	/* 上限 16 是第一阶段保护(冒烟场景参数极少),超出部分按尾部参数截断。 */
 	const char *argv_buf[16];
-	const bool has_host_argv = p_cfg->argc > 0 && p_cfg->argv != nullptr;
-	const int host_argc = has_host_argv ? p_cfg->argc : 0;
-	int argc = 1;
-	argv_buf[0] = has_host_argv && p_cfg->argv[0] != nullptr ? p_cfg->argv[0] : p_cfg->execpath;
-	if (p_cfg->project_path != nullptr && p_cfg->project_path[0] != '\0') {
-		argv_buf[argc++] = "--path";
-		argv_buf[argc++] = p_cfg->project_path;
+	const bool has_host_argv = argc > 0 && argv != nullptr;
+	const int host_argc = has_host_argv ? argc : 0;
+	/* 嵌入参数占位(--wid <num> --position 0,0 --resolution 320x240 共 6 个)。 */
+	const int embed_argc = parent_hwnd != 0 ? 6 : 0;
+	int argn = 1;
+	argv_buf[0] = has_host_argv && argv[0] != nullptr ? argv[0] : execpath;
+	if (project_path != nullptr && project_path[0] != '\0') {
+		argv_buf[argn++] = "--path";
+		argv_buf[argn++] = project_path;
 	}
-	for (int i = has_host_argv ? 1 : 0; i < host_argc && argc < 16; i++) {
-		argv_buf[argc++] = p_cfg->argv[i];
+	char wid_str[32];
+	if (embed_argc > 0) {
+		/* --wid 用十进制(to_int 不认 0x 前缀);给定位置/尺寸避免子窗在客户区外。 */
+		_snprintf_s(wid_str, sizeof(wid_str), _TRUNCATE, "%llu", (unsigned long long)parent_hwnd);
+		argv_buf[argn++] = "--wid";
+		argv_buf[argn++] = wid_str;
+		argv_buf[argn++] = "--position";
+		argv_buf[argn++] = "0,0";
+		argv_buf[argn++] = "--resolution";
+		argv_buf[argn++] = "320x240";
+	}
+	for (int i = has_host_argv ? 1 : 0; i < host_argc && argn < 16; i++) {
+		argv_buf[argn++] = argv[i];
 	}
 	char *argv_ptrs[16];
-	for (int i = 0; i < argc; i++) {
+	for (int i = 0; i < argn; i++) {
 		argv_ptrs[i] = const_cast<char *>(argv_buf[i]);
 	}
 
 	/* libgodot create:内部 Main::setup + initialize(含 OS_Windows 模块句柄处理)。 */
 	/* 返回 GodotInstance(经 GDExtensionObjectPtr 伪装);失败返回 nullptr。 */
 	/* init_func 必须非空(libgodot 强制要求),提供最小 GDExtension init。 */
-	GodotInstance *instance = (GodotInstance *)libgodot_create_godot_instance(argc, argv_ptrs, unigo_minimal_extension_init);
+	GodotInstance *instance = (GodotInstance *)libgodot_create_godot_instance(argn, argv_ptrs, unigo_minimal_extension_init);
 	if (instance == nullptr) {
 		unigo_set_error("unigo_engine_create: libgodot_create_godot_instance 失败(Main::setup 或 initialize)");
 		return nullptr;
@@ -178,9 +221,8 @@ UNIGO_API int32_t unigo_engine_iterate(unigo_handle p_handle) {
 		return 1;
 	}
 
-	bool ok = state->instance->iteration();
-	if (!ok) {
-		/* 引擎自身请求退出(如窗口关闭):置位标志并通知宿主结束循环。 */
+	/* GodotInstance::iteration 返回 true 表示请求退出,false 表示继续运行。 */
+	if (state->instance->iteration()) {
 		state->requested_exit.store(true);
 		return 1;
 	}
@@ -226,6 +268,50 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	}
 
 	/* C ABI 没有独立的句柄释放入口,保留轻量状态作为 shutdown 后的安全墓碑。 */
+}
+
+/* ---- ensure_view_top:嵌入 Z-order 自愈(EditorHost 每帧调用) ---- */
+/* 背景(定稿方案 §4 坑1/坑2):Engine 子窗创建即被 Chromium 合成层
+ * (Intermediate D3D Window / RenderWidgetHostHWND)压住;Chromium 在启动/恢复/
+ * resize 时会把合成子窗重排到上方。宿主每帧调用本函数,把 Engine 子窗提升到
+ * 父窗口 Z-order 顶部(HWND_TOP,不抢焦点、不跨应用置顶)。实验证实:缺失时嵌入不可见。 */
+UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle) {
+	unigo_set_error(nullptr); /* 清旧错误,避免伪报。 */
+
+	if (p_handle == nullptr) {
+		unigo_set_error("unigo_engine_ensure_view_top: 句柄为空");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+
+	UnigoEngineState *state = (UnigoEngineState *)p_handle;
+	std::lock_guard<std::mutex> lock(state->instance_mutex);
+	if (state->shutdown_done.load() || state->instance == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+
+#if defined(EDITOR_NATIVE_DLL) && defined(WINDOWS_ENABLED)
+	HWND engine_hwnd = (HWND)editor_native_query_engine_hwnd();
+	if (engine_hwnd == nullptr) {
+		return UNIGO_OK; /* 主窗未创建(首帧前),非错误。 */
+	}
+
+	HWND parent = GetParent(engine_hwnd);
+	if (parent == nullptr) {
+		return UNIGO_OK; /* 非嵌入模式(独立窗口),无需自愈。 */
+	}
+
+	/* 判顶:父窗口的首个子窗是否就是 Engine;不是则提升。 */
+	HWND top_child = GetWindow(parent, GW_CHILD);
+	if (top_child != engine_hwnd) {
+		BOOL ok = SetWindowPos(engine_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		if (!ok) {
+			unigo_set_error("unigo_engine_ensure_view_top: SetWindowPos 失败");
+			return -UNIGO_ERR_INTERNAL;
+		}
+	}
+#endif
+
+	return UNIGO_OK;
 }
 
 /* ---- query_render_support:窗口渲染支持探测 ---- */

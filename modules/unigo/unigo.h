@@ -47,6 +47,7 @@ enum {
 typedef void *unigo_handle;
 
 /* ---- 引擎配置(POD,UTF-8 字符串) ---- */
+/* v1:原始结构(32 字节,无父窗口)。保留不变,旧宿主二进制兼容。 */
 typedef struct unigo_config {
 	const char *project_path;   /* Godot 项目路径(可选,传 NULL 用内置默认) */
 	const char *execpath;       /* 宿主可执行文件路径(必填,Main::setup 需要) */
@@ -54,12 +55,28 @@ typedef struct unigo_config {
 	int argc;                   /* argv 长度 */
 } unigo_config;
 
+/* v2:在 v1 末尾追加 parent_hwnd(仅新宿主使用;经 create_v2 传入)。 */
+typedef struct unigo_config_v2 {
+	const char *project_path;   /* Godot 项目路径(可选) */
+	const char *execpath;       /* 宿主可执行文件路径(必填) */
+	const char **argv;          /* 命令行参数(可选) */
+	int argc;                   /* argv 长度 */
+	uint64_t parent_hwnd;       /* 父窗口 HWND(嵌入 Electron 时传;0=独立窗口)。
+	                              * 内部转成 Godot 官方 --wid 参数(创建即 WS_CHILD 子窗)。 */
+} unigo_config_v2;
+
 /**
- * 创建 Godot 内核实例并启动。
+ * 创建 Godot 内核实例并启动(v1,无父窗口嵌入)。
  * 返回不透明句柄;失败返回 NULL,可用 unigo_last_error() 取诊断。
  * 内部序列:Main::setup(execpath) → Main::setup2() → Main::start()。
  */
 UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg);
+
+/**
+ * 创建 Godot 内核实例并启动(v2,支持父窗口嵌入)。
+ * 新宿主使用本入口;旧宿主 continue 用 unigo_engine_create(v1)。
+ */
+UNIGO_API unigo_handle unigo_engine_create_v2(const unigo_config_v2 *p_cfg);
 
 /**
  * 驱动内核一帧(Main::iteration)。
@@ -83,6 +100,14 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle);
  * 供宿主决定是否创建窗口。
  */
 UNIGO_API int32_t unigo_engine_query_render_support(void);
+
+/**
+ * 嵌入 Z-order 自愈:把引擎子窗提升到父窗口 Z-order 顶部(HWND_TOP)。
+ * 宿主应在每帧 tick 后调用;独立窗口(非嵌入)时无效果。
+ * @return 0=成功;负值=错误码。
+ */
+UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle);
+
 
 /**
  * 取最后一次错误的诊断字符串(UTF-8,线程局部)。
