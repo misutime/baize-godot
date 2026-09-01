@@ -7012,22 +7012,25 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 		case WM_SETCURSOR: {
 			/* FORK-UniGo(光标修复):嵌入子窗下鼠标悬停光标消失。
 			 * 根因:else 分支依赖 hCursor != nullptr 才恢复;首次后置 null 导致后续跳过。
-			 * 修复:仅对嵌入窗口(parent_hwnd 非空)强制恢复光标;
-			 * 独立窗口(parent_hwnd=0)走 Godot 原逻辑(保留 IBEAM/自定义光标/焦点语义)。 */
+			 * 修复:仅对嵌入窗口(parent_hwnd 非空)特殊处理——可见模式按 cursor_shape
+			 * 重应用光标(保留 IBEAM/自定义光标),隐藏模式保留 window_focused 条件;
+			 * 独立窗口(parent_hwnd=0)走 Godot 原逻辑。 */
 			if (LOWORD(lParam) == HTCLIENT) {
 #if defined(EDITOR_NATIVE_DLL)
 				bool is_embedded = windows[window_id].parent_hwnd != nullptr;
 				if (is_embedded) {
-					if (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN) {
-						/* 嵌入 + 隐藏模式:隐藏光标。 */
+					if (windows[window_id].window_focused && (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN)) {
+						/* 嵌入 + 聚焦 + 隐藏模式:隐藏光标。 */
 						if (hCursor == nullptr) {
 							hCursor = SetCursor(nullptr);
 						} else {
 							SetCursor(nullptr);
 						}
 					} else {
-						/* 嵌入 + 可见模式:强制恢复光标(修复光标消失,不依赖 hCursor 状态)。 */
-						SetCursor(LoadCursor(nullptr, IDC_ARROW));
+						/* 嵌入 + 可见模式:按 cursor_shape 重应用光标(修复消失,保留 IBEAM/自定义)。 */
+						DisplayServerEnums::CursorShape c = cursor_shape;
+						cursor_shape = DisplayServerEnums::CURSOR_MAX;
+						cursor_set_shape(c);
 						hCursor = nullptr;
 					}
 				} else
