@@ -7029,10 +7029,15 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 						}
 					} else {
 						/* 嵌入 + 可见模式:按当前 cursor_shape 直接 SetCursor,不修改 cursor_shape 状态。
-						 * 不设 CURSOR_MAX 中转:避免状态机中途被打断停在非法值导致光标锁死。 */
+						 * 优先用缓存光标(自定义),否则系统加载;不设 CURSOR_MAX 中转,
+						 * 避免状态机中途被打断停在非法值导致光标锁死。 */
 						DisplayServerEnums::CursorShape c = cursor_shape;
 						if (c >= 0 && c < DisplayServerEnums::CURSOR_MAX) {
-							SetCursor(LoadCursor(nullptr, unigo_win_cursors[c]));
+							if (cursors_cache.has(c)) {
+								SetCursor(cursors[c]);
+							} else {
+								SetCursor(LoadCursor(nullptr, unigo_win_cursors[c]));
+							}
 						} else {
 							SetCursor(LoadCursor(nullptr, IDC_ARROW));
 						}
