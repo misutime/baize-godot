@@ -192,9 +192,8 @@ UNIGO_API int32_t unigo_engine_iterate(unigo_handle p_handle) {
 		return 1;
 	}
 
-	bool ok = state->instance->iteration();
-	if (!ok) {
-		/* 引擎自身请求退出(如窗口关闭):置位标志并通知宿主结束循环。 */
+	/* GodotInstance::iteration 返回 true 表示请求退出,false 表示继续运行。 */
+	if (state->instance->iteration()) {
 		state->requested_exit.store(true);
 		return 1;
 	}
