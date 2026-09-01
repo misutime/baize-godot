@@ -1231,6 +1231,13 @@ if env["tests"]:
     SConscript("tests/SCsub")
 SConscript("main/SCsub")
 
+# FORK-M2(UniGo C ABI 强制导出):unigo_engine_* 只被外部(C# 宿主)调用,
+# 引擎内部无人引用,静态库按需拉取会被 /OPT:REF 丢弃。这里在链接目标
+# 定义前用 /INCLUDE 强制链接器拉入 unigo.obj,保证 C ABI 符号进入 DLL。
+# 仅 MSVC 平台生效(当前 UniGo 宿主平台)。
+if env["platform"] == "windows" and env.msvc:
+    env.Append(LINKFLAGS=["/INCLUDE:unigo_engine_create"])
+
 SConscript("platform/" + env["platform"] + "/SCsub")  # Build selected platform.
 
 # Microsoft Visual Studio Project Generation
