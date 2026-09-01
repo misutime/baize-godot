@@ -111,15 +111,29 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 
 	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
 	/* project_path 转成 --path 参数并插在 argv[0] 后,其余宿主参数保持原序。 */
+	/* parent_hwnd 非 0 时注入 Godot 官方 --wid 嵌入参数(创建即 WS_CHILD 子窗)。 */
 	/* 上限 16 是第一阶段保护(冒烟场景参数极少),超出部分按尾部参数截断。 */
 	const char *argv_buf[16];
 	const bool has_host_argv = p_cfg->argc > 0 && p_cfg->argv != nullptr;
 	const int host_argc = has_host_argv ? p_cfg->argc : 0;
+	/* 嵌入参数占位(--wid <num> --position 0,0 --resolution 320x240 共 6 个)。 */
+	const int embed_argc = p_cfg->parent_hwnd != 0 ? 6 : 0;
 	int argc = 1;
 	argv_buf[0] = has_host_argv && p_cfg->argv[0] != nullptr ? p_cfg->argv[0] : p_cfg->execpath;
 	if (p_cfg->project_path != nullptr && p_cfg->project_path[0] != '\0') {
 		argv_buf[argc++] = "--path";
 		argv_buf[argc++] = p_cfg->project_path;
+	}
+	char wid_str[32];
+	if (embed_argc > 0) {
+		/* --wid 用十进制(to_int 不认 0x 前缀);给定位置/尺寸避免子窗在客户区外。 */
+		_snprintf_s(wid_str, sizeof(wid_str), _TRUNCATE, "%llu", (unsigned long long)p_cfg->parent_hwnd);
+		argv_buf[argc++] = "--wid";
+		argv_buf[argc++] = wid_str;
+		argv_buf[argc++] = "--position";
+		argv_buf[argc++] = "0,0";
+		argv_buf[argc++] = "--resolution";
+		argv_buf[argc++] = "320x240";
 	}
 	for (int i = has_host_argv ? 1 : 0; i < host_argc && argc < 16; i++) {
 		argv_buf[argc++] = p_cfg->argv[i];

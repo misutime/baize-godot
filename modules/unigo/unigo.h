@@ -52,6 +52,8 @@ typedef struct unigo_config {
 	const char *execpath;       /* 宿主可执行文件路径(必填,Main::setup 需要) */
 	const char **argv;          /* 命令行参数(可选) */
 	int argc;                   /* argv 长度 */
+	uint64_t parent_hwnd;       /* 父窗口 HWND(嵌入 Electron 时传;0=独立窗口)。
+	                              * 内部转成 Godot 官方 --wid 参数(创建即 WS_CHILD 子窗)。 */
 } unigo_config;
 
 /**
