@@ -252,7 +252,7 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 /* 背景(定稿方案 §4 坑1/坑2):Engine 子窗创建即被 Chromium 合成层
  * (Intermediate D3D Window / RenderWidgetHostHWND)压住;Chromium 在启动/恢复/
  * resize 时会把合成子窗重排到上方。宿主每帧调用本函数,把 Engine 子窗提升到
- * 父窗口 Z-order 顶部(HWND_TOP,不抢焦点、不跨应用置顶)。 */
+ * 父窗口 Z-order 顶部(HWND_TOP,不抢焦点、不跨应用置顶)。实验证实:缺失时嵌入不可见。 */
 UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle) {
 	if (p_handle == nullptr) {
 		unigo_set_error("unigo_engine_ensure_view_top: 句柄为空");

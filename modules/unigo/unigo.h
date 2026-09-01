@@ -93,6 +93,7 @@ UNIGO_API int32_t unigo_engine_query_render_support(void);
  */
 UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle);
 
+
 /**
  * 取最后一次错误的诊断字符串(UTF-8,线程局部)。
  * 返回的指针在下次调用前有效,宿主应尽快复制。
