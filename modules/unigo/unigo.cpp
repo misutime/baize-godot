@@ -112,6 +112,10 @@ static unigo_handle unigo_engine_create_impl(const char *project_path, const cha
 
 /* ---- create(v1):创建并启动 Godot 内核(无父窗口嵌入,旧宿主兼容) ---- */
 UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
+	if (p_cfg == nullptr) {
+		unigo_set_error("unigo_engine_create: 缺少 config");
+		return nullptr;
+	}
 	return unigo_engine_create_impl(p_cfg->project_path, p_cfg->execpath, p_cfg->argv, p_cfg->argc, 0);
 }
 
