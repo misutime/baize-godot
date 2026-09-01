@@ -28,6 +28,12 @@
 #include <mutex>
 #include <string.h>
 
+#if defined(EDITOR_NATIVE_DLL) && defined(WINDOWS_ENABLED)
+#include <windows.h>
+/* 引擎主窗 HWND getter(定义于 platform/windows/display_server_windows.cpp)。 */
+extern "C" void *editor_native_query_engine_hwnd(void);
+#endif
+
 /* ---- 最小 GDExtension 初始化函数 ---- */
 /* libgodot 强制要求宿主提供一个 GDExtension 初始化函数(内部经它注册伪  */
 /* GDExtension 并走完整引擎初始化)。UniGo 不是 GDExtension,不注册任何    */
@@ -96,6 +102,7 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_request_exit")
 #pragma comment(linker, "/export:unigo_engine_shutdown")
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
+#pragma comment(linker, "/export:unigo_engine_ensure_view_top")
 #pragma comment(linker, "/export:unigo_last_error")
 #endif
 
@@ -239,6 +246,44 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	}
 
 	/* C ABI 没有独立的句柄释放入口,保留轻量状态作为 shutdown 后的安全墓碑。 */
+}
+
+/* ---- ensure_view_top:嵌入 Z-order 自愈(EditorHost 每帧调用) ---- */
+/* 背景(定稿方案 §4 坑1/坑2):Engine 子窗创建即被 Chromium 合成层
+ * (Intermediate D3D Window / RenderWidgetHostHWND)压住;Chromium 在启动/恢复/
+ * resize 时会把合成子窗重排到上方。宿主每帧调用本函数,把 Engine 子窗提升到
+ * 父窗口 Z-order 顶部(HWND_TOP,不抢焦点、不跨应用置顶)。 */
+UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle) {
+	if (p_handle == nullptr) {
+		unigo_set_error("unigo_engine_ensure_view_top: 句柄为空");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+
+	UnigoEngineState *state = (UnigoEngineState *)p_handle;
+	std::lock_guard<std::mutex> lock(state->instance_mutex);
+	if (state->shutdown_done.load() || state->instance == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+
+#if defined(EDITOR_NATIVE_DLL) && defined(WINDOWS_ENABLED)
+	HWND engine_hwnd = (HWND)editor_native_query_engine_hwnd();
+	if (engine_hwnd == nullptr) {
+		return UNIGO_OK; /* 主窗未创建(首帧前),非错误。 */
+	}
+
+	HWND parent = GetParent(engine_hwnd);
+	if (parent == nullptr) {
+		return UNIGO_OK; /* 非嵌入模式(独立窗口),无需自愈。 */
+	}
+
+	/* 判顶:父窗口的首个子窗是否就是 Engine;不是则提升。 */
+	HWND top_child = GetWindow(parent, GW_CHILD);
+	if (top_child != engine_hwnd) {
+		SetWindowPos(engine_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	}
+#endif
+
+	return UNIGO_OK;
 }
 
 /* ---- query_render_support:窗口渲染支持探测 ---- */

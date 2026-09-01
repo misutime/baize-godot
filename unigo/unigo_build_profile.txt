@@ -17,7 +17,8 @@ disable_advanced_gui=no
 # 关闭 C# 绑定(用原生 C ABI,不需要 mono)
 nomono=yes
 
-# 渲染驱动:只用 Vulkan(第一阶段);d3d12/accesskit 不需要,显式关闭
+# 渲染驱动:只用 Vulkan(第一阶段);d3d12/accesskit/angle 不需要,显式关闭
 vulkan=yes
 d3d12=no
 accesskit=no
+angle=no

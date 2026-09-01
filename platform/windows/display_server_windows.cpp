@@ -7384,6 +7384,11 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 			ERR_FAIL_V_MSG(ERR_CANT_CREATE, "Failed to create Windows OS window.");
 		}
 
+		/* FORK-DIAG:确认窗口创建与父窗口(临时,后续移除)。 */
+		fprintf(stderr, "[unigo][diag] CreateWindowExW ok hwnd=0x%llx parent=0x%llx rect=%dx%d\n",
+				(unsigned long long)wd.hWnd, (unsigned long long)owner_hwnd,
+				(int)(WindowRect.right - WindowRect.left), (int)(WindowRect.bottom - WindowRect.top));
+
 		wd.parent_hwnd = p_parent_hwnd;
 
 #if defined(EDITOR_NATIVE_DLL)

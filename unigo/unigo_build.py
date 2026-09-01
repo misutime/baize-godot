@@ -52,9 +52,11 @@ DEFAULT_SCONS_ARGS = {
     "use_mingw": "no",
     # 渲染驱动:只用 Vulkan(第一阶段)。d3d12 默认关闭;
     # accesskit(屏幕阅读器)不需要,显式关闭防被依赖拉回。
+    # angle=no:禁用 ANGLE(OpenGL 实现层),强制走 Vulkan(嵌入子窗渲染必需,定稿方案 §1)。
     "vulkan": "yes",
     "d3d12": "no",
     "accesskit": "no",
+    "angle": "no",
 }
 
 # 明确排除、且若被依赖自动拉回需要报警的模块
