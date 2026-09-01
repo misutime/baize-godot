@@ -1,0 +1,43 @@
+{
+  "basis_universal": [
+    "tinyexr"
+  ],
+  "fbx": [
+    "gltf"
+  ],
+  "gdscript": [
+    "jsonrpc",
+    "websocket"
+  ],
+  "gltf": [
+    "csg",
+    "gridmap"
+  ],
+  "ktx": [
+    "basis_universal"
+  ],
+  "msdfgen": [
+    "freetype"
+  ],
+  "svg": [
+    "jpg",
+    "webp"
+  ],
+  "text_server_adv": [
+    "freetype",
+    "msdfgen",
+    "svg"
+  ],
+  "text_server_fb": [
+    "freetype",
+    "msdfgen",
+    "svg"
+  ],
+  "theora": [
+    "ogg",
+    "vorbis"
+  ],
+  "vorbis": [
+    "ogg"
+  ]
+}

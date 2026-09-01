@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+# UniGo C ABI 模块构建脚本。
+# 本模块是纯 C ABI(无 Godot 类),只把 unigo.cpp 编进引擎库,
+# 导出 unigo_engine_* 符号;不注册任何 ClassDB 类。
+#
+# 关键点:unigo_engine_* 只被外部(C# 宿主)调用,引擎内部无人引用,
+# 静态库按需拉取时会被 /OPT:REF 丢弃。因此 MSVC 下用 /INCLUDE
+# 强制链接器拉入 unigo.obj,保证 C ABI 符号进入 DLL 导出表。
+
+Import("env")
+Import("env_modules")
+
+env_unigo = env_modules.Clone()
+
+module_obj = []
+env_unigo.add_source_files(module_obj, "*.cpp")
+
+env.modules_sources += module_obj
+

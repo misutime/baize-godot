@@ -1,0 +1,23 @@
+# UniGo Godot 内核构建 Profile
+# =============================================================================
+# 官方 Godot build profile(build_profile= 参数)的 UniGo 定制版。
+# 仅放"功能开关",不放模块白名单(模块白名单在 unigo_modules.cfg)。
+# 用法: scons build_profile=unigo/unigo_build_profile.txt ...
+# =============================================================================
+
+# 关闭兼容层代码(省编译时间)
+deprecated=no
+
+# 关闭 3D 节点(第一阶段不用 3D;后续需要时改 yes)
+disable_3d=no
+
+# 关闭高级 GUI(第一阶段不需要 Godot 原生编辑器 UI,省体积)
+disable_advanced_gui=no
+
+# 关闭 C# 绑定(用原生 C ABI,不需要 mono)
+nomono=yes
+
+# 渲染驱动:只用 Vulkan(第一阶段);d3d12/accesskit 不需要,显式关闭
+vulkan=yes
+d3d12=no
+accesskit=no
