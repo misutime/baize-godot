@@ -307,6 +307,11 @@ bool Main::is_cmdline_tool() {
 	return cmdline_tool;
 }
 
+/* FORK-UniGo:纯渲染内核模式查询(--unigo-render-only)。 */
+bool Main::is_unigo_render_only() {
+	return unigo_render_only;
+}
+
 #ifdef TOOLS_ENABLED
 const Vector<String> &Main::get_forwardable_cli_arguments(Main::CLIScope p_scope) {
 	return forwardable_cli_arguments[p_scope];
@@ -5193,6 +5198,9 @@ void Main::force_redraw() {
  */
 void Main::cleanup(bool p_force) {
 	Thread::make_main_thread();
+
+	/* FORK-UniGo:复位纯渲染内核标志——进程内 shutdown 后再 setup 新实例不带旧参数污染。 */
+	unigo_render_only = false;
 
 	GodotProfileZone("cleanup");
 	OS::get_singleton()->benchmark_begin_measure("Shutdown", "Main::Cleanup");

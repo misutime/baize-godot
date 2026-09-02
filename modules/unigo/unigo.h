@@ -101,6 +101,8 @@ enum {
 	UNIGO_RENDER_SET_INSTANCE_TRANSFORM, /* 设实例变换(payload: handle=instance id, transform) */
 	UNIGO_RENDER_SET_INSTANCE_VISIBLE,   /* 设实例可见(payload: handle=instance id, value=bool) */
 	UNIGO_RENDER_DESTROY,              /* 销毁对象(payload: handle=真实 id;释放 RID) */
+	UNIGO_RENDER_SET_CAMERA,           /* 设相机(payload: transform=相机变换;fparams[0]=FOV度,[1]=near,[2]=far) */
+	UNIGO_RENDER_CREATE_DIRECTIONAL_LIGHT, /* 建方向光(payload: color=光色;transform=方向) */
 };
 
 /* 变换 POD(行主序,与 Godot Transform3D 对齐)。 */
@@ -117,6 +119,7 @@ typedef struct unigo_render_command {
 	uint64_t parent;      /* 关联对象真实 id(如 instance 关联 mesh) */
 	uint64_t value;       /* 标量(如可见性 bool;SetSurfaceMaterial 的 material 真实 id) */
 	float color[4];       /* 材质颜色 RGB(仅 CREATE_MATERIAL 用;宿主必须显式赋值,零值=黑色合法;A 当前未使用) */
+	float fparams[4];     /* 通用浮点参数(按 type 解释:SET_CAMERA [0]=FOV度 [1]=near [2]=far;CREATE_DIRECTIONAL_LIGHT [0]=能量) */
 	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
 } unigo_render_command;
 
@@ -127,14 +130,14 @@ typedef struct unigo_handle_result {
 } unigo_handle_result;
 
 /**
- * 初始化渲染场景(创建 scenario/viewport/camera/平行光)。
+ * 初始化渲染场景(创建 scenario/viewport/camera;不建默认灯,光源由 C# 经 CREATE_DIRECTIONAL_LIGHT 创建)。
  * 在 create 后、首次 apply 前调用一次。
  * @return 0=成功;负值=错误码。
  */
 UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle);
 
 /**
- * 消费一批渲染命令(每帧调用一次,批量驱动 RenderingServer)。
+ * 消费一批渲染命令(每批调用,批量驱动 RenderingServer;一帧可能多个批次)。
  * @param p_cmds 命令数组;@param p_count 命令数。
  * @return 0=成功;负值=错误码。
  */

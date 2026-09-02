@@ -242,6 +242,7 @@ struct UnigoRenderState {
 	std::set<uint64_t> instance_ids; /* 记录 instance 真实 id(供变换/可见性命令校验类型) */
 	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
 	std::map<uint64_t, uint64_t> material_shader; /* material 真实 id → 关联 shader 真实 id(销毁时级联释放) */
+	std::map<uint64_t, uint64_t> instance_light_base; /* instance 真实 id → 关联 light 基础 RID 真实 id(方向光:销毁时级联释放 light,防 RID 泄漏) */
 	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
 };
 
@@ -288,6 +289,7 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 			render->instance_ids.clear();
 			render->request_to_real.clear();
 			render->material_shader.clear();
+			render->instance_light_base.clear();
 		}
 		state->instance->stop();
 		libgodot_destroy_godot_instance((GDExtensionObjectPtr)state->instance);
@@ -395,12 +397,6 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
 	rs->camera_set_transform(render->camera, Transform3D(Basis(), Vector3(0.0f, 1.5f, 3.0f)));
 	rs->viewport_attach_camera(render->viewport, render->camera);
 
-	/* 平行光:默认方向(斜上方),白色。 */
-	render->directional_light = rs->directional_light_create();
-	rs->light_set_color(render->directional_light, Color(1.0f, 1.0f, 1.0f));
-	rs->light_set_param(render->directional_light, RSE::LIGHT_PARAM_ENERGY, 1.0f);
-	render->light_instance = rs->instance_create2(render->directional_light, render->scenario);
-	rs->instance_set_transform(render->light_instance, Transform3D(Basis::from_euler(Vector3(-0.5f, 0.5f, 0.0f)), Vector3()));
 	render->setup_done = true;
 
 	return UNIGO_OK;
@@ -458,12 +454,12 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 					/* -Z */ { 0,0,-1}, { 0,0,-1}, { 0,0,-1}, { 0,0,-1},
 				};
 				static const int32_t s_idx[36] = {
-					/* +X */ 0,1,2, 0,2,3,
-					/* -X */ 4,5,6, 4,6,7,
-					/* +Y */ 8,10,9, 8,11,10,   /* 修复:反转绕序使面朝外(原 8,9,10 朝内被剔除) */
-					/* -Y */ 12,14,13, 12,15,14, /* 修复:反转绕序使面朝外(原 12,13,14 朝内被剔除) */
-					/* +Z */ 16,17,18, 16,18,19,
-					/* -Z */ 20,21,22, 20,22,23,
+					/* +X */ 0,2,1, 0,3,2,
+					/* -X */ 4,6,5, 4,7,6,
+					/* +Y */ 8,9,10, 8,10,11,
+					/* -Y */ 12,13,14, 12,14,15,
+					/* +Z */ 16,18,17, 16,19,18,
+					/* -Z */ 20,22,21, 20,23,22,
 				};
 
 				PackedVector3Array verts;
@@ -496,13 +492,12 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_MATERIAL: {
-				/* 最小 unlit shader:ALBEDO 取命令颜色(C# 侧明确传默认白;不靠零值推断,黑色合法)。 */
+				/* 最小受光 shader:ALBEDO 取命令颜色(C# 显式传色);PBR 光照——去掉 unshaded,材质吃场景灯光。 */
 				float r = cmd.color[0], g = cmd.color[1], b = cmd.color[2];
 				char albedo[128];
 				snprintf(albedo, sizeof(albedo), "vec3(%.3f, %.3f, %.3f)", r, g, b);
 				String shader_code = String("shader_type spatial;\n"
-					"render_mode unshaded;\n"
-					"void fragment() { ALBEDO = ") + albedo + String("; }\n");
+					"void fragment() { ALBEDO = ") + albedo + String("; ROUGHNESS = 0.8; METALLIC = 0.0; }\n");
 				RID shader = rs->shader_create_from_code(shader_code);
 				RID material = rs->material_create();
 				rs->material_set_shader(material, shader);
@@ -578,12 +573,63 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				rs->instance_set_visible(it->second, cmd.value != 0);
 				break;
 			}
+			case UNIGO_RENDER_SET_CAMERA: {
+				/* 设相机:setup 已建 camera RID,这里只改透视参数与变换(C# 控制相机)。 */
+				if (render->camera.is_null()) {
+					unigo_set_error("unigo_render_apply: 相机未初始化(setup 未调用?)");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				float fov = (cmd.fparams[0] > 0.0f) ? cmd.fparams[0] : 60.0f;
+				float near_plane = (cmd.fparams[1] > 0.0f) ? cmd.fparams[1] : 0.05f;
+				float far_plane = (cmd.fparams[2] > 0.0f) ? cmd.fparams[2] : 100.0f;
+				rs->camera_set_perspective(render->camera, fov, near_plane, far_plane);
+				/* POD 变换 → Godot Transform3D(列向量约定:cmd.transform.basis 已按列映射)。 */
+				Basis basis;
+				basis.rows[0] = Vector3(cmd.transform.basis[0], cmd.transform.basis[1], cmd.transform.basis[2]);
+				basis.rows[1] = Vector3(cmd.transform.basis[3], cmd.transform.basis[4], cmd.transform.basis[5]);
+				basis.rows[2] = Vector3(cmd.transform.basis[6], cmd.transform.basis[7], cmd.transform.basis[8]);
+				Transform3D xform(basis, Vector3(cmd.transform.origin[0], cmd.transform.origin[1], cmd.transform.origin[2]));
+				rs->camera_set_transform(render->camera, xform);
+				break;
+			}
+			case UNIGO_RENDER_CREATE_DIRECTIONAL_LIGHT: {
+				/* 先校验参数(创建任何 RID 前)——非法能量不得泄漏已创建的 light RID。 */
+				if (cmd.fparams[0] < 0.0f || !std::isfinite(cmd.fparams[0])) {
+					unigo_set_error("unigo_render_apply: 灯光能量必须为非负有限值");
+					return -UNIGO_ERR_INVALID_ARG;
+				}
+				/* 建方向光:登记进 handles(真实 id 权威分配),供 DESTROY 释放。 */
+				RID light = rs->directional_light_create();
+				rs->light_set_color(light, Color(cmd.color[0], cmd.color[1], cmd.color[2]));
+				rs->light_set_param(light, RSE::LIGHT_PARAM_ENERGY, cmd.fparams[0]); /* 原值接受:0=关灯合法 */
+				RID light_instance = rs->instance_create2(light, render->scenario);
+				/* 方向 = 实体旋转方向:把 transform.basis 的 -Z 轴(光默认朝向)旋转后作为光照方向。 */
+				Basis basis;
+				basis.rows[0] = Vector3(cmd.transform.basis[0], cmd.transform.basis[1], cmd.transform.basis[2]);
+				basis.rows[1] = Vector3(cmd.transform.basis[3], cmd.transform.basis[4], cmd.transform.basis[5]);
+				basis.rows[2] = Vector3(cmd.transform.basis[6], cmd.transform.basis[7], cmd.transform.basis[8]);
+				Transform3D xform(basis, Vector3(cmd.transform.origin[0], cmd.transform.origin[1], cmd.transform.origin[2]));
+				rs->instance_set_transform(light_instance, xform);
+				uint64_t real_id = unigo_alloc_real_id(render);
+				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
+				/* light 基础 RID 也要登记进 handles 并分配真实 id:shutdown 才能释放;DESTROY 经映射级联。 */
+				uint64_t light_real_id = unigo_alloc_real_id(render);
+				if (light_real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
+				render->handles[light_real_id] = light;
+				render->instance_light_base[real_id] = light_real_id; /* instance→light 基础(id 供级联释放) */
+				render->handles[real_id] = light_instance;
+				render->instance_ids.insert(real_id); /* 灯光实例也是 instance(供 SetInstanceTransform 改方向) */
+				render->request_to_real[cmd.request_id] = real_id;
+				if (p_results != nullptr) { p_results[i].handle = real_id; }
+				break;
+			}
 			case UNIGO_RENDER_DESTROY: {
-				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。 */
+				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。
+				 * 幂等:未知 handle 静默成功——销毁不存在的资源无害,且使"重试整批销毁"安全
+				 * (宿主批次可能部分成功,重试时已销毁项不再报错阻塞)。 */
 				auto it = render->handles.find(cmd.handle);
 				if (it == render->handles.end()) {
-					unigo_set_error("unigo_render_apply: 未知 handle(销毁)");
-					return -UNIGO_ERR_INVALID_HANDLE;
+					break; /* 已销毁或从未创建:幂等跳过。 */
 				}
 				/* 若销毁的是材质,级联释放其关联 shader(材质引用但不拥有 shader)。 */
 				auto shader_it = render->material_shader.find(cmd.handle);
@@ -594,6 +640,16 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 						render->handles.erase(shader_handle);
 					}
 					render->material_shader.erase(shader_it);
+				}
+				/* 若销毁的是方向光 instance,级联释放其 light 基础 RID(防基础 light RID 泄漏)。 */
+				auto light_it = render->instance_light_base.find(cmd.handle);
+				if (light_it != render->instance_light_base.end()) {
+					auto light_handle = render->handles.find(light_it->second);
+					if (light_handle != render->handles.end()) {
+						rs->free_rid(light_handle->second);
+						render->handles.erase(light_handle);
+					}
+					render->instance_light_base.erase(light_it);
 				}
 				rs->free_rid(it->second);
 				render->handles.erase(it);

@@ -2244,6 +2244,13 @@ void DisplayServerWindows::window_set_drop_files_callback(const Callable &p_call
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
+
+	/* FORK-UniGo:纯渲染内核模式不启用文件拖放(宿主无文件拖入场景),
+	 * 跳过 RegisterDragDrop——避免 COM 拖放目标注册失败噪音。 */
+	if (Main::is_unigo_render_only()) {
+		return;
+	}
+
 	WindowData &window_data = windows[p_window];
 
 	window_data.drop_files_callback = p_callable;
@@ -8027,21 +8034,25 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 		SetProcessDpiAwareness(PROCESS_SYSTEM_DPI_AWARE);
 	}
 
-	HMODULE comctl32 = LoadLibraryW(L"comctl32.dll");
-	if (comctl32) {
-		typedef BOOL(WINAPI * InitCommonControlsExPtr)(const _In_ INITCOMMONCONTROLSEX *picce);
-		InitCommonControlsExPtr init_common_controls_ex = (InitCommonControlsExPtr)(void *)GetProcAddress(comctl32, "InitCommonControlsEx");
+	/* FORK-UniGo:纯渲染内核模式无原生对话框/菜单/工具栏,comctl32 初始化整段跳过
+	 * (不需要的逻辑彻底不执行,避免 load comctl32 失败产生警告噪音)。 */
+	if (!Main::is_unigo_render_only()) {
+		HMODULE comctl32 = LoadLibraryW(L"comctl32.dll");
+		if (comctl32) {
+			typedef BOOL(WINAPI * InitCommonControlsExPtr)(const _In_ INITCOMMONCONTROLSEX *picce);
+			InitCommonControlsExPtr init_common_controls_ex = (InitCommonControlsExPtr)(void *)GetProcAddress(comctl32, "InitCommonControlsEx");
 
-		// Fails if the incorrect version was loaded. Probably not a big enough deal to print an error about.
-		if (init_common_controls_ex) {
-			INITCOMMONCONTROLSEX icc = {};
-			icc.dwICC = ICC_STANDARD_CLASSES;
-			icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
-			if (!init_common_controls_ex(&icc)) {
-				WARN_PRINT("Unable to initialize Windows common controls. Native dialogs may not work properly.");
+			// Fails if the incorrect version was loaded. Probably not a big enough deal to print an error about.
+			if (init_common_controls_ex) {
+				INITCOMMONCONTROLSEX icc = {};
+				icc.dwICC = ICC_STANDARD_CLASSES;
+				icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
+				if (!init_common_controls_ex(&icc)) {
+					WARN_PRINT("Unable to initialize Windows common controls. Native dialogs may not work properly.");
+				}
 			}
+			FreeLibrary(comctl32);
 		}
-		FreeLibrary(comctl32);
 	}
 
 	OleInitialize(nullptr);

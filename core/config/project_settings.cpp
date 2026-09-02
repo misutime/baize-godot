@@ -30,6 +30,9 @@
 
 #include "project_settings.h"
 
+/* FORK-UniGo:render_only 模式查询(is_unigo_render_only 声明于 main/main.h,纯声明无循环依赖)。 */
+#include "main/main.h"
+
 #include "core/input/input_map.h"
 #include "core/io/compression.h"
 #include "core/io/config_file.h"
@@ -1457,6 +1460,12 @@ void ProjectSettings::refresh_global_class_list() {
 
 TypedArray<Dictionary> ProjectSettings::get_global_class_list() {
 	if (is_global_class_list_loaded) {
+		return global_class_list;
+	}
+
+	/* FORK-UniGo:纯渲染内核模式无项目/无 PCK,全局脚本缓存必然不存在——直接返回空,不报错。 */
+	if (Main::is_unigo_render_only()) {
+		is_global_class_list_loaded = true;
 		return global_class_list;
 	}
 
