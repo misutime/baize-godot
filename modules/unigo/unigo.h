@@ -100,6 +100,7 @@ enum {
 	UNIGO_RENDER_CREATE_INSTANCE,      /* 建实例(payload: handle=instance id, parent=mesh id) */
 	UNIGO_RENDER_SET_INSTANCE_TRANSFORM, /* 设实例变换(payload: handle=instance id, transform) */
 	UNIGO_RENDER_SET_INSTANCE_VISIBLE,   /* 设实例可见(payload: handle=instance id, value=bool) */
+	UNIGO_RENDER_DESTROY,              /* 销毁对象(payload: handle=真实 id;释放 RID) */
 };
 
 /* 变换 POD(行主序,与 Godot Transform3D 对齐)。 */

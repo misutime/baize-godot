@@ -229,6 +229,20 @@ UNIGO_API int32_t unigo_engine_request_exit(unigo_handle p_handle) {
 	return UNIGO_OK;
 }
 
+/* 渲染状态:存根 RID(宿主分配的 uint64 id → Godot RID)。 */
+struct UnigoRenderState {
+	RID scenario;           /* 根窗口 World3D scenario */
+	RID viewport;           /* 根窗口 viewport */
+	RID camera;             /* C# 建的相机 */
+	RID directional_light;  /* C# 建的平行光 */
+	std::map<uint64_t, RID> handles; /* 真实 id → Godot RID(真实 id 由 C++ 分配) */
+	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
+	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
+};
+
+/* 前向声明:shutdown 释放渲染资源时调用(定义见 render 段)。 */
+static UnigoRenderState *unigo_render_get_state(UnigoEngineState *p_state);
+
 /* ---- shutdown:销毁内核(幂等) ---- */
 UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	if (p_handle == nullptr) {
@@ -242,6 +256,16 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	}
 
 	if (state->instance != nullptr) {
+		/* 释放所有渲染资源 RID(产品级:退出时清理,防泄漏)。 */
+		UnigoRenderState *render = unigo_render_get_state(state);
+		RenderingServer *rs = RenderingServer::get_singleton();
+		if (rs != nullptr && render != nullptr) {
+			for (auto &pair : render->handles) {
+				rs->free_rid(pair.second);
+			}
+			render->handles.clear();
+			render->request_to_real.clear();
+		}
 		state->instance->stop();
 		libgodot_destroy_godot_instance((GDExtensionObjectPtr)state->instance);
 		state->instance = nullptr;
@@ -269,16 +293,6 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
  *  - 命令缓冲:宿主每帧批量填 POD 命令,一次 unigo_render_apply 消费(架构 §8 批量热路径)。
  */
 
-/* 渲染状态:存根 RID(宿主分配的 uint64 id → Godot RID)。 */
-struct UnigoRenderState {
-	RID scenario;           /* 根窗口 World3D scenario */
-	RID viewport;           /* 根窗口 viewport */
-	RID camera;             /* C# 建的相机 */
-	RID directional_light;  /* C# 建的平行光 */
-	std::map<uint64_t, RID> handles; /* 真实 id → Godot RID(真实 id 由 C++ 分配) */
-	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
-	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
-};
 
 /* 取渲染状态(挂在 UnigoEngineState 后)。 */
 static UnigoRenderState *unigo_render_get_state(UnigoEngineState *p_state) {
@@ -439,6 +453,9 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				rs->material_set_shader(material, shader);
 				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
 				render->handles[real_id] = material;
+				/* shader 也是 RID,需一并登记以便 shutdown 释放(材质引用但不拥有 shader)。 */
+				uint64_t shader_id = render->next_handle++;
+				render->handles[shader_id] = shader;
 				render->request_to_real[cmd.request_id] = real_id;
 				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
@@ -502,6 +519,25 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
 				rs->instance_set_visible(it->second, cmd.value != 0);
+				break;
+			}
+			case UNIGO_RENDER_DESTROY: {
+				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。 */
+				auto it = render->handles.find(cmd.handle);
+				if (it == render->handles.end()) {
+					unigo_set_error("unigo_render_apply: 未知 handle(销毁)");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				rs->free_rid(it->second);
+				render->handles.erase(it);
+				/* 同步清理 request_to_real 中指向该真实 id 的条目(不报错,尽力而为)。 */
+				for (auto rit = render->request_to_real.begin(); rit != render->request_to_real.end();) {
+					if (rit->second == cmd.handle) {
+						rit = render->request_to_real.erase(rit);
+					} else {
+						++rit;
+					}
+				}
 				break;
 			}
 			default:
