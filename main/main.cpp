@@ -1759,6 +1759,36 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				}
 				N = N->next();
 			}
+		} else if (arg == "--unigo-config") { // FORK-UniGo:通用 ProjectSettings 预置(key=value,可多次)
+			// 统一注入通道:C# 侧所有需预置的 Godot 配置(渲染/窗口/环境等)经此注入,
+			// 在最早 GLOBAL_GET 消费点之前 set_setting,确保 100% 由宿主声明。
+			// 值按 Variant 自动定型(int/float/bool/字符串),非法格式打印诊断不崩溃。
+			if (N) {
+				String kv = N->get();
+				int eq = kv.find("=");
+				if (eq > 0) {
+					String key = kv.substr(0, eq).strip_edges();
+					String val = kv.substr(eq + 1).strip_edges();
+					if (!key.is_empty()) {
+						Variant v;
+						if (val.is_valid_int()) {
+							v = val.to_int();
+						} else if (val.is_valid_float()) {
+							v = val.to_float();
+						} else if (val == "true" || val == "false") {
+							v = (val == "true");
+						} else {
+							v = val;
+						}
+						ProjectSettings::get_singleton()->set_setting(key, v);
+					} else {
+						OS::get_singleton()->print("Invalid --unigo-config '%s': 空 key\n", kv.utf8().get_data());
+					}
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-config '%s': 缺少 '=' (格式 key=value)\n", kv.utf8().get_data());
+				}
+				N = N->next();
+			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED

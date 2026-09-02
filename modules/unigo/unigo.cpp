@@ -33,6 +33,7 @@
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
 #include "servers/display/display_server.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_globals.h"
 
@@ -112,6 +113,7 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_get_vsync")
 #pragma comment(linker, "/export:unigo_engine_set_vsync")
 #pragma comment(linker, "/export:unigo_engine_get_msaa")
+#pragma comment(linker, "/export:unigo_engine_get_setting_string")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -138,9 +140,9 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 	}
 
 	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
-	/* project_path 非空时注入 --path;其余宿主参数保持原序(如 --unigo-render-only --quiet)。 */
-	/* 上限 16 是第一阶段保护(冒烟场景参数极少),超出部分按尾部参数截断。 */
-	const char *argv_buf[16];
+	/* project_path 非空时注入 --path;其余宿主参数保持原序(如 --unigo-render-only)。 */
+	/* 上限 128:配置体系需传多条 --unigo-config key=value(此前 16 会静默截断尾部配置,违反绝对控制)。 */
+	const char *argv_buf[128];
 	const bool has_host_argv = argc > 0 && argv != nullptr;
 	const int host_argc = has_host_argv ? argc : 0;
 	int argn = 1;
@@ -149,10 +151,15 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 		argv_buf[argn++] = "--path";
 		argv_buf[argn++] = project_path;
 	}
-	for (int i = has_host_argv ? 1 : 0; i < host_argc && argn < 16; i++) {
+	for (int i = has_host_argv ? 1 : 0; i < host_argc; i++) {
+		if (argn >= 128) {
+			/* argv 超上限:显式失败而非静默截断(静默丢配置与宿主声明不一致)。 */
+			unigo_set_error("unigo_engine_create: 宿主参数超过 argv 上限 128");
+			return nullptr;
+		}
 		argv_buf[argn++] = argv[i];
 	}
-	char *argv_ptrs[16];
+	char *argv_ptrs[128];
 	for (int i = 0; i < argn; i++) {
 		argv_ptrs[i] = const_cast<char *>(argv_buf[i]);
 	}
@@ -351,6 +358,24 @@ UNIGO_API int32_t unigo_engine_get_msaa(void) {
 		return -1;
 	}
 	return (int32_t)st->get_root()->get_msaa_3d();
+}
+
+/* ---- get_setting_string:回读任意 ProjectSettings 配置(文本化) ---- */
+/* 供宿主验证 --unigo-config 注入的配置真实生效。
+ * p_key:配置 key;p_buf:输出缓冲;p_buf_size:缓冲大小(含 NUL)。
+ * 返回:0=成功;1=key 不存在;-1=参数非法。值经 Variant 文本化(int/float/bool/Color 等)。 */
+UNIGO_API int32_t unigo_engine_get_setting_string(const char *p_key, char *p_buf, int32_t p_buf_size) {
+	unigo_set_error(nullptr);
+	if (p_key == nullptr || p_buf == nullptr || p_buf_size <= 0) {
+		return -1;
+	}
+	if (ProjectSettings::get_singleton() == nullptr || !ProjectSettings::get_singleton()->has_setting(p_key)) {
+		return 1;
+	}
+	Variant v = ProjectSettings::get_singleton()->get_setting(p_key);
+	String s = v.stringify();
+	strncpy_s(p_buf, p_buf_size, s.utf8().get_data(), _TRUNCATE);
+	return 0;
 }
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
