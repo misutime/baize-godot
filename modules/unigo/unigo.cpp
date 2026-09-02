@@ -278,6 +278,7 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 			render->handles.clear();
 			render->instance_ids.clear();
 			render->request_to_real.clear();
+			render->material_shader.clear();
 		}
 		state->instance->stop();
 		libgodot_destroy_godot_instance((GDExtensionObjectPtr)state->instance);
@@ -306,14 +307,10 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
  *  - 命令缓冲:宿主每帧批量填 POD 命令,一次 unigo_render_apply 消费(架构 §8 批量热路径)。
  */
 
-/* 解析引用 → RID:先按真实 id 查 handles,再按宿主 request_id 查 request_to_real。
- * (同批命令内用 request_id 引用(真实 id 尚未回传);跨批用真实 id 引用——两者都支持。) */
+/* 解析引用 → RID:先查本批 request_id 映射,再查真实 id handles。
+ * (同批命令内用 request_id 引用(真实 id 尚未回传);跨批用真实 id——
+ *  request_to_real 每批结束清空,不会与真实 id 数值空间冲突。) */
 static bool unigo_find_rid(UnigoRenderState *render, uint64_t ref, RID *r_out) {
-	auto it = render->handles.find(ref);
-	if (it != render->handles.end()) {
-		*r_out = it->second;
-		return true;
-	}
 	auto req = render->request_to_real.find(ref);
 	if (req != render->request_to_real.end()) {
 		auto hit = render->handles.find(req->second);
@@ -321,6 +318,11 @@ static bool unigo_find_rid(UnigoRenderState *render, uint64_t ref, RID *r_out) {
 			*r_out = hit->second;
 			return true;
 		}
+	}
+	auto it = render->handles.find(ref);
+	if (it != render->handles.end()) {
+		*r_out = it->second;
+		return true;
 	}
 	return false;
 }
@@ -416,6 +418,10 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 
 	RenderingServer *rs = RenderingServer::get_singleton();
 	UnigoRenderState *render = unigo_render_get_state(state);
+
+	/* 每批独立命名空间:清空上次批次的 request_id 映射(本批内用 request_id 引用,
+	 * 跨批用真实 id;防止失败残留/历史累积与真实 id 数值空间冲突)。 */
+	render->request_to_real.clear();
 
 	for (int32_t i = 0; i < p_count; i++) {
 		const unigo_render_command &cmd = p_cmds[i];
@@ -594,6 +600,9 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				return -UNIGO_ERR_INVALID_ARG;
 		}
 	}
+	/* 本批命令结束:清空本批 request_id 映射(避免历史累积与真实 id 数值空间冲突)。
+	 * 跨批引用一律用真实 id(handles),不经 request_to_real。 */
+	render->request_to_real.clear();
 	return UNIGO_OK;
 }
 
