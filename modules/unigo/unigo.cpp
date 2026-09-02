@@ -114,6 +114,10 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_set_vsync")
 #pragma comment(linker, "/export:unigo_engine_get_msaa")
 #pragma comment(linker, "/export:unigo_engine_get_setting_string")
+#pragma comment(linker, "/export:unigo_engine_set_msaa")
+#pragma comment(linker, "/export:unigo_engine_set_window_size")
+#pragma comment(linker, "/export:unigo_engine_set_window_mode")
+#pragma comment(linker, "/export:unigo_engine_get_renderer")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -375,6 +379,66 @@ UNIGO_API int32_t unigo_engine_get_setting_string(const char *p_key, char *p_buf
 	Variant v = ProjectSettings::get_singleton()->get_setting(p_key);
 	String s = v.stringify();
 	strncpy_s(p_buf, p_buf_size, s.utf8().get_data(), _TRUNCATE);
+	return 0;
+}
+
+/* ---- set_msaa:运行时修改根 viewport 的 3D MSAA 档位(0=关,1=2×,2=4×,3=8×) ---- */
+/* 经 Viewport::set_msaa_3d → RenderingServer viewport_set_msaa_3d → 重建 render buffers。
+ * 与启动期 --unigo-msaa 预置(首帧即生效)互补:此为运行中改(玩家画质设置)。 */
+UNIGO_API int32_t unigo_engine_set_msaa(int32_t p_msaa) {
+	unigo_set_error(nullptr);
+	SceneTree *st = SceneTree::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr) {
+		unigo_set_error("unigo_engine_set_msaa: SceneTree 未就绪");
+		return -UNIGO_ERR_UNSUPPORTED;
+	}
+	if (p_msaa < (int32_t)Viewport::MSAA_DISABLED || p_msaa >= (int32_t)Viewport::MSAA_MAX) {
+		unigo_set_error("unigo_engine_set_msaa: 非法 MSAA 档位");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	st->get_root()->set_msaa_3d((Viewport::MSAA)p_msaa);
+	return 0;
+}
+
+/* ---- set_window_size:运行时改主窗口尺寸(像素) ---- */
+UNIGO_API int32_t unigo_engine_set_window_size(int32_t p_width, int32_t p_height) {
+	unigo_set_error(nullptr);
+	if (p_width <= 0 || p_height <= 0) {
+		unigo_set_error("unigo_engine_set_window_size: 非法尺寸");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	if (DisplayServer::get_singleton() == nullptr) {
+		unigo_set_error("unigo_engine_set_window_size: DisplayServer 未就绪");
+		return -UNIGO_ERR_UNSUPPORTED;
+	}
+	DisplayServer::get_singleton()->window_set_size(Size2i(p_width, p_height), DisplayServerEnums::MAIN_WINDOW_ID);
+	return 0;
+}
+
+/* ---- set_window_mode:运行时改主窗口模式(0=Windowed,1=Min,2=Max,3=Fullscreen,4=Exclusive) ---- */
+UNIGO_API int32_t unigo_engine_set_window_mode(int32_t p_mode) {
+	unigo_set_error(nullptr);
+	if (p_mode < (int32_t)DisplayServerEnums::WINDOW_MODE_WINDOWED || p_mode > (int32_t)DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
+		unigo_set_error("unigo_engine_set_window_mode: 非法窗口模式");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	if (DisplayServer::get_singleton() == nullptr) {
+		unigo_set_error("unigo_engine_set_window_mode: DisplayServer 未就绪");
+		return -UNIGO_ERR_UNSUPPORTED;
+	}
+	DisplayServer::get_singleton()->window_set_mode((DisplayServerEnums::WindowMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
+	return 0;
+}
+
+/* ---- get_renderer:回读当前渲染方法(forward_plus/mobile/gl_compatibility) ---- */
+/* 供宿主确认渲染器真实生效(启动契约 vs 实际渲染后端一致)。 */
+UNIGO_API int32_t unigo_engine_get_renderer(char *p_buf, int32_t p_buf_size) {
+	unigo_set_error(nullptr);
+	if (p_buf == nullptr || p_buf_size <= 0) {
+		return -1;
+	}
+	String m = OS::get_singleton()->get_current_rendering_method();
+	strncpy_s(p_buf, p_buf_size, m.utf8().get_data(), _TRUNCATE);
 	return 0;
 }
 
