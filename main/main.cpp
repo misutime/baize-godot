@@ -209,6 +209,7 @@ static bool accessibility_mode_set = false;
 static bool single_window = false;
 static bool editor = false;
 static bool project_manager = false;
+static bool unigo_render_only = false; /* FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM) */
 static bool cmdline_tool = false;
 static String locale;
 static String log_file;
@@ -1725,6 +1726,8 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 					"To be able to use it, use the `disable_path_overrides=no` SCons option when compiling Godot.\n");
 			goto error;
 #endif // defined(OVERRIDE_PATH_ENABLED)
+		} else if (arg == "--unigo-render-only") { // FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM)
+			unigo_render_only = true;
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED
@@ -2057,7 +2060,13 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #endif // defined(DEBUG_ENABLED) || defined (TOOLS_ENABLED)
 
 	OS::get_singleton()->_in_editor = editor;
-	if (globals->setup(project_path, main_pack, false, editor) == OK) {
+	if (unigo_render_only) {
+		/* FORK-UniGo:纯渲染内核模式——不加载任何项目(project.godot/PCK),用默认 ProjectSettings。
+		 * 渲染完全由 C# 经命令缓冲控制,Godot 只是渲染后端。
+		 * project_path 置空避免 CWD 查找;setup 走默认值(无项目文件也成功)。 */
+		project_path = "";
+		main_pack = "";
+	} else if (globals->setup(project_path, main_pack, false, editor) == OK) {
 #ifdef TOOLS_ENABLED
 		found_project = true;
 #endif
@@ -2307,10 +2316,12 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #ifdef TOOLS_ENABLED
 		if (!editor && !project_manager) {
 #endif
-			const String error_msg = "Error: Can't run project: no main scene defined in the project.\n";
-			OS::get_singleton()->print("%s", error_msg.utf8().get_data());
-			OS::get_singleton()->alert(error_msg);
-			goto error;
+			if (!unigo_render_only) { /* FORK-UniGo:纯渲染模式无需 main scene(渲染由 C# 命令缓冲控制) */
+				const String error_msg = "Error: Can't run project: no main scene defined in the project.\n";
+				OS::get_singleton()->print("%s", error_msg.utf8().get_data());
+				OS::get_singleton()->alert(error_msg);
+				goto error;
+			}
 #ifdef TOOLS_ENABLED
 		}
 #endif
