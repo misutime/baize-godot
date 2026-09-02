@@ -395,12 +395,6 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
 	rs->camera_set_transform(render->camera, Transform3D(Basis(), Vector3(0.0f, 1.5f, 3.0f)));
 	rs->viewport_attach_camera(render->viewport, render->camera);
 
-	/* 平行光:默认方向(斜上方),白色。 */
-	render->directional_light = rs->directional_light_create();
-	rs->light_set_color(render->directional_light, Color(1.0f, 1.0f, 1.0f));
-	rs->light_set_param(render->directional_light, RSE::LIGHT_PARAM_ENERGY, 1.0f);
-	render->light_instance = rs->instance_create2(render->directional_light, render->scenario);
-	rs->instance_set_transform(render->light_instance, Transform3D(Basis::from_euler(Vector3(-0.5f, 0.5f, 0.0f)), Vector3()));
 	render->setup_done = true;
 
 	return UNIGO_OK;
@@ -496,13 +490,12 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_MATERIAL: {
-				/* 最小 unlit shader:ALBEDO 取命令颜色(C# 侧明确传默认白;不靠零值推断,黑色合法)。 */
+				/* 最小受光 shader:ALBEDO 取命令颜色(C# 显式传色);PBR 光照——去掉 unshaded,材质吃场景灯光。 */
 				float r = cmd.color[0], g = cmd.color[1], b = cmd.color[2];
 				char albedo[128];
 				snprintf(albedo, sizeof(albedo), "vec3(%.3f, %.3f, %.3f)", r, g, b);
 				String shader_code = String("shader_type spatial;\n"
-					"render_mode unshaded;\n"
-					"void fragment() { ALBEDO = ") + albedo + String("; }\n");
+					"void fragment() { ALBEDO = ") + albedo + String("; ROUGHNESS = 0.8; METALLIC = 0.0; }\n");
 				RID shader = rs->shader_create_from_code(shader_code);
 				RID material = rs->material_create();
 				rs->material_set_shader(material, shader);
@@ -613,6 +606,7 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				uint64_t real_id = unigo_alloc_real_id(render);
 				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
 				render->handles[real_id] = light_instance;
+				render->instance_ids.insert(real_id); /* 灯光实例也是 instance(供 SetInstanceTransform 改方向) */
 				render->request_to_real[cmd.request_id] = real_id;
 				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
