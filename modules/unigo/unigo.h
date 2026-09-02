@@ -90,6 +90,7 @@ UNIGO_API int32_t unigo_engine_query_render_support(void);
  * DisplayServer 未就绪返回 -UNIGO_ERR_UNSUPPORTED。 */
 UNIGO_API int32_t unigo_engine_get_vsync(void);
 UNIGO_API int32_t unigo_engine_set_vsync(int32_t p_mode);
+UNIGO_API int32_t unigo_engine_get_msaa(void);
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*

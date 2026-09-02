@@ -111,6 +111,7 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
 #pragma comment(linker, "/export:unigo_engine_get_vsync")
 #pragma comment(linker, "/export:unigo_engine_set_vsync")
+#pragma comment(linker, "/export:unigo_engine_get_msaa")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -338,6 +339,18 @@ UNIGO_API int32_t unigo_engine_set_vsync(int32_t p_mode) {
 	}
 	DisplayServer::get_singleton()->window_set_vsync_mode((DisplayServerEnums::VSyncMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
 	return 0;
+}
+
+/* ---- get_msaa:查询根 viewport 当前 3D MSAA 档位 ---- */
+/* 返回 Viewport::MSAA 值(0=Disabled,2,4,8);SceneTree 未就绪返回 -1。
+ * 供宿主验证 --unigo-msaa argv 预置真实生效(root viewport 的 msaa_3d)。 */
+UNIGO_API int32_t unigo_engine_get_msaa(void) {
+	unigo_set_error(nullptr);
+	SceneTree *st = SceneTree::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr) {
+		return -1;
+	}
+	return (int32_t)st->get_root()->get_msaa_3d();
 }
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */

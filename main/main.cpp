@@ -1746,6 +1746,19 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				}
 				N = N->next();
 			}
+		} else if (arg == "--unigo-msaa") { // FORK-UniGo:MSAA 档位索引(0=关,1=2×,2=4×,3=8×)
+			// 预置 ProjectSettings 的 msaa_3d:SceneTree 构造时(root->set_msaa_3d,
+			// scene_tree.cpp:2112)GLOBAL_GET 读到预置值——viewport 首个渲染缓冲即带 MSAA,
+			// 与 vsync 同理走 create 前定值的确定路径,无事后 set/viewport_set_msaa_3d 兜底。
+			if (N) {
+				int v = N->get().to_int();
+				if (v >= 0 && v < (int)Viewport::MSAA_MAX) {
+					ProjectSettings::get_singleton()->set_setting("rendering/anti_aliasing/quality/msaa_3d", v);
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-msaa value %d (0=关,1=2×,2=4×,3=8×), using default.\n", v);
+				}
+				N = N->next();
+			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED
