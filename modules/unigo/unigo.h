@@ -108,6 +108,58 @@ UNIGO_API int32_t unigo_engine_query_render_support(void);
  */
 UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle);
 
+/* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
+/*
+ * 目标:验证"C# 直接驱动 Godot RenderingServer 渲染,而非 Godot 场景树"。
+ * 命令缓冲方案:宿主(C#)每帧批量填 POD 命令数组,一次 unigo_render_apply 消费。
+ * 与总体架构 §8 一致(Transform 等热路径提供批量 API;参数用 POD/定宽整数)。
+ */
+
+/* 渲染命令类型枚举。 */
+enum {
+	UNIGO_RENDER_NONE = 0,
+	UNIGO_RENDER_CREATE_CUBE_MESH,     /* 建内置立方体网格(payload: handle=mesh id) */
+	UNIGO_RENDER_CREATE_MATERIAL,      /* 建材质(payload: handle=material id) */
+	UNIGO_RENDER_SET_SURFACE_MATERIAL, /* 设表面材质(payload: parent=mesh id, value=material id) */
+	UNIGO_RENDER_CREATE_INSTANCE,      /* 建实例(payload: handle=instance id, parent=mesh id) */
+	UNIGO_RENDER_SET_INSTANCE_TRANSFORM, /* 设实例变换(payload: handle=instance id, transform) */
+	UNIGO_RENDER_SET_INSTANCE_VISIBLE,   /* 设实例可见(payload: handle=instance id, value=bool) */
+};
+
+/* 变换 POD(行主序,与 Godot Transform3D 对齐)。 */
+typedef struct unigo_transform {
+	float basis[9];  /* 3x3 旋转/缩放 */
+	float origin[3]; /* 平移 */
+} unigo_transform;
+
+/* 顶点属性(POD,单表面立方体够用)。 */
+typedef struct unigo_vertex {
+	float position[3];
+	float normal[3];
+} unigo_vertex;
+
+/* 渲染命令 POD。type 决定 payload 如何解释。 */
+typedef struct unigo_render_command {
+	uint32_t type;
+	uint64_t handle;      /* RID 语义:mesh/instance/material 的不透明 id(由宿主分配,自增) */
+	uint64_t parent;      /* 关联 id(如 instance 关联 mesh;instance 关联 scenario) */
+	uint64_t value;       /* 标量(如可见性 bool) */
+	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
+} unigo_render_command;
+
+/**
+ * 初始化渲染场景(创建 scenario/viewport/camera/平行光)。
+ * 在 create 后、首次 apply 前调用一次。
+ * @return 0=成功;负值=错误码。
+ */
+UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle);
+
+/**
+ * 消费一批渲染命令(每帧调用一次,批量驱动 RenderingServer)。
+ * @param p_cmds 命令数组;@param p_count 命令数。
+ * @return 0=成功;负值=错误码。
+ */
+UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count);
 
 /**
  * 取最后一次错误的诊断字符串(UTF-8,线程局部)。

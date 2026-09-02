@@ -24,7 +24,19 @@
 #include "core/os/os.h"
 #include "main/main.h"
 
+/* C# 驱动 RenderingServer 渲染(C ABI 命令缓冲)所需头文件。 */
+#include "core/math/transform_3d.h"
+#include "core/variant/array.h"
+#include "core/variant/variant.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
+#include "scene/main/viewport.h"
+#include "scene/resources/3d/world_3d.h"
+#include "servers/rendering/rendering_server.h"
+#include "servers/rendering/rendering_server_globals.h"
+
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <string.h>
 
@@ -321,6 +333,226 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
 	/* 第一阶段:Windows 桌面默认有图形环境,固定返回支持。 */
 	/* 后续接入 DisplayServer 真实探测(无图形会话等场景)。 */
 	return 1;
+}
+
+/* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
+/*
+ * 验证目标:"C# 直接驱动 Godot RenderingServer 渲染,而非 Godot 场景树/节点"。
+ * 实现要点:
+ *  - 根窗口 viewport 由 SceneTree 建立(引擎循环必须 SceneTree,绕开的是节点内容);
+ *  - 我们拿根窗口 viewport 的 World3D scenario,把 C# 建的 mesh/instance/light/camera 挂进去;
+ *  - 材质用 shader_create_from_code 手写最小 unlit shader(绕开 StandardMaterial 场景层);
+ *  - 命令缓冲:宿主每帧批量填 POD 命令,一次 unigo_render_apply 消费(架构 §8 批量热路径)。
+ */
+
+/* 渲染状态:存根 RID(宿主分配的 uint64 id → Godot RID)。 */
+struct UnigoRenderState {
+	RID scenario;           /* 根窗口 World3D scenario */
+	RID viewport;           /* 根窗口 viewport */
+	RID camera;             /* C# 建的相机 */
+	RID directional_light;  /* C# 建的平行光 */
+	std::map<uint64_t, RID> handles; /* 宿主 id → Godot RID */
+	uint64_t next_handle = 1;        /* 宿主自增 id */
+};
+
+/* 取渲染状态(挂在 UnigoEngineState 后)。 */
+static UnigoRenderState *unigo_render_get_state(UnigoEngineState *p_state) {
+	/* 复用 instance 指针尾部内存?不:独立分配,由宿主生命周期管理。 */
+	/* 简化为全局单例(单实例宿主,一个内核一个渲染状态)。 */
+	static UnigoRenderState s_render;
+	return &s_render;
+}
+
+/* ---- render_setup:创建 scenario/camera/light,挂到根窗口 viewport ---- */
+UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
+	unigo_set_error(nullptr);
+	if (p_handle == nullptr) {
+		unigo_set_error("unigo_render_setup: 句柄为空");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = (UnigoEngineState *)p_handle;
+	if (state->shutdown_done.load() || state->instance == nullptr) {
+		unigo_set_error("unigo_render_setup: 内核已关闭");
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		unigo_set_error("unigo_render_setup: RenderingServer 未初始化");
+		return -UNIGO_ERR_INTERNAL;
+	}
+
+	/* 根窗口 viewport 与 World3D scenario(引擎已建好)。 */
+	Window *root = SceneTree::get_singleton()->get_root();
+	if (root == nullptr) {
+		unigo_set_error("unigo_render_setup: 根窗口未创建");
+		return -UNIGO_ERR_INTERNAL;
+	}
+	Viewport *root_viewport = root->get_viewport();
+	Ref<World3D> world = root_viewport->get_world_3d();
+	if (world.is_null()) {
+		unigo_set_error("unigo_render_setup: 根 viewport 无 World3D");
+		return -UNIGO_ERR_INTERNAL;
+	}
+
+	UnigoRenderState *render = unigo_render_get_state(state);
+	render->scenario = world->get_scenario();
+	render->viewport = root_viewport->get_viewport_rid();
+
+	/* 相机:透视,60° FOV,位置 (0,1.5,3) 看向原点(立方体中心)。 */
+	render->camera = rs->camera_create();
+	rs->camera_set_perspective(render->camera, 60.0f, 0.05f, 100.0f);
+	rs->camera_set_transform(render->camera, Transform3D(Basis(), Vector3(0.0f, 1.5f, 3.0f)));
+	rs->viewport_attach_camera(render->viewport, render->camera);
+
+	/* 平行光:默认方向(斜上方),白色。 */
+	render->directional_light = rs->directional_light_create();
+	rs->light_set_color(render->directional_light, Color(1.0f, 1.0f, 1.0f));
+	rs->light_set_param(render->directional_light, RSE::LIGHT_PARAM_ENERGY, 1.0f);
+	RID light_instance = rs->instance_create2(render->directional_light, render->scenario);
+	rs->instance_set_transform(light_instance, Transform3D(Basis::from_euler(Vector3(-0.5f, 0.5f, 0.0f)), Vector3()));
+
+	return UNIGO_OK;
+}
+
+/* ---- render_apply:消费一批命令 ---- */
+/*
+ * 命令缓冲方案 spike:命令是 POD,顶点数据不塞进命令(几何由 C++ 侧内置)。
+ * UNIGO_RENDER_CREATE_CUBE_MESH:创建内置立方体网格(8 顶点 12 三角,带法线),
+ * 并挂上纯色 unlit 材质(C# 只发 handle,不传几何数据)。
+ * 这验证的是"C# 驱动 RenderingServer 渲染"链路本身,几何内置是为最小化命令缓冲。
+ */
+UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count) {
+	unigo_set_error(nullptr);
+	if (p_handle == nullptr || p_cmds == nullptr || p_count < 0) {
+		unigo_set_error("unigo_render_apply: 参数非法");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = (UnigoEngineState *)p_handle;
+	if (state->shutdown_done.load() || state->instance == nullptr) {
+		unigo_set_error("unigo_render_apply: 内核已关闭");
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+
+	RenderingServer *rs = RenderingServer::get_singleton();
+	UnigoRenderState *render = unigo_render_get_state(state);
+
+	for (int32_t i = 0; i < p_count; i++) {
+		const unigo_render_command &cmd = p_cmds[i];
+		switch (cmd.type) {
+			case UNIGO_RENDER_CREATE_CUBE_MESH: {
+				/* 立方体几何:24 顶点(每面 4 个,面法线)+ 36 索引。 */
+				static const float s_verts[24][3] = {
+					/* +X */ { 0.5f,-0.5f,-0.5f}, { 0.5f, 0.5f,-0.5f}, { 0.5f, 0.5f, 0.5f}, { 0.5f,-0.5f, 0.5f},
+					/* -X */ {-0.5f,-0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f,-0.5f}, {-0.5f,-0.5f,-0.5f},
+					/* +Y */ {-0.5f, 0.5f,-0.5f}, { 0.5f, 0.5f,-0.5f}, { 0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
+					/* -Y */ {-0.5f,-0.5f, 0.5f}, { 0.5f,-0.5f, 0.5f}, { 0.5f,-0.5f,-0.5f}, {-0.5f,-0.5f,-0.5f},
+					/* +Z */ {-0.5f,-0.5f, 0.5f}, { 0.5f,-0.5f, 0.5f}, { 0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
+					/* -Z */ { 0.5f,-0.5f,-0.5f}, {-0.5f,-0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f}, { 0.5f, 0.5f,-0.5f},
+				};
+				static const float s_norms[24][3] = {
+					/* +X */ { 1,0,0}, { 1,0,0}, { 1,0,0}, { 1,0,0},
+					/* -X */ {-1,0,0}, {-1,0,0}, {-1,0,0}, {-1,0,0},
+					/* +Y */ { 0,1,0}, { 0,1,0}, { 0,1,0}, { 0,1,0},
+					/* -Y */ { 0,-1,0}, { 0,-1,0}, { 0,-1,0}, { 0,-1,0},
+					/* +Z */ { 0,0,1}, { 0,0,1}, { 0,0,1}, { 0,0,1},
+					/* -Z */ { 0,0,-1}, { 0,0,-1}, { 0,0,-1}, { 0,0,-1},
+				};
+				static const int32_t s_idx[36] = {
+					/* +X */ 0,1,2, 0,2,3,
+					/* -X */ 4,5,6, 4,6,7,
+					/* +Y */ 8,9,10, 8,10,11,
+					/* -Y */ 12,13,14, 12,14,15,
+					/* +Z */ 16,17,18, 16,18,19,
+					/* -Z */ 20,21,22, 20,22,23,
+				};
+
+				PackedVector3Array verts;
+				PackedVector3Array norms;
+				verts.resize(24);
+				norms.resize(24);
+				for (int v = 0; v < 24; v++) {
+					verts.set(v, Vector3(s_verts[v][0], s_verts[v][1], s_verts[v][2]));
+					norms.set(v, Vector3(s_norms[v][0], s_norms[v][1], s_norms[v][2]));
+				}
+				PackedInt32Array idx;
+				idx.resize(36);
+				for (int k = 0; k < 36; k++) {
+					idx.set(k, s_idx[k]);
+				}
+
+				Array arrays;
+				arrays.resize(RSE::ARRAY_MAX);
+				arrays[RSE::ARRAY_VERTEX] = verts;
+				arrays[RSE::ARRAY_NORMAL] = norms;
+				arrays[RSE::ARRAY_INDEX] = idx;
+
+				RID mesh = rs->mesh_create();
+				rs->mesh_add_surface_from_arrays(mesh, RSE::PRIMITIVE_TRIANGLES, arrays);
+				render->handles[cmd.handle] = mesh;
+				break;
+			}
+			case UNIGO_RENDER_CREATE_MATERIAL: {
+				/* 最小 unlit shader:ALBEDO 纯色(绕开 StandardMaterial 场景层)。 */
+				String shader_code = "shader_type spatial;\n"
+					"render_mode unshaded;\n"
+					"void fragment() { ALBEDO = vec3(0.8, 0.2, 0.2); }\n";
+				RID shader = rs->shader_create_from_code(shader_code);
+				RID material = rs->material_create();
+				rs->material_set_shader(material, shader);
+				render->handles[cmd.handle] = material;
+				break;
+			}
+			case UNIGO_RENDER_SET_SURFACE_MATERIAL: {
+				auto mesh_it = render->handles.find(cmd.parent); /* parent = mesh handle */
+				auto mat_it = render->handles.find(cmd.value);  /* value = material handle */
+				if (mesh_it == render->handles.end() || mat_it == render->handles.end()) {
+					unigo_set_error("unigo_render_apply: 未知 mesh/material handle");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				rs->mesh_surface_set_material(mesh_it->second, 0, mat_it->second);
+				break;
+			}
+			case UNIGO_RENDER_CREATE_INSTANCE: {
+				auto mesh_it = render->handles.find(cmd.parent); /* parent = mesh handle */
+				if (mesh_it == render->handles.end()) {
+					unigo_set_error("unigo_render_apply: 未知 mesh handle");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				RID instance = rs->instance_create2(mesh_it->second, render->scenario);
+				render->handles[cmd.handle] = instance;
+				break;
+			}
+			case UNIGO_RENDER_SET_INSTANCE_TRANSFORM: {
+				auto it = render->handles.find(cmd.handle);
+				if (it == render->handles.end()) {
+					unigo_set_error("unigo_render_apply: 未知 instance handle");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				/* POD 变换 → Godot Transform3D(basis 行主序)。 */
+				Basis basis;
+				basis.rows[0] = Vector3(cmd.transform.basis[0], cmd.transform.basis[1], cmd.transform.basis[2]);
+				basis.rows[1] = Vector3(cmd.transform.basis[3], cmd.transform.basis[4], cmd.transform.basis[5]);
+				basis.rows[2] = Vector3(cmd.transform.basis[6], cmd.transform.basis[7], cmd.transform.basis[8]);
+				Transform3D xform(basis, Vector3(cmd.transform.origin[0], cmd.transform.origin[1], cmd.transform.origin[2]));
+				rs->instance_set_transform(it->second, xform);
+				break;
+			}
+			case UNIGO_RENDER_SET_INSTANCE_VISIBLE: {
+				auto it = render->handles.find(cmd.handle);
+				if (it == render->handles.end()) {
+					unigo_set_error("unigo_render_apply: 未知 instance handle");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				rs->instance_set_visible(it->second, cmd.value != 0);
+				break;
+			}
+			default:
+				unigo_set_error("unigo_render_apply: 未知命令类型");
+				return -UNIGO_ERR_INVALID_ARG;
+		}
+	}
+	return UNIGO_OK;
 }
 
 /* ---- last_error:取线程局部诊断 ---- */
