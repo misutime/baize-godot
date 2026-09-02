@@ -315,7 +315,6 @@ opts.Add(
         ("executable", "static_library", "shared_library"),
     )
 )
-opts.Add(BoolVariable("editor_native", "Build as UniGo EditorNative DLL (inject EDITOR_NATIVE_DLL, requires shared_library).", False))
 
 # Thirdparty libraries
 opts.Add(BoolVariable("builtin_brotli", "Use the built-in Brotli library", True))
@@ -604,13 +603,6 @@ if env["library_type"] != "executable":
         print_error(f"Library builds unsupported for {env['platform']}")
         Exit(255)
     env.Append(CPPDEFINES=["LIBGODOT_ENABLED"])
-    # FORK-M2（EditorNative 共享库）：仅 shared_library 且 editor_native 开启时注入 EDITOR_NATIVE_DLL 宏。
-    # 该宏驱动：display_server 嵌入窗口 WS_CHILD（创建即子窗）、os_windows 导出控制（GPU 符号不导出）、
-    # libgodot.h LIBGODOT_API 置空（libgodot_* 仅供 DLL 内部）。
-    # Shared library + nomono + editor_native=yes 是 EditorNative.dll 的固定构建形态；
-    # 普通 Godot 共享库构建(static/shared 不带 editor_native)不受影响。
-    if env["library_type"] == "shared_library" and env["editor_native"]:
-        env.Append(CPPDEFINES=["EDITOR_NATIVE_DLL"])
 
 # Default num_jobs to local cpu count if not user specified.
 # SCons has a peculiarity where user-specified options won't be overridden

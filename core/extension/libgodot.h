@@ -37,11 +37,7 @@ extern "C" {
 #endif // __cplusplus
 
 // Export macros for DLL visibility
-// FORK-M2: EDITOR_NATIVE_DLL=1（EditorNative.dll 专用构建）时 LIBGODOT_API 为空——
-// libgodot_create/destroy_godot_instance 成为 DLL 内部符号，导出仅 engine_create/engine_destroy（v15 〇 导出闭环）。
-#if defined(EDITOR_NATIVE_DLL)
-#define LIBGODOT_API
-#elif defined(_MSC_VER) || defined(__MINGW32__)
+#if defined(_MSC_VER) || defined(__MINGW32__)
 #define LIBGODOT_API __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
 #define LIBGODOT_API __attribute__((visibility("default")))

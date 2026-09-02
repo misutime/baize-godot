@@ -6,12 +6,12 @@
 /*                    https://github.com/misutime/unigo-godot-kernel      */
 /**************************************************************************/
 /* UniGo 宿主与 Godot Kernel 之间的窄 C ABI(总体架构 §8 Native Bridge)。 */
-/* 职责:稳定隔离 Godot 变化,导出入口少而稳定;宿主(C# EditorHost)只经   */
-/* 本层驱动内核的初始化 / tick / shutdown,参数一律定宽整数、POD、UTF-8   */
-/* 与不透明 Handle,每次调用返回明确错误码,不让异常穿越 ABI。            */
+/* 职责:稳定隔离 Godot 变化,导出入口少而稳定;宿主(C# Player.App)只经    */
+/* 本层驱动内核的初始化 / tick / shutdown / 渲染,参数一律定宽整数、POD、 */
+/* UTF-8 与不透明 Handle,每次调用返回明确错误码,不让异常穿越 ABI。       */
 /*                                                                        */
 /* 本头文件仅声明 C ABI;实现见 unigo.cpp(内部封装 GodotInstance + Main)。*/
-/* 编译为 EDITOR_NATIVE_DLL(shared_library + editor_native)时导出。       */
+/* 编译为 shared_library(template_release 纯净渲染内核)时导出。          */
 /**************************************************************************/
 
 #pragma once
@@ -22,7 +22,7 @@
 extern "C" {
 #endif // __cplusplus
 
-/* ---- 导出宏:与 libgodot.h 相同的可见性策略(EDITOR_NATIVE_DLL 时 DLL 导出) ---- */
+/* ---- 导出宏:shared_library 构建时 DLL 导出 ---- */
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #define UNIGO_API __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -31,7 +31,7 @@ extern "C" {
 #define UNIGO_API
 #endif
 
-/* ---- 统一错误码(与 UniGo.Godot.Contracts 的 ErrorCode 保持同一语义序) ---- */
+/* ---- 统一错误码(与 UniGo.Core 的 ErrorCode 保持同一语义序) ---- */
 enum {
 	UNIGO_OK = 0,             /* 成功 */
 	UNIGO_ERR_INVALID_ARG = 1,/* 参数非法(空指针、非法句柄) */
@@ -47,36 +47,19 @@ enum {
 typedef void *unigo_handle;
 
 /* ---- 引擎配置(POD,UTF-8 字符串) ---- */
-/* v1:原始结构(32 字节,无父窗口)。保留不变,旧宿主二进制兼容。 */
 typedef struct unigo_config {
-	const char *project_path;   /* Godot 项目路径(可选,传 NULL 用内置默认) */
+	const char *project_path;   /* Godot 项目路径(可选,传 NULL 用默认;纯净模式不传) */
 	const char *execpath;       /* 宿主可执行文件路径(必填,Main::setup 需要) */
-	const char **argv;          /* 命令行参数(可选) */
+	const char **argv;          /* 命令行参数(可选,如 --unigo-render-only --quiet) */
 	int argc;                   /* argv 长度 */
 } unigo_config;
 
-/* v2:在 v1 末尾追加 parent_hwnd(仅新宿主使用;经 create_v2 传入)。 */
-typedef struct unigo_config_v2 {
-	const char *project_path;   /* Godot 项目路径(可选) */
-	const char *execpath;       /* 宿主可执行文件路径(必填) */
-	const char **argv;          /* 命令行参数(可选) */
-	int argc;                   /* argv 长度 */
-	uint64_t parent_hwnd;       /* 父窗口 HWND(嵌入 Electron 时传;0=独立窗口)。
-	                              * 内部转成 Godot 官方 --wid 参数(创建即 WS_CHILD 子窗)。 */
-} unigo_config_v2;
-
 /**
- * 创建 Godot 内核实例并启动(v1,无父窗口嵌入)。
+ * 创建 Godot 内核实例并启动。
  * 返回不透明句柄;失败返回 NULL,可用 unigo_last_error() 取诊断。
  * 内部序列:Main::setup(execpath) → Main::setup2() → Main::start()。
  */
 UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg);
-
-/**
- * 创建 Godot 内核实例并启动(v2,支持父窗口嵌入)。
- * 新宿主使用本入口;旧宿主 continue 用 unigo_engine_create(v1)。
- */
-UNIGO_API unigo_handle unigo_engine_create_v2(const unigo_config_v2 *p_cfg);
 
 /**
  * 驱动内核一帧(Main::iteration)。
@@ -101,13 +84,61 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle);
  */
 UNIGO_API int32_t unigo_engine_query_render_support(void);
 
+/* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
+/*
+ * 目标:验证"C# 直接驱动 Godot RenderingServer 渲染,而非 Godot 场景树"。
+ * 命令缓冲方案:宿主(C#)每帧批量填 POD 命令数组,一次 unigo_render_apply 消费。
+ * 与总体架构 §8 一致(Transform 等热路径提供批量 API;参数用 POD/定宽整数)。
+ */
+
+/* 渲染命令类型枚举。 */
+enum {
+	UNIGO_RENDER_NONE = 0,
+	UNIGO_RENDER_CREATE_CUBE_MESH,     /* 建内置立方体网格(payload: handle=mesh id) */
+	UNIGO_RENDER_CREATE_MATERIAL,      /* 建材质(payload: handle=material id) */
+	UNIGO_RENDER_SET_SURFACE_MATERIAL, /* 设表面材质(payload: parent=mesh id, value=material id) */
+	UNIGO_RENDER_CREATE_INSTANCE,      /* 建实例(payload: handle=instance id, parent=mesh id) */
+	UNIGO_RENDER_SET_INSTANCE_TRANSFORM, /* 设实例变换(payload: handle=instance id, transform) */
+	UNIGO_RENDER_SET_INSTANCE_VISIBLE,   /* 设实例可见(payload: handle=instance id, value=bool) */
+	UNIGO_RENDER_DESTROY,              /* 销毁对象(payload: handle=真实 id;释放 RID) */
+};
+
+/* 变换 POD(行主序,与 Godot Transform3D 对齐)。 */
+typedef struct unigo_transform {
+	float basis[9];  /* 3x3 旋转/缩放 */
+	float origin[3]; /* 平移 */
+} unigo_transform;
+
+/* 渲染命令 POD。type 决定 payload 如何解释。 */
+typedef struct unigo_render_command {
+	uint32_t type;
+	uint64_t request_id;  /* 宿主请求标记(创建命令时,每对象唯一;宿主用它匹配回传的真实 id) */
+	uint64_t handle;      /* 真实对象 id(创建命令=C++ 分配并回传;引用命令=引用已创建对象的真实 id) */
+	uint64_t parent;      /* 关联对象真实 id(如 instance 关联 mesh) */
+	uint64_t value;       /* 标量(如可见性 bool;SetSurfaceMaterial 的 material 真实 id) */
+	float color[4];       /* 材质颜色 RGB(仅 CREATE_MATERIAL 用;宿主必须显式赋值,零值=黑色合法;A 当前未使用) */
+	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
+} unigo_render_command;
+
+/* 回传映射:apply 后,宿主按命令序号读取(request_id → 真实 id;非创建命令填 0)。 */
+typedef struct unigo_handle_result {
+	uint64_t request_id;  /* 宿主请求标记 */
+	uint64_t handle;      /* 后端分配的真实 id(创建命令);非创建命令填 0 */
+} unigo_handle_result;
+
 /**
- * 嵌入 Z-order 自愈:把引擎子窗提升到父窗口 Z-order 顶部(HWND_TOP)。
- * 宿主应在每帧 tick 后调用;独立窗口(非嵌入)时无效果。
+ * 初始化渲染场景(创建 scenario/viewport/camera/平行光)。
+ * 在 create 后、首次 apply 前调用一次。
  * @return 0=成功;负值=错误码。
  */
-UNIGO_API int32_t unigo_engine_ensure_view_top(unigo_handle p_handle);
+UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle);
 
+/**
+ * 消费一批渲染命令(每帧调用一次,批量驱动 RenderingServer)。
+ * @param p_cmds 命令数组;@param p_count 命令数。
+ * @return 0=成功;负值=错误码。
+ */
+UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count, unigo_handle_result *p_results);
 
 /**
  * 取最后一次错误的诊断字符串(UTF-8,线程局部)。
