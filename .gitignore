@@ -396,3 +396,6 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# CodeGraph 本地缓存(每次 codegraph 调用生成,不入库)
+.codegraph/
