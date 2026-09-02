@@ -248,6 +248,15 @@ struct UnigoRenderState {
 /* 前向声明:shutdown 释放渲染资源时调用(定义见 render 段)。 */
 static UnigoRenderState *unigo_render_get_state(UnigoEngineState *p_state);
 
+/* 分配真实 id:从 1 递增,最高位恒为 0(与宿主 request_id 高位标志区间严格隔离)。
+ * 理论不可能耗尽(2^63 个),溢出防御:若到高位区间则报错(防遮蔽)。 */
+static uint64_t unigo_alloc_real_id(UnigoRenderState *render) {
+	if (render->next_handle >= (1ULL << 62)) {
+		return 0; /* 耗尽:调用方视为分配失败 */
+	}
+	return render->next_handle++;
+}
+
 /* ---- shutdown:销毁内核(幂等) ---- */
 UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 	if (p_handle == nullptr) {
@@ -479,7 +488,8 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 
 				RID mesh = rs->mesh_create();
 				rs->mesh_add_surface_from_arrays(mesh, RSE::PRIMITIVE_TRIANGLES, arrays);
-				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				uint64_t real_id = unigo_alloc_real_id(render);
+				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; } /* C++ 权威分配真实 id */
 				render->handles[real_id] = mesh;
 				render->request_to_real[cmd.request_id] = real_id;
 				if (p_results != nullptr) { p_results[i].handle = real_id; }
@@ -496,10 +506,12 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				RID shader = rs->shader_create_from_code(shader_code);
 				RID material = rs->material_create();
 				rs->material_set_shader(material, shader);
-				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				uint64_t real_id = unigo_alloc_real_id(render);
+				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; } /* C++ 权威分配真实 id */
 				render->handles[real_id] = material;
 				/* shader 也是 RID,需一并登记以便 shutdown 释放(材质引用但不拥有 shader)。 */
-				uint64_t shader_id = render->next_handle++;
+				uint64_t shader_id = unigo_alloc_real_id(render);
+				if (shader_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
 				render->handles[shader_id] = shader;
 				render->material_shader[real_id] = shader_id; /* 记录 material→shader 所有权(销毁时级联释放) */
 				render->request_to_real[cmd.request_id] = real_id;
@@ -524,7 +536,8 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
 				RID instance = rs->instance_create2(mesh_rid, render->scenario);
-				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				uint64_t real_id = unigo_alloc_real_id(render);
+				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; } /* C++ 权威分配真实 id */
 				render->handles[real_id] = instance;
 				render->instance_ids.insert(real_id);
 				render->request_to_real[cmd.request_id] = real_id;
