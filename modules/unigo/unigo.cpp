@@ -275,8 +275,9 @@ struct UnigoRenderState {
 	RID viewport;           /* 根窗口 viewport */
 	RID camera;             /* C# 建的相机 */
 	RID directional_light;  /* C# 建的平行光 */
-	std::map<uint64_t, RID> handles; /* 宿主 id → Godot RID */
-	uint64_t next_handle = 1;        /* 宿主自增 id */
+	std::map<uint64_t, RID> handles; /* 真实 id → Godot RID(真实 id 由 C++ 分配) */
+	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
+	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
 };
 
 /* 取渲染状态(挂在 UnigoEngineState 后)。 */
@@ -346,7 +347,7 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
  * 并挂上纯色 unlit 材质(C# 只发 handle,不传几何数据)。
  * 这验证的是"C# 驱动 RenderingServer 渲染"链路本身,几何内置是为最小化命令缓冲。
  */
-UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count) {
+UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count, unigo_handle_result *p_results) {
 	unigo_set_error(nullptr);
 	if (p_handle == nullptr || p_cmds == nullptr || p_count < 0) {
 		unigo_set_error("unigo_render_apply: 参数非法");
@@ -363,6 +364,10 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 
 	for (int32_t i = 0; i < p_count; i++) {
 		const unigo_render_command &cmd = p_cmds[i];
+		if (p_results != nullptr) {
+			p_results[i].request_id = cmd.request_id;
+			p_results[i].handle = 0; /* 默认无创建;创建命令会填真实 id */
+		}
 		switch (cmd.type) {
 			case UNIGO_RENDER_CREATE_CUBE_MESH: {
 				/* 立方体几何:24 顶点(每面 4 个,面法线)+ 36 索引。 */
@@ -413,7 +418,10 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 
 				RID mesh = rs->mesh_create();
 				rs->mesh_add_surface_from_arrays(mesh, RSE::PRIMITIVE_TRIANGLES, arrays);
-				render->handles[cmd.handle] = mesh;
+				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				render->handles[real_id] = mesh;
+				render->request_to_real[cmd.request_id] = real_id;
+				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
 			}
 			case UNIGO_RENDER_CREATE_MATERIAL: {
@@ -429,12 +437,22 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				RID shader = rs->shader_create_from_code(shader_code);
 				RID material = rs->material_create();
 				rs->material_set_shader(material, shader);
-				render->handles[cmd.handle] = material;
+				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				render->handles[real_id] = material;
+				render->request_to_real[cmd.request_id] = real_id;
+				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
 			}
 			case UNIGO_RENDER_SET_SURFACE_MATERIAL: {
-				auto mesh_it = render->handles.find(cmd.parent); /* parent = mesh handle */
-				auto mat_it = render->handles.find(cmd.value);  /* value = material handle */
+				/* parent/value = mesh/material 的宿主 request_id,解析为真实 id。 */
+				auto mesh_req = render->request_to_real.find(cmd.parent);
+				auto mat_req = render->request_to_real.find(cmd.value);
+				if (mesh_req == render->request_to_real.end() || mat_req == render->request_to_real.end()) {
+					unigo_set_error("unigo_render_apply: 未知 mesh/material request_id");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				auto mesh_it = render->handles.find(mesh_req->second);
+				auto mat_it = render->handles.find(mat_req->second);
 				if (mesh_it == render->handles.end() || mat_it == render->handles.end()) {
 					unigo_set_error("unigo_render_apply: 未知 mesh/material handle");
 					return -UNIGO_ERR_INVALID_HANDLE;
@@ -443,13 +461,23 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_INSTANCE: {
-				auto mesh_it = render->handles.find(cmd.parent); /* parent = mesh handle */
+				/* parent = mesh 的宿主 request_id,解析为真实 id。 */
+				auto req_it = render->request_to_real.find(cmd.parent);
+				if (req_it == render->request_to_real.end()) {
+					unigo_set_error("unigo_render_apply: 未知 mesh request_id");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				uint64_t mesh_real = req_it->second;
+				auto mesh_it = render->handles.find(mesh_real);
 				if (mesh_it == render->handles.end()) {
 					unigo_set_error("unigo_render_apply: 未知 mesh handle");
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
 				RID instance = rs->instance_create2(mesh_it->second, render->scenario);
-				render->handles[cmd.handle] = instance;
+				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
+				render->handles[real_id] = instance;
+				render->request_to_real[cmd.request_id] = real_id;
+				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
 			}
 			case UNIGO_RENDER_SET_INSTANCE_TRANSFORM: {

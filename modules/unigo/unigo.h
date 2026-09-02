@@ -111,12 +111,19 @@ typedef struct unigo_transform {
 /* 渲染命令 POD。type 决定 payload 如何解释。 */
 typedef struct unigo_render_command {
 	uint32_t type;
-	uint64_t handle;      /* RID 语义:mesh/instance/material 的不透明 id(由宿主分配,自增) */
-	uint64_t parent;      /* 关联 id(如 instance 关联 mesh) */
-	uint64_t value;       /* 标量(如可见性 bool) */
+	uint64_t request_id;  /* 宿主请求标记(创建命令时,每对象唯一;宿主用它匹配回传的真实 id) */
+	uint64_t handle;      /* 真实对象 id(创建命令=C++ 分配并回传;引用命令=引用已创建对象的真实 id) */
+	uint64_t parent;      /* 关联对象真实 id(如 instance 关联 mesh) */
+	uint64_t value;       /* 标量(如可见性 bool;SetSurfaceMaterial 的 material 真实 id) */
 	float color[4];       /* 材质颜色 RGBA(仅 CREATE_MATERIAL 用;默认白) */
 	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
 } unigo_render_command;
+
+/* 回传映射:apply 后,宿主按命令序号读取(request_id → 真实 id;非创建命令填 0)。 */
+typedef struct unigo_handle_result {
+	uint64_t request_id;  /* 宿主请求标记 */
+	uint64_t handle;      /* 后端分配的真实 id(创建命令);非创建命令填 0 */
+} unigo_handle_result;
 
 /**
  * 初始化渲染场景(创建 scenario/viewport/camera/平行光)。
@@ -130,7 +137,7 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle);
  * @param p_cmds 命令数组;@param p_count 命令数。
  * @return 0=成功;负值=错误码。
  */
-UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count);
+UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_command *p_cmds, int32_t p_count, unigo_handle_result *p_results);
 
 /**
  * 取最后一次错误的诊断字符串(UTF-8,线程局部)。
