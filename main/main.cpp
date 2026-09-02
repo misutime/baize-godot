@@ -5199,6 +5199,9 @@ void Main::force_redraw() {
 void Main::cleanup(bool p_force) {
 	Thread::make_main_thread();
 
+	/* FORK-UniGo:复位纯渲染内核标志——进程内 shutdown 后再 setup 新实例不带旧参数污染。 */
+	unigo_render_only = false;
+
 	GodotProfileZone("cleanup");
 	OS::get_singleton()->benchmark_begin_measure("Shutdown", "Main::Cleanup");
 	if (!p_force) {

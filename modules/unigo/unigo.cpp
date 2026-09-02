@@ -242,6 +242,7 @@ struct UnigoRenderState {
 	std::set<uint64_t> instance_ids; /* 记录 instance 真实 id(供变换/可见性命令校验类型) */
 	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
 	std::map<uint64_t, uint64_t> material_shader; /* material 真实 id → 关联 shader 真实 id(销毁时级联释放) */
+	std::map<uint64_t, uint64_t> instance_light_base; /* instance 真实 id → 关联 light 基础 RID 真实 id(方向光:销毁时级联释放 light,防 RID 泄漏) */
 	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
 };
 
@@ -288,6 +289,7 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 			render->instance_ids.clear();
 			render->request_to_real.clear();
 			render->material_shader.clear();
+			render->instance_light_base.clear();
 		}
 		state->instance->stop();
 		libgodot_destroy_godot_instance((GDExtensionObjectPtr)state->instance);
@@ -594,7 +596,11 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				/* 建方向光:登记进 handles(真实 id 权威分配),供 DESTROY 释放。 */
 				RID light = rs->directional_light_create();
 				rs->light_set_color(light, Color(cmd.color[0], cmd.color[1], cmd.color[2]));
-				rs->light_set_param(light, RSE::LIGHT_PARAM_ENERGY, (cmd.fparams[0] > 0.0f) ? cmd.fparams[0] : 1.0f);
+				if (cmd.fparams[0] < 0.0f || !std::isfinite(cmd.fparams[0])) {
+					unigo_set_error("unigo_render_apply: 灯光能量必须为非负有限值");
+					return -UNIGO_ERR_INVALID_ARG;
+				}
+				rs->light_set_param(light, RSE::LIGHT_PARAM_ENERGY, cmd.fparams[0]); /* 原值接受:0=关灯合法 */
 				RID light_instance = rs->instance_create2(light, render->scenario);
 				/* 方向 = 实体旋转方向:把 transform.basis 的 -Z 轴(光默认朝向)旋转后作为光照方向。 */
 				Basis basis;
@@ -605,6 +611,11 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				rs->instance_set_transform(light_instance, xform);
 				uint64_t real_id = unigo_alloc_real_id(render);
 				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
+				/* light 基础 RID 也要登记进 handles 并分配真实 id:shutdown 才能释放;DESTROY 经映射级联。 */
+				uint64_t light_real_id = unigo_alloc_real_id(render);
+				if (light_real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
+				render->handles[light_real_id] = light;
+				render->instance_light_base[real_id] = light_real_id; /* instance→light 基础(id 供级联释放) */
 				render->handles[real_id] = light_instance;
 				render->instance_ids.insert(real_id); /* 灯光实例也是 instance(供 SetInstanceTransform 改方向) */
 				render->request_to_real[cmd.request_id] = real_id;
@@ -627,6 +638,16 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 						render->handles.erase(shader_handle);
 					}
 					render->material_shader.erase(shader_it);
+				}
+				/* 若销毁的是方向光 instance,级联释放其 light 基础 RID(防基础 light RID 泄漏)。 */
+				auto light_it = render->instance_light_base.find(cmd.handle);
+				if (light_it != render->instance_light_base.end()) {
+					auto light_handle = render->handles.find(light_it->second);
+					if (light_handle != render->handles.end()) {
+						rs->free_rid(light_handle->second);
+						render->handles.erase(light_handle);
+					}
+					render->instance_light_base.erase(light_it);
 				}
 				rs->free_rid(it->second);
 				render->handles.erase(it);
