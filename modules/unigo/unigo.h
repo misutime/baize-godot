@@ -84,6 +84,13 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle);
  */
 UNIGO_API int32_t unigo_engine_query_render_support(void);
 
+/* ---- vsync 查询/设置(宿主显式控制帧节奏边界) ---- */
+/* 模式枚举与 DisplayServerEnums::VSyncMode 一致:0=DISABLED,1=ENABLED,2=ADAPTIVE,3=MAILBOX。
+ * get:DisplayServer 未就绪/非窗口后端返回 -1;set:非法模式返回 -UNIGO_ERR_INVALID_ARG,
+ * DisplayServer 未就绪返回 -UNIGO_ERR_UNSUPPORTED。 */
+UNIGO_API int32_t unigo_engine_get_vsync(void);
+UNIGO_API int32_t unigo_engine_set_vsync(int32_t p_mode);
+
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*
  * 目标:验证"C# 直接驱动 Godot RenderingServer 渲染,而非 Godot 场景树"。

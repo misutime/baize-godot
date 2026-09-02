@@ -32,6 +32,7 @@
 #include "scene/main/window.h"
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
+#include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_globals.h"
 
@@ -108,6 +109,8 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_request_exit")
 #pragma comment(linker, "/export:unigo_engine_shutdown")
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
+#pragma comment(linker, "/export:unigo_engine_get_vsync")
+#pragma comment(linker, "/export:unigo_engine_set_vsync")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -306,6 +309,35 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
 	/* 第一阶段:Windows 桌面默认有图形环境,固定返回支持。 */
 	/* 后续接入 DisplayServer 真实探测(无图形会话等场景)。 */
 	return 1;
+}
+
+/* ---- get_vsync:查询主窗口当前 vsync 模式 ---- */
+/* 返回 DisplayServerEnums::VSyncMode 枚举值(0=DISABLED,1=ENABLED,2=ADAPTIVE,3=MAILBOX);
+ * DisplayServer 未就绪或非窗口后端返回 -1。供宿主取证/确认 vsync 状态。 */
+UNIGO_API int32_t unigo_engine_get_vsync(void) {
+	unigo_set_error(nullptr);
+	if (DisplayServer::get_singleton() == nullptr) {
+		return -1;
+	}
+	DisplayServerEnums::VSyncMode mode = DisplayServer::get_singleton()->window_get_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID);
+	return (int32_t)mode;
+}
+
+/* ---- set_vsync:显式设置主窗口 vsync 模式 ---- */
+/* p_mode:0=DISABLED,1=ENABLED,2=ADAPTIVE,3=MAILBOX(非法值拒绝,返回 -UNIGO_ERR_INVALID_ARG)。
+ * DisplayServer 未就绪返回 -UNIGO_ERR_NOT_INITIALIZED。宿主在渲染开始前调用,使 vsync 策略显式可配。 */
+UNIGO_API int32_t unigo_engine_set_vsync(int32_t p_mode) {
+	unigo_set_error(nullptr);
+	if (p_mode < (int32_t)DisplayServerEnums::VSYNC_DISABLED || p_mode > (int32_t)DisplayServerEnums::VSYNC_MAILBOX) {
+		unigo_set_error("unigo_engine_set_vsync: 非法 vsync 模式");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	if (DisplayServer::get_singleton() == nullptr) {
+		unigo_set_error("unigo_engine_set_vsync: DisplayServer 未就绪");
+		return -UNIGO_ERR_UNSUPPORTED;
+	}
+	DisplayServer::get_singleton()->window_set_vsync_mode((DisplayServerEnums::VSyncMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
+	return 0;
 }
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
