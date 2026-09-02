@@ -593,13 +593,14 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_DIRECTIONAL_LIGHT: {
-				/* 建方向光:登记进 handles(真实 id 权威分配),供 DESTROY 释放。 */
-				RID light = rs->directional_light_create();
-				rs->light_set_color(light, Color(cmd.color[0], cmd.color[1], cmd.color[2]));
+				/* 先校验参数(创建任何 RID 前)——非法能量不得泄漏已创建的 light RID。 */
 				if (cmd.fparams[0] < 0.0f || !std::isfinite(cmd.fparams[0])) {
 					unigo_set_error("unigo_render_apply: 灯光能量必须为非负有限值");
 					return -UNIGO_ERR_INVALID_ARG;
 				}
+				/* 建方向光:登记进 handles(真实 id 权威分配),供 DESTROY 释放。 */
+				RID light = rs->directional_light_create();
+				rs->light_set_color(light, Color(cmd.color[0], cmd.color[1], cmd.color[2]));
 				rs->light_set_param(light, RSE::LIGHT_PARAM_ENERGY, cmd.fparams[0]); /* 原值接受:0=关灯合法 */
 				RID light_instance = rs->instance_create2(light, render->scenario);
 				/* 方向 = 实体旋转方向:把 transform.basis 的 -Z 轴(光默认朝向)旋转后作为光照方向。 */
@@ -623,11 +624,12 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_DESTROY: {
-				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。 */
+				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。
+				 * 幂等:未知 handle 静默成功——销毁不存在的资源无害,且使"重试整批销毁"安全
+				 * (宿主批次可能部分成功,重试时已销毁项不再报错阻塞)。 */
 				auto it = render->handles.find(cmd.handle);
 				if (it == render->handles.end()) {
-					unigo_set_error("unigo_render_apply: 未知 handle(销毁)");
-					return -UNIGO_ERR_INVALID_HANDLE;
+					break; /* 已销毁或从未创建:幂等跳过。 */
 				}
 				/* 若销毁的是材质,级联释放其关联 shader(材质引用但不拥有 shader)。 */
 				auto shader_it = render->material_shader.find(cmd.handle);
