@@ -578,6 +578,45 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				rs->instance_set_visible(it->second, cmd.value != 0);
 				break;
 			}
+			case UNIGO_RENDER_SET_CAMERA: {
+				/* 设相机:setup 已建 camera RID,这里只改透视参数与变换(C# 控制相机)。 */
+				if (render->camera.is_null()) {
+					unigo_set_error("unigo_render_apply: 相机未初始化(setup 未调用?)");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
+				float fov = (cmd.fparams[0] > 0.0f) ? cmd.fparams[0] : 60.0f;
+				float near_plane = (cmd.fparams[1] > 0.0f) ? cmd.fparams[1] : 0.05f;
+				float far_plane = (cmd.fparams[2] > 0.0f) ? cmd.fparams[2] : 100.0f;
+				rs->camera_set_perspective(render->camera, fov, near_plane, far_plane);
+				/* POD 变换 → Godot Transform3D(列向量约定:cmd.transform.basis 已按列映射)。 */
+				Basis basis;
+				basis.rows[0] = Vector3(cmd.transform.basis[0], cmd.transform.basis[1], cmd.transform.basis[2]);
+				basis.rows[1] = Vector3(cmd.transform.basis[3], cmd.transform.basis[4], cmd.transform.basis[5]);
+				basis.rows[2] = Vector3(cmd.transform.basis[6], cmd.transform.basis[7], cmd.transform.basis[8]);
+				Transform3D xform(basis, Vector3(cmd.transform.origin[0], cmd.transform.origin[1], cmd.transform.origin[2]));
+				rs->camera_set_transform(render->camera, xform);
+				break;
+			}
+			case UNIGO_RENDER_CREATE_DIRECTIONAL_LIGHT: {
+				/* 建方向光:登记进 handles(真实 id 权威分配),供 DESTROY 释放。 */
+				RID light = rs->directional_light_create();
+				rs->light_set_color(light, Color(cmd.color[0], cmd.color[1], cmd.color[2]));
+				rs->light_set_param(light, RSE::LIGHT_PARAM_ENERGY, (cmd.fparams[0] > 0.0f) ? cmd.fparams[0] : 1.0f);
+				RID light_instance = rs->instance_create2(light, render->scenario);
+				/* 方向 = 实体旋转方向:把 transform.basis 的 -Z 轴(光默认朝向)旋转后作为光照方向。 */
+				Basis basis;
+				basis.rows[0] = Vector3(cmd.transform.basis[0], cmd.transform.basis[1], cmd.transform.basis[2]);
+				basis.rows[1] = Vector3(cmd.transform.basis[3], cmd.transform.basis[4], cmd.transform.basis[5]);
+				basis.rows[2] = Vector3(cmd.transform.basis[6], cmd.transform.basis[7], cmd.transform.basis[8]);
+				Transform3D xform(basis, Vector3(cmd.transform.origin[0], cmd.transform.origin[1], cmd.transform.origin[2]));
+				rs->instance_set_transform(light_instance, xform);
+				uint64_t real_id = unigo_alloc_real_id(render);
+				if (real_id == 0) { unigo_set_error("unigo_render_apply: 句柄空间耗尽"); return -UNIGO_ERR_INTERNAL; }
+				render->handles[real_id] = light_instance;
+				render->request_to_real[cmd.request_id] = real_id;
+				if (p_results != nullptr) { p_results[i].handle = real_id; }
+				break;
+			}
 			case UNIGO_RENDER_DESTROY: {
 				/* 销毁对象并释放 RID(产品级:资源必须释放,防泄漏)。 */
 				auto it = render->handles.find(cmd.handle);
