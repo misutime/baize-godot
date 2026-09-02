@@ -15,14 +15,13 @@ UniGo Godot 内核构建入口。
   6. 校验产物 DLL 存在。
 
 用法:
-  python unigo/unigo_build.py [--dry-run] [--jobs N] [--clean] [--pure] [--dev]
+  python unigo/unigo_build.py [--dry-run] [--jobs N] [--clean]
 
 说明:
   - 本脚本不 fork SConstruct 逻辑,只用官方机制,上游升级冲突最小。
-  - 默认(无参数)走**纯净渲染模式**(target=template_release + editor_native=yes):
-    纯运行内核,无 TOOLS_ENABLED/无 ProjectManager/无编辑器代码,渲染由 C# 命令缓冲控制。
-  - --pure 显式指定纯净渲染模式(默认);--dev 走 editor 目标(开发调试用,含嵌入分支)。
-  - 纯净模式产物命名: godot.windows.pure.x86_64.dll。
+  - 构建形态固定为**纯净渲染内核**:target=template_release + shared_library,
+    无 TOOLS_ENABLED/无 ProjectManager/无编辑器代码,渲染由 C# 命令缓冲控制。
+  - 产物命名: godot.windows.template_release.x86_64.pure.dll。
 """
 from __future__ import annotations
 
@@ -42,15 +41,13 @@ CFG_FILE = UNIGO_DIR / "unigo_modules.cfg"
 DEPS_FILE = UNIGO_DIR / "unigo_module_deps.json"
 BUILD_PROFILE = UNIGO_DIR / "unigo_build_profile.txt"
 
-# 默认构建形态:纯净渲染模式(纯运行内核 + C ABI)。
-# target=template_release:无 TOOLS_ENABLED/无 ProjectManager/无编辑器代码;
-# editor_native=yes:C ABI 注入(已验证与 template_release 兼容)。
+# 默认构建形态:纯净渲染内核(纯运行内核 + C ABI 导出)。
+# target=template_release:无 TOOLS_ENABLED/无 ProjectManager/无编辑器代码。
 DEFAULT_SCONS_ARGS = {
     "platform": "windows",
     "arch": "x86_64",
     "target": "template_release",
     "library_type": "shared_library",
-    "editor_native": "yes",
     "nomono": "yes",
     "modules_enabled_by_default": "no",
     "deprecated": "no",
@@ -62,6 +59,8 @@ DEFAULT_SCONS_ARGS = {
     "d3d12": "no",
     "accesskit": "no",
     "angle": "no",
+    # 产物命名:godot.windows.template_release.x86_64.pure.dll
+    "extra_suffix": "pure",
 }
 
 # 明确排除、且若被依赖自动拉回需要报警的模块
@@ -207,8 +206,6 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="只校验配置并打印命令,不执行")
     parser.add_argument("--jobs", "-j", type=int, default=None, help="并行编译任务数(默认 scons 自动)")
     parser.add_argument("--clean", action="store_true", help="清理构建产物")
-    parser.add_argument("--pure", action="store_true", help="纯净渲染模式:template_release + editor_native(默认)")
-    parser.add_argument("--dev", action="store_true", help="开发模式:editor 目标(含编辑器代码/嵌入分支,调试用)")
     args = parser.parse_args()
 
     cfg_text = CFG_FILE.read_text(encoding="utf-8")
@@ -233,16 +230,8 @@ def main() -> None:
 
     generate_deps_file(graph)
 
-    # 构建形态:--dev = editor(开发调试);默认/--pure = 纯净渲染模式(template_release + editor_native)。
-    if args.dev:
-        DEFAULT_SCONS_ARGS["target"] = "editor"
-        # editor 目标产物名保持 editor 后缀(兼容旧命名);嵌入分支仅在 dev 模式生效。
-        mode_suffix = "editor"
-    else:
-        DEFAULT_SCONS_ARGS["target"] = "template_release"
-        DEFAULT_SCONS_ARGS["editor_native"] = "yes"  # 纯净模式仍注入 C ABI(已验证兼容)
-        DEFAULT_SCONS_ARGS["extra_suffix"] = "pure"  # 产物命名 godot.windows.pure.x86_64.dll
-        mode_suffix = "pure"
+    # 构建形态固定为纯净渲染内核(默认参数已配置 target=template_release + extra_suffix=pure)。
+    mode_suffix = "pure"
 
     cmd = build_scons_command(whitelist, args)
     print_info("构建命令:")
@@ -261,11 +250,8 @@ def main() -> None:
         print_info("清理完成。")
         return
 
-    # 校验产物:纯净模式 = godot.windows.template_release.x86_64.pure.dll(scons 命名:extra_suffix 追加在 arch 后)
-    if mode_suffix == "pure":
-        dll = REPO_ROOT / "bin" / "godot.windows.template_release.x86_64.pure.dll"
-    else:
-        dll = REPO_ROOT / "bin" / "godot.windows.editor.x86_64.dll"
+    # 校验产物:纯净渲染内核 = godot.windows.template_release.x86_64.pure.dll
+    dll = REPO_ROOT / "bin" / "godot.windows.template_release.x86_64.pure.dll"
     if dll.exists():
         print_info(f"构建成功,产物: {dll.relative_to(REPO_ROOT)}")
     else:

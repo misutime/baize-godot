@@ -38,14 +38,6 @@
 #include "wgl_detect_version.h"
 #include "winrt_utils.h"
 
-#if defined(EDITOR_NATIVE_DLL)
-// FORK-M2（v18 彻底方案）：引擎侧保存自身主窗 HWND，经 C ABI getter 供 EditorNative 读取。
-// 彻底取消全桌面类名/PID 枚举（多 EditorHost 并存 / 跨进程子窗形态都不再误伤/漏找）。
-static HWND s_editor_native_engine_hwnd = nullptr;
-extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void);
-extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void) { return s_editor_native_engine_hwnd; }
-#endif
-
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
@@ -68,8 +60,8 @@ extern "C" __declspec(dllexport) void *editor_native_query_engine_hwnd(void) { r
 #include "drivers/sdl/joypad_sdl.h"
 #endif
 
-/* FORK-UniGo:标准光标表(文件级,供 WM_SETCURSOR 嵌入分支按形状恢复光标)。
- * 与 cursor_set_shape 的映射一致;嵌入分支用 LoadCursor(nullptr, ...) 系统加载。 */
+/* FORK-UniGo:标准光标表(文件级,供 WM_SETCURSOR 按形状恢复光标)。
+ * 与 cursor_set_shape 的映射一致;用 LoadCursor(nullptr, ...) 系统加载。 */
 static const LPCTSTR unigo_win_cursors[DisplayServerEnums::CURSOR_MAX] = {
 	IDC_ARROW,
 	IDC_IBEAM,
@@ -2689,13 +2681,7 @@ void DisplayServerWindows::_get_window_style(bool p_main_window, bool p_initiali
 	}
 
 	if (p_embed_child) {
-#if defined(EDITOR_NATIVE_DLL)
-		// FORK-M2（v17 真 WS_CHILD）：EditorNative 嵌入模式下引擎窗口为真子窗口
-		//（创建即 WS_CHILD，引擎自知嵌入，attach SetParent 换父后不会被自我复位为顶层）。
-		r_style |= WS_CHILD | WS_CLIPSIBLINGS;
-#else
 		r_style |= WS_POPUP;
-#endif
 	} else if (p_fullscreen || p_borderless) {
 		r_style |= WS_POPUP; // p_borderless was WS_EX_TOOLWINDOW in the past.
 		if (p_minimized) {
@@ -7013,38 +6999,10 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 			}
 		} break;
 		case WM_SETCURSOR: {
-			/* FORK-UniGo(光标修复):嵌入子窗下鼠标悬停光标消失。
-			 * 根因:review 版用 cursor_shape=CURSOR_MAX 中转重应用,高频 WM_SETCURSOR 下
-			 * 状态机处于非法中间态导致鼠标锁死。修复:直接按当前形状 SetCursor,不污染状态机。 */
+			/* FORK-UniGo(光标修复):按当前 cursor_shape 直接 SetCursor,不用 CURSOR_MAX 中转。
+			 * 根因:原逻辑用 cursor_shape=CURSOR_MAX 中转重应用,cursor_set_shape 的 ERR_FAIL_INDEX
+			 * 下失效(越界直接 return),导致鼠标进窗后光标消失。 */
 			if (LOWORD(lParam) == HTCLIENT) {
-#if defined(EDITOR_NATIVE_DLL)
-				bool is_embedded = windows[window_id].parent_hwnd != nullptr;
-				if (is_embedded) {
-					if (windows[window_id].window_focused && (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN)) {
-						/* 嵌入 + 聚焦 + 隐藏模式:隐藏光标。 */
-						if (hCursor == nullptr) {
-							hCursor = SetCursor(nullptr);
-						} else {
-							SetCursor(nullptr);
-						}
-					} else {
-						/* 嵌入 + 可见模式:按当前 cursor_shape 直接 SetCursor,不修改 cursor_shape 状态。
-						 * 优先用缓存光标(自定义),否则系统加载;不设 CURSOR_MAX 中转,
-						 * 避免状态机中途被打断停在非法值导致光标锁死。 */
-						DisplayServerEnums::CursorShape c = cursor_shape;
-						if (c >= 0 && c < DisplayServerEnums::CURSOR_MAX) {
-							if (cursors_cache.has(c)) {
-								SetCursor(cursors[c]);
-							} else {
-								SetCursor(LoadCursor(nullptr, unigo_win_cursors[c]));
-							}
-						} else {
-							SetCursor(LoadCursor(nullptr, IDC_ARROW));
-						}
-						hCursor = nullptr;
-					}
-				} else
-#endif
 				if (windows[window_id].window_focused && (mouse_mode == DisplayServerEnums::MOUSE_MODE_HIDDEN || mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED || mouse_mode == DisplayServerEnums::MOUSE_MODE_CONFINED_HIDDEN)) {
 					// Hide the cursor.
 					if (hCursor == nullptr) {
@@ -7429,13 +7387,6 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 
 		wd.parent_hwnd = p_parent_hwnd;
 
-#if defined(EDITOR_NATIVE_DLL)
-		// FORK-M2（v18 彻底方案，同事 review 建议）：创建窗口成功后，引擎侧保存主窗 HWND。
-		// EditorNative 经 editor_native_query_engine_hwnd() 读取——彻底取消全局枚举。
-		if (id == DisplayServerEnums::MAIN_WINDOW_ID) {
-			s_editor_native_engine_hwnd = wd.hWnd;
-		}
-#endif
 		if (has_winrt_queue) {
 			wd.wrt_wd = WinRTUtils::create_wd(wd.hWnd, callable_mp(this, &DisplayServerWindows::_winrt_adv_color_info_cb), wd.id);
 		}
@@ -7584,13 +7535,6 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 
 void DisplayServerWindows::_destroy_window(DisplayServerEnums::WindowID p_window_id) {
 	WindowData &wd = windows[p_window_id];
-#if defined(EDITOR_NATIVE_DLL)
-	// FORK-M2（review 3）：主窗销毁时清空保存的 HWND，句柄生命周期闭环。
-	if (p_window_id == DisplayServerEnums::MAIN_WINDOW_ID) {
-		s_editor_native_engine_hwnd = nullptr;
-	}
-#endif
-
 	IPropertyStore *prop_store;
 	HRESULT hr = SHGetPropertyStoreForWindow(wd.hWnd, IID_IPropertyStore, (void **)&prop_store);
 	if (hr == S_OK) {

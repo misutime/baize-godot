@@ -100,9 +100,9 @@ if env.msvc:
     env.Depends(prog, "godot.natvis")
 
 # Build console wrapper app.
-# FORK-M2:EDITOR_NATIVE_DLL 场景(UniGo 宿主)只消费 DLL,console wrapper
-# 无意义且会因 DLL 未导出 libgodot_* 而链接失败,故跳过。
-if env["windows_subsystem"] == "gui" and not env["editor_native"]:
+# FORK-UniGo:shared_library(纯净渲染内核)只消费 DLL,不构建 console wrapper
+# (libgodot_* 实现只在非 executable 编译,console 链接会失败)。
+if env["windows_subsystem"] == "gui" and env["library_type"] == "executable":
     if env.editor_build:
         res_wrap_file = "godot_res_wrap.rc"
         res_wrap_target = "godot_res_wrap" + env["OBJSUFFIX"]
