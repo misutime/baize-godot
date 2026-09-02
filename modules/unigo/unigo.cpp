@@ -38,6 +38,7 @@
 #include <atomic>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string.h>
 
 /* ---- 最小 GDExtension 初始化函数 ---- */
@@ -235,8 +236,12 @@ struct UnigoRenderState {
 	RID viewport;           /* 根窗口 viewport */
 	RID camera;             /* C# 建的相机 */
 	RID directional_light;  /* C# 建的平行光 */
+	RID light_instance;     /* 平行光实例(挂 scenario) */
+	bool setup_done = false; /* setup 是否已执行(幂等保护) */
 	std::map<uint64_t, RID> handles; /* 真实 id → Godot RID(真实 id 由 C++ 分配) */
+	std::set<uint64_t> instance_ids; /* 记录 instance 真实 id(供变换/可见性命令校验类型) */
 	std::map<uint64_t, uint64_t> request_to_real; /* 宿主 request_id → 真实 id(宿主后续用真实 id 引用) */
+	std::map<uint64_t, uint64_t> material_shader; /* material 真实 id → 关联 shader 真实 id(销毁时级联释放) */
 	uint64_t next_handle = 1;        /* 真实 id 分配器(C++ 权威分配) */
 };
 
@@ -260,10 +265,18 @@ UNIGO_API void unigo_engine_shutdown(unigo_handle p_handle) {
 		UnigoRenderState *render = unigo_render_get_state(state);
 		RenderingServer *rs = RenderingServer::get_singleton();
 		if (rs != nullptr && render != nullptr) {
+			/* 先释放 setup 创建的场景级资源(camera/light/light_instance)。 */
+			if (render->setup_done) {
+				rs->free_rid(render->light_instance);
+				rs->free_rid(render->directional_light);
+				rs->free_rid(render->camera);
+				render->setup_done = false;
+			}
 			for (auto &pair : render->handles) {
 				rs->free_rid(pair.second);
 			}
 			render->handles.clear();
+			render->instance_ids.clear();
 			render->request_to_real.clear();
 		}
 		state->instance->stop();
@@ -292,6 +305,25 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
  *  - 材质用 shader_create_from_code 手写最小 unlit shader(绕开 StandardMaterial 场景层);
  *  - 命令缓冲:宿主每帧批量填 POD 命令,一次 unigo_render_apply 消费(架构 §8 批量热路径)。
  */
+
+/* 解析引用 → RID:先按真实 id 查 handles,再按宿主 request_id 查 request_to_real。
+ * (同批命令内用 request_id 引用(真实 id 尚未回传);跨批用真实 id 引用——两者都支持。) */
+static bool unigo_find_rid(UnigoRenderState *render, uint64_t ref, RID *r_out) {
+	auto it = render->handles.find(ref);
+	if (it != render->handles.end()) {
+		*r_out = it->second;
+		return true;
+	}
+	auto req = render->request_to_real.find(ref);
+	if (req != render->request_to_real.end()) {
+		auto hit = render->handles.find(req->second);
+		if (hit != render->handles.end()) {
+			*r_out = hit->second;
+			return true;
+		}
+	}
+	return false;
+}
 
 
 /* 取渲染状态(挂在 UnigoEngineState 后)。 */
@@ -335,6 +367,14 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
 	}
 
 	UnigoRenderState *render = unigo_render_get_state(state);
+
+	/* 幂等保护:重复 setup 先释放旧资源(避免旧 RID 被覆盖遗失)。 */
+	if (render->setup_done) {
+		rs->free_rid(render->light_instance);
+		rs->free_rid(render->directional_light);
+		rs->free_rid(render->camera);
+	}
+
 	render->scenario = world->get_scenario();
 	render->viewport = root_viewport->get_viewport_rid();
 
@@ -348,8 +388,9 @@ UNIGO_API int32_t unigo_render_setup(unigo_handle p_handle) {
 	render->directional_light = rs->directional_light_create();
 	rs->light_set_color(render->directional_light, Color(1.0f, 1.0f, 1.0f));
 	rs->light_set_param(render->directional_light, RSE::LIGHT_PARAM_ENERGY, 1.0f);
-	RID light_instance = rs->instance_create2(render->directional_light, render->scenario);
-	rs->instance_set_transform(light_instance, Transform3D(Basis::from_euler(Vector3(-0.5f, 0.5f, 0.0f)), Vector3()));
+	render->light_instance = rs->instance_create2(render->directional_light, render->scenario);
+	rs->instance_set_transform(render->light_instance, Transform3D(Basis::from_euler(Vector3(-0.5f, 0.5f, 0.0f)), Vector3()));
+	render->setup_done = true;
 
 	return UNIGO_OK;
 }
@@ -439,10 +480,8 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_MATERIAL: {
-				/* 最小 unlit shader:ALBEDO 取命令颜色(绕开 StandardMaterial 场景层)。 */
+				/* 最小 unlit shader:ALBEDO 取命令颜色(C# 侧明确传默认白;不靠零值推断,黑色合法)。 */
 				float r = cmd.color[0], g = cmd.color[1], b = cmd.color[2];
-				/* 默认白(未设颜色时)。 */
-				if (r == 0 && g == 0 && b == 0) { r = 1; g = 1; b = 1; }
 				char albedo[128];
 				snprintf(albedo, sizeof(albedo), "vec3(%.3f, %.3f, %.3f)", r, g, b);
 				String shader_code = String("shader_type spatial;\n"
@@ -456,48 +495,42 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				/* shader 也是 RID,需一并登记以便 shutdown 释放(材质引用但不拥有 shader)。 */
 				uint64_t shader_id = render->next_handle++;
 				render->handles[shader_id] = shader;
+				render->material_shader[real_id] = shader_id; /* 记录 material→shader 所有权(销毁时级联释放) */
 				render->request_to_real[cmd.request_id] = real_id;
 				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
 			}
 			case UNIGO_RENDER_SET_SURFACE_MATERIAL: {
-				/* parent/value = mesh/material 的宿主 request_id,解析为真实 id。 */
-				auto mesh_req = render->request_to_real.find(cmd.parent);
-				auto mat_req = render->request_to_real.find(cmd.value);
-				if (mesh_req == render->request_to_real.end() || mat_req == render->request_to_real.end()) {
-					unigo_set_error("unigo_render_apply: 未知 mesh/material request_id");
-					return -UNIGO_ERR_INVALID_HANDLE;
-				}
-				auto mesh_it = render->handles.find(mesh_req->second);
-				auto mat_it = render->handles.find(mat_req->second);
-				if (mesh_it == render->handles.end() || mat_it == render->handles.end()) {
+				/* parent/value 支持真实 id 或 request_id(同批用 request_id,跨批用真实 id)。 */
+				RID mesh_rid, mat_rid;
+				if (!unigo_find_rid(render, cmd.parent, &mesh_rid) || !unigo_find_rid(render, cmd.value, &mat_rid)) {
 					unigo_set_error("unigo_render_apply: 未知 mesh/material handle");
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
-				rs->mesh_surface_set_material(mesh_it->second, 0, mat_it->second);
+				rs->mesh_surface_set_material(mesh_rid, 0, mat_rid);
 				break;
 			}
 			case UNIGO_RENDER_CREATE_INSTANCE: {
-				/* parent = mesh 的宿主 request_id,解析为真实 id。 */
-				auto req_it = render->request_to_real.find(cmd.parent);
-				if (req_it == render->request_to_real.end()) {
-					unigo_set_error("unigo_render_apply: 未知 mesh request_id");
-					return -UNIGO_ERR_INVALID_HANDLE;
-				}
-				uint64_t mesh_real = req_it->second;
-				auto mesh_it = render->handles.find(mesh_real);
-				if (mesh_it == render->handles.end()) {
+				/* parent = mesh 引用(真实 id 或 request_id)。 */
+				RID mesh_rid;
+				if (!unigo_find_rid(render, cmd.parent, &mesh_rid)) {
 					unigo_set_error("unigo_render_apply: 未知 mesh handle");
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
-				RID instance = rs->instance_create2(mesh_it->second, render->scenario);
+				RID instance = rs->instance_create2(mesh_rid, render->scenario);
 				uint64_t real_id = render->next_handle++; /* C++ 权威分配真实 id */
 				render->handles[real_id] = instance;
+				render->instance_ids.insert(real_id);
 				render->request_to_real[cmd.request_id] = real_id;
 				if (p_results != nullptr) { p_results[i].handle = real_id; }
 				break;
 			}
 			case UNIGO_RENDER_SET_INSTANCE_TRANSFORM: {
+				/* 类型校验:必须是 instance(防把 mesh/material id 误当 instance 传)。 */
+				if (render->instance_ids.find(cmd.handle) == render->instance_ids.end()) {
+					unigo_set_error("unigo_render_apply: handle 不是 instance");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
 				auto it = render->handles.find(cmd.handle);
 				if (it == render->handles.end()) {
 					unigo_set_error("unigo_render_apply: 未知 instance handle");
@@ -513,6 +546,11 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_SET_INSTANCE_VISIBLE: {
+				/* 类型校验:必须是 instance。 */
+				if (render->instance_ids.find(cmd.handle) == render->instance_ids.end()) {
+					unigo_set_error("unigo_render_apply: handle 不是 instance");
+					return -UNIGO_ERR_INVALID_HANDLE;
+				}
 				auto it = render->handles.find(cmd.handle);
 				if (it == render->handles.end()) {
 					unigo_set_error("unigo_render_apply: 未知 instance handle");
@@ -528,8 +566,19 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 					unigo_set_error("unigo_render_apply: 未知 handle(销毁)");
 					return -UNIGO_ERR_INVALID_HANDLE;
 				}
+				/* 若销毁的是材质,级联释放其关联 shader(材质引用但不拥有 shader)。 */
+				auto shader_it = render->material_shader.find(cmd.handle);
+				if (shader_it != render->material_shader.end()) {
+					auto shader_handle = render->handles.find(shader_it->second);
+					if (shader_handle != render->handles.end()) {
+						rs->free_rid(shader_handle->second);
+						render->handles.erase(shader_handle);
+					}
+					render->material_shader.erase(shader_it);
+				}
 				rs->free_rid(it->second);
 				render->handles.erase(it);
+				render->instance_ids.erase(cmd.handle); /* 若销毁的是 instance,移出类型集合 */
 				/* 同步清理 request_to_real 中指向该真实 id 的条目(不报错,尽力而为)。 */
 				for (auto rit = render->request_to_real.begin(); rit != render->request_to_real.end();) {
 					if (rit->second == cmd.handle) {
