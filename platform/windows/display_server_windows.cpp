@@ -7053,12 +7053,21 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 						SetCursor(nullptr);
 					}
 				} else {
-					if (hCursor != nullptr) {
-						DisplayServerEnums::CursorShape c = cursor_shape;
-						cursor_shape = DisplayServerEnums::CURSOR_MAX;
-						cursor_set_shape(c);
-						hCursor = nullptr;
+					/* FORK-UniGo(独立窗口光标修复):按当前 cursor_shape 直接 SetCursor。
+					 * 原逻辑依赖 hCursor!=null 且用 CURSOR_MAX 中转,cursor_set_shape 的
+					 * ERR_FAIL_INDEX 下失效(越界直接 return),导致独立窗口鼠标进窗后光标消失。
+					 * 改为:可见模式直接按形状恢复,不依赖 hCursor、不用 CURSOR_MAX 中转。 */
+					DisplayServerEnums::CursorShape c = cursor_shape;
+					if (c >= 0 && c < DisplayServerEnums::CURSOR_MAX) {
+						if (cursors_cache.has(c)) {
+							SetCursor(cursors[c]);
+						} else {
+							SetCursor(LoadCursor(nullptr, unigo_win_cursors[c]));
+						}
+					} else {
+						SetCursor(LoadCursor(nullptr, IDC_ARROW));
 					}
+					hCursor = nullptr;
 				}
 			}
 		} break;
