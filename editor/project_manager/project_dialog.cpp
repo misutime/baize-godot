@@ -41,6 +41,8 @@
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_icons.h"
+
+#include "modules/modules_enabled.gen.h" // For MODULE_MONO_ENABLED.
 #include "editor/themes/editor_scale.h"
 #include "editor/version_control/editor_vcs_interface.h"
 #include "scene/gui/check_box.h"
@@ -592,6 +594,10 @@ void ProjectDialog::ok_pressed() {
 			WARN_PRINT("Unknown renderer type. Please report this as a bug on GitHub.");
 		}
 
+#ifdef MODULE_MONO_ENABLED
+		// FORK-CUSTOM（All-in C#）：创建项目即标记为 C# 项目（上游需等 .cs 文件才初始化）。
+		project_features.push_back("C#");
+#endif
 		project_features.sort();
 		initial_settings["application/config/features"] = project_features;
 		initial_settings["application/config/name"] = project_name->get_text().strip_edges();

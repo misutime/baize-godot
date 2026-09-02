@@ -37,8 +37,13 @@ namespace GodotTools
         [UsedImplicitly]
         public void RestartTimer()
         {
+            // FORK-CUSTOM：headless/命令行模式下 _watchTimer 可能未入场景树（_Ready 未完成），
+            // Start() 会抛异常导致崩溃——空检查 + 树内检查兜底。
+            if (_watchTimer == null || !IsNodeReady() || !_watchTimer.IsInsideTree())
+            {
+                return;
+            }
             _watchTimer.Stop();
-            _watchTimer.Start();
         }
 
         public override void _Ready()
@@ -52,7 +57,10 @@ namespace GodotTools
             };
             _watchTimer.Timeout += TimerTimeout;
             AddChild(_watchTimer);
-            _watchTimer.Start();
+            if (_watchTimer.IsInsideTree())
+            {
+                _watchTimer.Start();
+            }
         }
     }
 }

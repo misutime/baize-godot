@@ -294,7 +294,8 @@ String &String::operator+=(const String &p_str) {
 }
 
 String &String::operator+=(const char *p_str) {
-	append_latin1(p_str);
+	// FORK-CUSTOM: 与构造同智能解码（此前 append_latin1——"中" + "文" 后半乱码）。
+	_from_cstr(p_str);
 	return *this;
 }
 
@@ -320,8 +321,9 @@ String &String::operator+=(char32_t p_char) {
 }
 
 bool String::operator==(const char *p_str) const {
-	// Compare Latin-1 encoded c-string.
-	return span() == Span(p_str, strlen(p_str)).reinterpret<uint8_t>();
+	// FORK-CUSTOM: 与构造同智能解码——String("中文") == "中文" 两侧语义一致
+	// （此前按 Latin-1 原始字节比较，解码后的 String 与字面量恒不等）。
+	return *this == String(p_str);
 }
 
 bool String::operator==(const wchar_t *p_str) const {

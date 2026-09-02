@@ -882,13 +882,19 @@ ScriptCreateDialog::ScriptCreateDialog() {
 	gc->add_child(memnew(Label(TTR("Language:"))));
 	gc->add_child(language_menu);
 
+	// FORK-CUSTOM（All-in C#）：默认语言优先 C#（上游硬编码 GDScript）。
+	// GDScript 已禁用（宪法 D3：仅 C#），默认选中 C#；无 C# 时回退第一个可用语言。
 	default_language = -1;
 	for (int i = 0; i < ScriptServer::get_language_count(); i++) {
 		String lang = ScriptServer::get_language(i)->get_name();
 		language_menu->add_item(lang);
-		if (lang == "GDScript") {
+		if (lang == "C#") {
 			default_language = i;
 		}
+	}
+	if (default_language < 0 && ScriptServer::get_language_count() > 0) {
+		// 无 C#（理论不发生在 All-in C# 构建）：默认第一个语言。
+		default_language = 0;
 	}
 	if (ScriptServer::get_language_count() == 0) {
 		// Edge Case 1: No scripting languages exist at all.
@@ -897,7 +903,7 @@ ScriptCreateDialog::ScriptCreateDialog() {
 		language_menu->set_auto_translate_mode(AUTO_TRANSLATE_MODE_ALWAYS);
 		language_menu->add_item(TTR("No Scripting Languages Available"));
 	} else if (default_language >= 0) {
-		// Normal Case: GDScript is available, select it.
+		// Normal Case: default language (C#) is available, select it.
 		language_menu->select(default_language);
 	} else {
 		// Edge Case 2: Languages exist (like C#), but GDScript is disabled.
