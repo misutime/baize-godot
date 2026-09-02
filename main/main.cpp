@@ -1756,24 +1756,24 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		} else if (arg == "--unigo-msaa") { // FORK-UniGo:MSAA 档位索引(0=关,1=2×,2=4×,3=8×)
 			// 存索引不立即 set:SceneTree 构造前(见下方重放)统一预置 msaa_3d,
 			// 避免 project.godot 加载(globals->setup)覆盖宿主声明值。
-			if (!N || !N->get().is_valid_int()) {
+			if (!N || N->get().begins_with("-") || !N->get().is_valid_int()) {
+				// 值缺失/是下一开关/非纯整数:仅提示,不消费 N(不吞下一开关)。
 				OS::get_singleton()->print("Invalid --unigo-msaa: 缺少整数档位(0=关,1=2×,2=4×,3=8×)\n");
 			} else {
 				int v = N->get().to_int();
 				if (v >= 0 && v < (int)Viewport::MSAA_MAX) {
 					unigo_msaa_mode = v;
+					N = N->next(); /* 仅真实值节点才消费 */
 				} else {
 					OS::get_singleton()->print("Invalid --unigo-msaa value %d (0=关,1=2×,2=4×,3=8×), using default.\n", v);
 				}
 			}
-			if (N) {
-				N = N->next();
-			}
 		} else if (arg == "--unigo-config") { // FORK-UniGo:通用 ProjectSettings 预置(key=value,可多次)
 			// 统一注入通道:解析存覆盖列表,在 globals->setup 后统一重放(见重放点)——
 			// 确保 100% 由宿主声明且不被 project.godot 同 key 覆盖。值按 Variant 自动定型。
-			if (!N) {
-				OS::get_singleton()->print("Invalid --unigo-config: 缺少 key=value\n");
+			bool config_consumed = false; /* 仅真实 key=value 值节点才消费(不吞下一开关) */
+			if (!N || N->get().begins_with("-")) {
+				OS::get_singleton()->print("Invalid --unigo-config: 缺少 key=value(下一项是开关?)\n");
 			} else {
 				String kv = N->get();
 				int eq = kv.find("=");
@@ -1792,6 +1792,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 							v = val;
 						}
 						unigo_config_overrides.push_back(Pair<String, Variant>(key, v));
+						config_consumed = true; /* 有效 key=value:消费该值节点 */
 					} else {
 						OS::get_singleton()->print("Invalid --unigo-config '%s': 空 key\n", kv.utf8().get_data());
 					}
@@ -1799,8 +1800,8 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 					OS::get_singleton()->print("Invalid --unigo-config '%s': 缺少 '=' (格式 key=value)\n", kv.utf8().get_data());
 				}
 			}
-			if (N) {
-				N = N->next();
+			if (config_consumed) {
+				N = N->next(); /* 仅真实值节点才推进(无效值/开关不吞,留给后续分支解析) */
 			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;

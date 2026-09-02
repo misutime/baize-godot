@@ -401,8 +401,11 @@ UNIGO_API int32_t unigo_engine_get_msaa(unigo_handle p_handle) {
 	}
 	int32_t result;
 	SceneTree *st = SceneTree::get_singleton();
-	if (st == nullptr || st->get_root() == nullptr) {
-		result = -1; /* SceneTree 未就绪 */
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr || ds == nullptr || ds->get_name() == "headless") {
+		/* SceneTree 未就绪或无窗口后端(headless 的 get_msaa_3d 只读 Viewport 缓存属性,
+		 * RasterizerDummy 无实际 MSAA——返回不可用防伪造验证) */
+		result = -1;
 	} else {
 		result = (int32_t)st->get_root()->get_msaa_3d();
 	}
@@ -450,8 +453,11 @@ UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa) {
 	}
 	int32_t result = 0;
 	SceneTree *st = SceneTree::get_singleton();
-	if (st == nullptr || st->get_root() == nullptr) {
-		unigo_set_error("unigo_engine_set_msaa: SceneTree 未就绪");
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr || ds == nullptr || ds->get_name() == "headless") {
+		/* SceneTree 未就绪或无窗口后端(headless:set_msaa_3d 只改 Viewport 缓存属性,
+		 * RasterizerDummy 无实际 MSAA——返回 UNSUPPORTED 防假成功) */
+		unigo_set_error("unigo_engine_set_msaa: SceneTree 未就绪或无窗口后端(headless)");
 		result = -UNIGO_ERR_UNSUPPORTED;
 	} else {
 		st->get_root()->set_msaa_3d((Viewport::MSAA)p_msaa); /* 重建 render buffers;须引擎线程(ERR_MAIN_THREAD_GUARD) */
@@ -518,8 +524,14 @@ UNIGO_API int32_t unigo_engine_get_renderer(unigo_handle p_handle, char *p_buf, 
 		return -UNIGO_ERR_SHUTDOWN;
 	}
 	int32_t result = 0;
+	DisplayServer *ds = DisplayServer::get_singleton();
 	if (OS::get_singleton() == nullptr) {
 		unigo_set_error("unigo_engine_get_renderer: OS 未初始化");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else if (ds == nullptr || ds->get_name() == "headless") {
+		/* headless 用 RasterizerDummy,current_rendering_method 只是配置缓存值非真实
+		 * 渲染后端——返回 UNSUPPORTED 防宿主"真实渲染器生效"校验误通过 */
+		unigo_set_error("unigo_engine_get_renderer: 无窗口渲染后端(headless)");
 		result = -UNIGO_ERR_UNSUPPORTED;
 	} else {
 		String m = OS::get_singleton()->get_current_rendering_method();
