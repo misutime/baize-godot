@@ -116,7 +116,7 @@ typedef struct unigo_render_command {
 	uint64_t handle;      /* 真实对象 id(创建命令=C++ 分配并回传;引用命令=引用已创建对象的真实 id) */
 	uint64_t parent;      /* 关联对象真实 id(如 instance 关联 mesh) */
 	uint64_t value;       /* 标量(如可见性 bool;SetSurfaceMaterial 的 material 真实 id) */
-	float color[4];       /* 材质颜色 RGBA(仅 CREATE_MATERIAL 用;默认白) */
+	float color[4];       /* 材质颜色 RGB(仅 CREATE_MATERIAL 用;宿主必须显式赋值,零值=黑色合法;A 当前未使用) */
 	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
 } unigo_render_command;
 
