@@ -1740,14 +1740,18 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		} else if (arg == "--unigo-vsync") { // FORK-UniGo:窗口 vsync 显式指定(0=Disabled,1=Enabled,2=Adaptive,3=Mailbox)
 			// 在 window_vsync_mode 读 GLOBAL 默认之前解析,DisplayServer::create 时窗口即带指定值——
 			// 首帧即正确,无需事后 window_set_vsync_mode(避免 needs_resize 重建窗口期与字段/实际不一致)。
-			if (N) {
+			if (!N || N->get().begins_with("-") || !N->get().is_valid_int()) {
+				// 值缺失/是下一开关/非纯整数(is_valid_int 拒绝 'abc'——to_int 会把 abc 解析为 0):
+				// 不吞下一开关,仅提示后走默认。
+				OS::get_singleton()->print("Invalid --unigo-vsync: 缺少整数模式(0=Disabled,1=Enabled,2=Adaptive,3=Mailbox)\n");
+			} else {
 				int v = N->get().to_int();
 				if (v >= (int)DisplayServerEnums::VSYNC_DISABLED && v <= (int)DisplayServerEnums::VSYNC_MAILBOX) {
 					unigo_vsync_mode = (DisplayServerEnums::VSyncMode)v;
 				} else {
 					OS::get_singleton()->print("Invalid --unigo-vsync value %d (0=Disabled,1=Enabled,2=Adaptive,3=Mailbox), using default.\n", v);
 				}
-				N = N->next();
+				N = N->next(); /* 仅真实值节点才消费 */
 			}
 		} else if (arg == "--unigo-msaa") { // FORK-UniGo:MSAA 档位索引(0=关,1=2×,2=4×,3=8×)
 			// 存索引不立即 set:SceneTree 构造前(见下方重放)统一预置 msaa_3d,

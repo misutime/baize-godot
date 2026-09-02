@@ -358,10 +358,11 @@ UNIGO_API int32_t unigo_engine_get_vsync(unigo_handle p_handle) {
 		return -UNIGO_ERR_SHUTDOWN;
 	}
 	int32_t result;
-	if (DisplayServer::get_singleton() == nullptr) {
-		result = -1; /* 无窗口后端(如 headless),宿主按不可用处理 */
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		result = -1; /* 无窗口后端(空或 headless),宿主按不可用处理——headless 的 window_get_vsync_mode 固定返回 ENABLED,会伪造验证 */
 	} else {
-		DisplayServerEnums::VSyncMode mode = DisplayServer::get_singleton()->window_get_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID);
+		DisplayServerEnums::VSyncMode mode = ds->window_get_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID);
 		result = (int32_t)mode;
 	}
 	state->instance_mutex.unlock();
@@ -380,11 +381,12 @@ UNIGO_API int32_t unigo_engine_set_vsync(unigo_handle p_handle, int32_t p_mode) 
 		return -UNIGO_ERR_SHUTDOWN;
 	}
 	int32_t result = 0;
-	if (DisplayServer::get_singleton() == nullptr) {
-		unigo_set_error("unigo_engine_set_vsync: DisplayServer 未就绪(headless)");
-		result = -UNIGO_ERR_UNSUPPORTED;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		unigo_set_error("unigo_engine_set_vsync: 无窗口后端(空或 headless)");
+		result = -UNIGO_ERR_UNSUPPORTED; /* headless 的 window_set_vsync_mode 是空操作——不能假成功 */
 	} else {
-		DisplayServer::get_singleton()->window_set_vsync_mode((DisplayServerEnums::VSyncMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
+		ds->window_set_vsync_mode((DisplayServerEnums::VSyncMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
 	}
 	state->instance_mutex.unlock();
 	return result;
