@@ -86,16 +86,17 @@ UNIGO_API int32_t unigo_engine_query_render_support(void);
 
 /* ---- vsync 查询/设置(宿主显式控制帧节奏边界) ---- */
 /* 模式枚举与 DisplayServerEnums::VSyncMode 一致:0=DISABLED,1=ENABLED,2=ADAPTIVE,3=MAILBOX。
+ * 运行时接口须在引擎线程调用(与 unigo_engine_iterate 同线程);带 handle 锁内校验生命周期。
  * get:DisplayServer 未就绪/非窗口后端返回 -1;set:非法模式返回 -UNIGO_ERR_INVALID_ARG,
- * DisplayServer 未就绪返回 -UNIGO_ERR_UNSUPPORTED。 */
-UNIGO_API int32_t unigo_engine_get_vsync(void);
-UNIGO_API int32_t unigo_engine_set_vsync(int32_t p_mode);
-UNIGO_API int32_t unigo_engine_get_msaa(void);
-UNIGO_API int32_t unigo_engine_get_setting_string(const char *p_key, char *p_buf, int32_t p_buf_size);
-UNIGO_API int32_t unigo_engine_set_msaa(int32_t p_msaa);
-UNIGO_API int32_t unigo_engine_set_window_size(int32_t p_width, int32_t p_height);
-UNIGO_API int32_t unigo_engine_set_window_mode(int32_t p_mode);
-UNIGO_API int32_t unigo_engine_get_renderer(char *p_buf, int32_t p_buf_size);
+ * DisplayServer 未就绪返回 -UNIGO_ERR_UNSUPPORTED;内核已 shutdown 返回 -UNIGO_ERR_SHUTDOWN。 */
+UNIGO_API int32_t unigo_engine_get_vsync(unigo_handle p_handle);
+UNIGO_API int32_t unigo_engine_set_vsync(unigo_handle p_handle, int32_t p_mode);
+UNIGO_API int32_t unigo_engine_get_msaa(unigo_handle p_handle);
+UNIGO_API int32_t unigo_engine_get_setting_string(unigo_handle p_handle, const char *p_key, char *p_buf, int32_t p_buf_size);
+UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa);
+UNIGO_API int32_t unigo_engine_set_window_size(unigo_handle p_handle, int32_t p_width, int32_t p_height);
+UNIGO_API int32_t unigo_engine_set_window_mode(unigo_handle p_handle, int32_t p_mode);
+UNIGO_API int32_t unigo_engine_get_renderer(unigo_handle p_handle, char *p_buf, int32_t p_buf_size);
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*

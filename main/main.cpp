@@ -211,6 +211,9 @@ static bool editor = false;
 static bool project_manager = false;
 static bool unigo_render_only = false; /* FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM) */
 static int unigo_vsync_mode = -1; /* FORK-UniGo:窗口 vsync 显式指定(-1=未指定信任默认;0-3=Dis/En/Adaptive/Mailbox) */
+static int unigo_msaa_mode = -1; /* FORK-UniGo:MSAA 档位(-1=未指定信任默认;0-3=Viewport::MSAA 索引) */
+static List<Pair<String, Variant>> unigo_config_overrides; /* FORK-UniGo:--unigo-config 覆盖项(先存后重放,
+ * 在 globals->setup 加载项目后统一 set——避免 project.godot 同 key 覆盖宿主声明值) */
 static bool cmdline_tool = false;
 static String locale;
 static String log_file;
@@ -1747,23 +1750,27 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				N = N->next();
 			}
 		} else if (arg == "--unigo-msaa") { // FORK-UniGo:MSAA 档位索引(0=关,1=2×,2=4×,3=8×)
-			// 预置 ProjectSettings 的 msaa_3d:SceneTree 构造时(root->set_msaa_3d,
-			// scene_tree.cpp:2112)GLOBAL_GET 读到预置值——viewport 首个渲染缓冲即带 MSAA,
-			// 与 vsync 同理走 create 前定值的确定路径,无事后 set/viewport_set_msaa_3d 兜底。
-			if (N) {
+			// 存索引不立即 set:SceneTree 构造前(见下方重放)统一预置 msaa_3d,
+			// 避免 project.godot 加载(globals->setup)覆盖宿主声明值。
+			if (!N || !N->get().is_valid_int()) {
+				OS::get_singleton()->print("Invalid --unigo-msaa: 缺少整数档位(0=关,1=2×,2=4×,3=8×)\n");
+			} else {
 				int v = N->get().to_int();
 				if (v >= 0 && v < (int)Viewport::MSAA_MAX) {
-					ProjectSettings::get_singleton()->set_setting("rendering/anti_aliasing/quality/msaa_3d", v);
+					unigo_msaa_mode = v;
 				} else {
 					OS::get_singleton()->print("Invalid --unigo-msaa value %d (0=关,1=2×,2=4×,3=8×), using default.\n", v);
 				}
+			}
+			if (N) {
 				N = N->next();
 			}
 		} else if (arg == "--unigo-config") { // FORK-UniGo:通用 ProjectSettings 预置(key=value,可多次)
-			// 统一注入通道:C# 侧所有需预置的 Godot 配置(渲染/窗口/环境等)经此注入,
-			// 在最早 GLOBAL_GET 消费点之前 set_setting,确保 100% 由宿主声明。
-			// 值按 Variant 自动定型(int/float/bool/字符串),非法格式打印诊断不崩溃。
-			if (N) {
+			// 统一注入通道:解析存覆盖列表,在 globals->setup 后统一重放(见重放点)——
+			// 确保 100% 由宿主声明且不被 project.godot 同 key 覆盖。值按 Variant 自动定型。
+			if (!N) {
+				OS::get_singleton()->print("Invalid --unigo-config: 缺少 key=value\n");
+			} else {
 				String kv = N->get();
 				int eq = kv.find("=");
 				if (eq > 0) {
@@ -1780,13 +1787,15 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 						} else {
 							v = val;
 						}
-						ProjectSettings::get_singleton()->set_setting(key, v);
+						unigo_config_overrides.push_back(Pair<String, Variant>(key, v));
 					} else {
 						OS::get_singleton()->print("Invalid --unigo-config '%s': 空 key\n", kv.utf8().get_data());
 					}
 				} else {
 					OS::get_singleton()->print("Invalid --unigo-config '%s': 缺少 '=' (格式 key=value)\n", kv.utf8().get_data());
 				}
+			}
+			if (N) {
 				N = N->next();
 			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
@@ -2163,6 +2172,19 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		if (DirAccess::dir_exists_absolute(cache_path)) {
 			OS::get_singleton()->move_to_trash(cache_path);
 		}
+	}
+
+	/* FORK-UniGo:重放宿主声明的配置覆盖项(--unigo-config/--unigo-msaa)。
+	 * 必须在 globals->setup(加载 project.godot)之后、任何 GLOBAL_GET/DisplayServer/
+	 * SceneTree 消费之前——确保宿主声明 100% 生效,不被项目文件同 key 覆盖。
+	 * 多值覆盖项:后值胜(保持 argv 顺序语义)。 */
+	if (!unigo_config_overrides.is_empty()) {
+		for (const Pair<String, Variant> &override : unigo_config_overrides) {
+			ProjectSettings::get_singleton()->set_setting(override.first, override.second);
+		}
+	}
+	if (unigo_msaa_mode >= 0) {
+		ProjectSettings::get_singleton()->set_setting("rendering/anti_aliasing/quality/msaa_3d", unigo_msaa_mode);
 	}
 
 	// Initialize WorkerThreadPool.
