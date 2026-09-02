@@ -210,6 +210,7 @@ static bool single_window = false;
 static bool editor = false;
 static bool project_manager = false;
 static bool unigo_render_only = false; /* FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM) */
+static int unigo_vsync_mode = -1; /* FORK-UniGo:窗口 vsync 显式指定(-1=未指定信任默认;0-3=Dis/En/Adaptive/Mailbox) */
 static bool cmdline_tool = false;
 static String locale;
 static String log_file;
@@ -1733,6 +1734,18 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #endif // defined(OVERRIDE_PATH_ENABLED)
 		} else if (arg == "--unigo-render-only") { // FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM)
 			unigo_render_only = true;
+		} else if (arg == "--unigo-vsync") { // FORK-UniGo:窗口 vsync 显式指定(0=Disabled,1=Enabled,2=Adaptive,3=Mailbox)
+			// 在 window_vsync_mode 读 GLOBAL 默认之前解析,DisplayServer::create 时窗口即带指定值——
+			// 首帧即正确,无需事后 window_set_vsync_mode(避免 needs_resize 重建窗口期与字段/实际不一致)。
+			if (N) {
+				int v = N->get().to_int();
+				if (v >= (int)DisplayServerEnums::VSYNC_DISABLED && v <= (int)DisplayServerEnums::VSYNC_MAILBOX) {
+					unigo_vsync_mode = (DisplayServerEnums::VSyncMode)v;
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-vsync value %d (0=Disabled,1=Enabled,2=Adaptive,3=Mailbox), using default.\n", v);
+				}
+				N = N->next();
+			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED
@@ -2817,7 +2830,10 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 	{
 		window_vsync_mode = DisplayServerEnums::VSyncMode(int(GLOBAL_DEF_BASIC("display/window/vsync/vsync_mode", DisplayServerEnums::VSyncMode::VSYNC_ENABLED)));
-		if (disable_vsync) {
+		if (unigo_vsync_mode >= 0) { /* FORK-UniGo:宿主显式指定的 vsync 优先(在 DisplayServer::create 前定值,窗口首帧即生效) */
+			window_vsync_mode = (DisplayServerEnums::VSyncMode)unigo_vsync_mode;
+		}
+		if (disable_vsync) { /* --disable-vsync 强制关(最强优先级,与官方语义一致) */
 			window_vsync_mode = DisplayServerEnums::VSyncMode::VSYNC_DISABLED;
 		}
 	}
