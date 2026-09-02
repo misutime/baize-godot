@@ -60,6 +60,8 @@ class Main {
 
 public:
 	static bool is_cmdline_tool();
+	/* FORK-UniGo:是否纯渲染内核模式(--unigo-render-only)。供内核各层判断是否跳过与项目/编辑器无关的初始化。 */
+	static bool is_unigo_render_only();
 #ifdef TOOLS_ENABLED
 	enum CLIScope {
 		CLI_SCOPE_TOOL, // Editor and project manager.

@@ -307,6 +307,11 @@ bool Main::is_cmdline_tool() {
 	return cmdline_tool;
 }
 
+/* FORK-UniGo:纯渲染内核模式查询(--unigo-render-only)。 */
+bool Main::is_unigo_render_only() {
+	return unigo_render_only;
+}
+
 #ifdef TOOLS_ENABLED
 const Vector<String> &Main::get_forwardable_cli_arguments(Main::CLIScope p_scope) {
 	return forwardable_cli_arguments[p_scope];
