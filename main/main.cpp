@@ -5284,8 +5284,13 @@ void Main::force_redraw() {
 void Main::cleanup(bool p_force) {
 	Thread::make_main_thread();
 
-	/* FORK-UniGo:复位纯渲染内核标志——进程内 shutdown 后再 setup 新实例不带旧参数污染。 */
+	/* FORK-UniGo:复位全部 UniGo 启动状态——进程内 shutdown 后再 setup 新实例
+	 * 不带旧参数污染(--unigo-render-only/config/msaa/vsync 都清空;
+	 * 否则第二个内核会重放第一实例的配置,破坏"配置完全由当前宿主声明"契约)。 */
 	unigo_render_only = false;
+	unigo_vsync_mode = -1;
+	unigo_msaa_mode = -1;
+	unigo_config_overrides.clear();
 
 	GodotProfileZone("cleanup");
 	OS::get_singleton()->benchmark_begin_measure("Shutdown", "Main::Cleanup");
