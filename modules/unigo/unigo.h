@@ -114,6 +114,7 @@ typedef struct unigo_render_command {
 	uint64_t handle;      /* RID 语义:mesh/instance/material 的不透明 id(由宿主分配,自增) */
 	uint64_t parent;      /* 关联 id(如 instance 关联 mesh) */
 	uint64_t value;       /* 标量(如可见性 bool) */
+	float color[4];       /* 材质颜色 RGBA(仅 CREATE_MATERIAL 用;默认白) */
 	unigo_transform transform; /* 变换(仅 SET_INSTANCE_TRANSFORM 用) */
 } unigo_render_command;
 

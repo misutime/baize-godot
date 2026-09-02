@@ -417,10 +417,15 @@ UNIGO_API int32_t unigo_render_apply(unigo_handle p_handle, const unigo_render_c
 				break;
 			}
 			case UNIGO_RENDER_CREATE_MATERIAL: {
-				/* 最小 unlit shader:ALBEDO 纯色(绕开 StandardMaterial 场景层)。 */
-				String shader_code = "shader_type spatial;\n"
+				/* 最小 unlit shader:ALBEDO 取命令颜色(绕开 StandardMaterial 场景层)。 */
+				float r = cmd.color[0], g = cmd.color[1], b = cmd.color[2];
+				/* 默认白(未设颜色时)。 */
+				if (r == 0 && g == 0 && b == 0) { r = 1; g = 1; b = 1; }
+				char albedo[128];
+				snprintf(albedo, sizeof(albedo), "vec3(%.3f, %.3f, %.3f)", r, g, b);
+				String shader_code = String("shader_type spatial;\n"
 					"render_mode unshaded;\n"
-					"void fragment() { ALBEDO = vec3(0.8, 0.2, 0.2); }\n";
+					"void fragment() { ALBEDO = ") + albedo + String("; }\n");
 				RID shader = rs->shader_create_from_code(shader_code);
 				RID material = rs->material_create();
 				rs->material_set_shader(material, shader);
