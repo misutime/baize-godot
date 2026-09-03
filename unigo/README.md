@@ -1,6 +1,9 @@
 # UniGo Godot 内核定制构建
 
-本目录是 UniGo 对 Godot 内核的**定制构建体系**。目标:用最小必要模块集构建出符合 UniGo 需求(第一阶段:Windows 嵌入 + C ABI EditorNative DLL)的 Godot 内核,同时保持与 Godot 上游最小冲突。
+本目录是 UniGo 对 Godot 内核的**定制构建体系**。目标:用最小必要模块集构建出符合 UniGo 需求(纯净渲染内核:template_release + C ABI,Godot 渲染进宿主窗口)的 Godot 内核。
+
+> **上游关系**:已决策**完全分叉**(不再自动同步上游,仅季度核查核心层 cherry-pick)。
+> 权威规则见 `docs/architecture/UniGo-Fork上游关系规范-完全分叉.md`。
 
 ## 为什么需要这个目录
 
@@ -32,14 +35,14 @@ cd vendor/godot
 # 校验配置 + 打印将执行的命令(不实际构建)
 python unigo/unigo_build.py --dry-run
 
-# 实际构建(EditorNative DLL,默认)
+# 实际构建(纯净渲染内核 DLL,默认)
 python unigo/unigo_build.py -j16
 
 # 清理
 python unigo/unigo_build.py --clean
 ```
 
-产物:`bin/godot.windows.editor.x86_64.dll`(已导出 `editor_native_query_engine_hwnd` C ABI 符号)。
+产物:`bin/godot.windows.template_release.x86_64.pure.dll`(已导出 `unigo_engine_*` C ABI 符号)。
 
 ## 维护指南
 
@@ -81,6 +84,6 @@ python unigo/unigo_build.py --clean
 
 ## 与架构文档的关系
 
-- 总体架构 §6.3 红线:**不做激进物理删除源码**,白名单即唯一裁剪入口,扩展用配置不删代码。
-- `UniGo项目结构与划分规则.md` §7.1:`vendor/godot` 子模块分支 `feature/unigo-patch`,构建产物是 C ABI DLL。
-- 第一阶段**不做 Godot 原生编辑器 UI**(`modules/editor`),但 `target=editor` 是 EditorNative DLL 的固定构建形态(SConstruct 第 610-613 行),不可改为 `template_release`。
+- **上游关系规范**(权威):`docs/architecture/UniGo-Fork上游关系规范-完全分叉.md`——完全分叉决策、同步规则、精简清单、季度核查机制。
+- 总体架构 §6.3 红线已随完全分叉决策**更新**:物理精简允许(按上游关系规范 §3 范围/流程),不再"只配置不删代码"。
+- `UniGo项目结构与划分规则.md` §7.1:`vendor/godot` 子模块,构建产物是 C ABI pure DLL。
