@@ -425,10 +425,16 @@ UNIGO_API int32_t unigo_engine_get_setting_string(unigo_handle p_handle, const c
 		return -UNIGO_ERR_SHUTDOWN;
 	}
 	int32_t result = 0;
-	if (ProjectSettings::get_singleton() == nullptr || !ProjectSettings::get_singleton()->has_setting(p_key)) {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (ps == nullptr || !ps->has_setting(p_key)) {
 		result = 1; /* key 不存在 */
+	} else if (!ps->is_builtin_setting(p_key)) {
+		/* key 存在但非 Godot 注册(builtin)——是宿主 set_setting 自创(拼错/Godot 改名后残留)。
+		 * 返回 -3:宿主配置验证据此发现 key 漂移(自证回读无法区分,review 关键 finding)。 */
+		unigo_set_error("unigo_engine_get_setting_string: key 非 Godot 注册(疑似拼错/已改名)");
+		result = -3;
 	} else {
-		Variant v = ProjectSettings::get_singleton()->get_setting(p_key);
+		Variant v = ps->get_setting(p_key);
 		String s = v.stringify();
 		errno_t e = strncpy_s(p_buf, p_buf_size, s.utf8().get_data(), _TRUNCATE);
 		if (e == STRUNCATE) {
