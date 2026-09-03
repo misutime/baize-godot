@@ -210,6 +210,10 @@ static bool single_window = false;
 static bool editor = false;
 static bool project_manager = false;
 static bool unigo_render_only = false; /* FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM) */
+static int unigo_vsync_mode = -1; /* FORK-UniGo:窗口 vsync 显式指定(-1=未指定信任默认;0-3=Dis/En/Adaptive/Mailbox) */
+static int unigo_msaa_mode = -1; /* FORK-UniGo:MSAA 档位(-1=未指定信任默认;0-3=Viewport::MSAA 索引) */
+static List<Pair<String, Variant>> unigo_config_overrides; /* FORK-UniGo:--unigo-config 覆盖项(先存后重放,
+ * 在 globals->setup 加载项目后统一 set——避免 project.godot 同 key 覆盖宿主声明值) */
 static bool cmdline_tool = false;
 static String locale;
 static String log_file;
@@ -1733,6 +1737,72 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #endif // defined(OVERRIDE_PATH_ENABLED)
 		} else if (arg == "--unigo-render-only") { // FORK-UniGo:纯渲染内核模式(C# 命令缓冲控制渲染,无项目/无 PM)
 			unigo_render_only = true;
+		} else if (arg == "--unigo-vsync") { // FORK-UniGo:窗口 vsync 显式指定(0=Disabled,1=Enabled,2=Adaptive,3=Mailbox)
+			// 在 window_vsync_mode 读 GLOBAL 默认之前解析,DisplayServer::create 时窗口即带指定值——
+			// 首帧即正确,无需事后 window_set_vsync_mode(避免 needs_resize 重建窗口期与字段/实际不一致)。
+			if (!N || N->get().begins_with("-") || !N->get().is_valid_int()) {
+				// 值缺失/是下一开关/非纯整数(is_valid_int 拒绝 'abc'——to_int 会把 abc 解析为 0):
+				// 不吞下一开关,仅提示后走默认。
+				OS::get_singleton()->print("Invalid --unigo-vsync: 缺少整数模式(0=Disabled,1=Enabled,2=Adaptive,3=Mailbox)\n");
+			} else {
+				int v = N->get().to_int();
+				if (v >= (int)DisplayServerEnums::VSYNC_DISABLED && v <= (int)DisplayServerEnums::VSYNC_MAILBOX) {
+					unigo_vsync_mode = (DisplayServerEnums::VSyncMode)v;
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-vsync value %d (0=Disabled,1=Enabled,2=Adaptive,3=Mailbox), using default.\n", v);
+				}
+				N = N->next(); /* 仅真实值节点才消费 */
+			}
+		} else if (arg == "--unigo-msaa") { // FORK-UniGo:MSAA 档位索引(0=关,1=2×,2=4×,3=8×)
+			// 存索引不立即 set:SceneTree 构造前(见下方重放)统一预置 msaa_3d,
+			// 避免 project.godot 加载(globals->setup)覆盖宿主声明值。
+			if (!N || N->get().begins_with("-") || !N->get().is_valid_int()) {
+				// 值缺失/是下一开关/非纯整数:仅提示,不消费 N(不吞下一开关)。
+				OS::get_singleton()->print("Invalid --unigo-msaa: 缺少整数档位(0=关,1=2×,2=4×,3=8×)\n");
+			} else {
+				int v = N->get().to_int();
+				if (v >= 0 && v < (int)Viewport::MSAA_MAX) {
+					unigo_msaa_mode = v;
+					N = N->next(); /* 仅真实值节点才消费 */
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-msaa value %d (0=关,1=2×,2=4×,3=8×), using default.\n", v);
+				}
+			}
+		} else if (arg == "--unigo-config") { // FORK-UniGo:通用 ProjectSettings 预置(key=value,可多次)
+			// 统一注入通道:解析存覆盖列表,在 globals->setup 后统一重放(见重放点)——
+			// 确保 100% 由宿主声明且不被 project.godot 同 key 覆盖。值按 Variant 自动定型。
+			bool config_consumed = false; /* 仅真实 key=value 值节点才消费(不吞下一开关) */
+			if (!N || N->get().begins_with("-")) {
+				OS::get_singleton()->print("Invalid --unigo-config: 缺少 key=value(下一项是开关?)\n");
+			} else {
+				String kv = N->get();
+				int eq = kv.find("=");
+				if (eq > 0) {
+					String key = kv.substr(0, eq).strip_edges();
+					String val = kv.substr(eq + 1).strip_edges();
+					if (!key.is_empty()) {
+						Variant v;
+						if (val.is_valid_int()) {
+							v = val.to_int();
+						} else if (val.is_valid_float()) {
+							v = val.to_float();
+						} else if (val == "true" || val == "false") {
+							v = (val == "true");
+						} else {
+							v = val;
+						}
+						unigo_config_overrides.push_back(Pair<String, Variant>(key, v));
+						config_consumed = true; /* 有效 key=value:消费该值节点 */
+					} else {
+						OS::get_singleton()->print("Invalid --unigo-config '%s': 空 key\n", kv.utf8().get_data());
+					}
+				} else {
+					OS::get_singleton()->print("Invalid --unigo-config '%s': 缺少 '=' (格式 key=value)\n", kv.utf8().get_data());
+				}
+			}
+			if (config_consumed) {
+				N = N->next(); /* 仅真实值节点才推进(无效值/开关不吞,留给后续分支解析) */
+			}
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED
@@ -2107,6 +2177,19 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		if (DirAccess::dir_exists_absolute(cache_path)) {
 			OS::get_singleton()->move_to_trash(cache_path);
 		}
+	}
+
+	/* FORK-UniGo:重放宿主声明的配置覆盖项(--unigo-config/--unigo-msaa)。
+	 * 必须在 globals->setup(加载 project.godot)之后、任何 GLOBAL_GET/DisplayServer/
+	 * SceneTree 消费之前——确保宿主声明 100% 生效,不被项目文件同 key 覆盖。
+	 * 多值覆盖项:后值胜(保持 argv 顺序语义)。 */
+	if (!unigo_config_overrides.is_empty()) {
+		for (const Pair<String, Variant> &override : unigo_config_overrides) {
+			ProjectSettings::get_singleton()->set_setting(override.first, override.second);
+		}
+	}
+	if (unigo_msaa_mode >= 0) {
+		ProjectSettings::get_singleton()->set_setting("rendering/anti_aliasing/quality/msaa_3d", unigo_msaa_mode);
 	}
 
 	// Initialize WorkerThreadPool.
@@ -2817,7 +2900,10 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 	{
 		window_vsync_mode = DisplayServerEnums::VSyncMode(int(GLOBAL_DEF_BASIC("display/window/vsync/vsync_mode", DisplayServerEnums::VSyncMode::VSYNC_ENABLED)));
-		if (disable_vsync) {
+		if (unigo_vsync_mode >= 0) { /* FORK-UniGo:宿主显式指定的 vsync 优先(在 DisplayServer::create 前定值,窗口首帧即生效) */
+			window_vsync_mode = (DisplayServerEnums::VSyncMode)unigo_vsync_mode;
+		}
+		if (disable_vsync) { /* --disable-vsync 强制关(最强优先级,与官方语义一致) */
 			window_vsync_mode = DisplayServerEnums::VSyncMode::VSYNC_DISABLED;
 		}
 	}
@@ -2962,6 +3048,14 @@ error:
 	tablet_driver = "";
 	Engine::get_singleton()->set_write_movie_path(String());
 	project_path = "";
+
+	/* FORK-UniGo:setup 失败路径也复位 UniGo 启动状态(与 cleanup 一致)——
+	 * 防失败后重试 create 继承前次配置(render_only/vsync/msaa/overrides)。 */
+	unigo_render_only = false;
+	unigo_vsync_mode = -1;
+	unigo_msaa_mode = -1;
+	disable_vsync = false; /* 官方 --disable-vsync 也复位(防跨实例继承强制关) */
+	unigo_config_overrides.clear();
 
 	args.clear();
 	main_args.clear();
@@ -5199,8 +5293,14 @@ void Main::force_redraw() {
 void Main::cleanup(bool p_force) {
 	Thread::make_main_thread();
 
-	/* FORK-UniGo:复位纯渲染内核标志——进程内 shutdown 后再 setup 新实例不带旧参数污染。 */
+	/* FORK-UniGo:复位全部 UniGo 启动状态——进程内 shutdown 后再 setup 新实例
+	 * 不带旧参数污染(--unigo-render-only/config/msaa/vsync 都清空;
+	 * 否则第二个内核会重放第一实例的配置,破坏"配置完全由当前宿主声明"契约)。 */
 	unigo_render_only = false;
+	unigo_vsync_mode = -1;
+	unigo_msaa_mode = -1;
+	disable_vsync = false; /* 官方 --disable-vsync 也复位(防跨实例继承强制关) */
+	unigo_config_overrides.clear();
 
 	GodotProfileZone("cleanup");
 	OS::get_singleton()->benchmark_begin_measure("Shutdown", "Main::Cleanup");

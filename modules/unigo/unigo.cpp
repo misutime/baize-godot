@@ -32,6 +32,8 @@
 #include "scene/main/window.h"
 #include "scene/main/viewport.h"
 #include "scene/resources/3d/world_3d.h"
+#include "servers/display/display_server.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_globals.h"
 
@@ -97,6 +99,29 @@ static void unigo_set_error(const char *p_msg) {
 	s_has_error = true;
 }
 
+/* 运行时接口的公共生命周期入口:校验 handle 有效、内核未 shutdown,
+ * 并在锁内返回 state(调用方持锁访问单例——与 shutdown 销毁互斥)。
+ * 返回 nullptr = 无效(已置诊断,错误码 -UNIGO_ERR_SHUTDOWN)。 */
+static UnigoEngineState *unigo_lock_state(unigo_handle p_handle) {
+	if (p_handle == nullptr) {
+		unigo_set_error("unigo 运行时接口: 句柄为空");
+		return nullptr;
+	}
+	UnigoEngineState *state = (UnigoEngineState *)p_handle;
+	state->instance_mutex.lock();
+	if (state->shutdown_done.load() || state->instance == nullptr) {
+		state->instance_mutex.unlock();
+		unigo_set_error("unigo 运行时接口: 内核已 shutdown");
+		return nullptr;
+	}
+	return state; /* 调用方负责 state->instance_mutex.unlock() */
+}
+
+/* 运行时接口须在引擎线程调用(与 unigo_engine_iterate 同线程):
+ * 它们操作 SceneTree/DisplayServer 等主线程单例,Viewport 等方法带
+ * ERR_MAIN_THREAD_GUARD(非主线程调试构建会拒绝)。宿主主循环单线程满足。 */
+
+
 extern "C" {
 
 /* MSVC 下强制导出这些 C ABI 符号(链接器级白名单)。 */
@@ -108,6 +133,14 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_request_exit")
 #pragma comment(linker, "/export:unigo_engine_shutdown")
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
+#pragma comment(linker, "/export:unigo_engine_get_vsync")
+#pragma comment(linker, "/export:unigo_engine_set_vsync")
+#pragma comment(linker, "/export:unigo_engine_get_msaa")
+#pragma comment(linker, "/export:unigo_engine_get_setting_string")
+#pragma comment(linker, "/export:unigo_engine_set_msaa")
+#pragma comment(linker, "/export:unigo_engine_set_window_size")
+#pragma comment(linker, "/export:unigo_engine_set_window_mode")
+#pragma comment(linker, "/export:unigo_engine_get_renderer")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -134,9 +167,9 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 	}
 
 	/* 构造 argv:优先用宿主提供的 argv[0],否则以 execpath 作为 argv[0]。 */
-	/* project_path 非空时注入 --path;其余宿主参数保持原序(如 --unigo-render-only --quiet)。 */
-	/* 上限 16 是第一阶段保护(冒烟场景参数极少),超出部分按尾部参数截断。 */
-	const char *argv_buf[16];
+	/* project_path 非空时注入 --path;其余宿主参数保持原序(如 --unigo-render-only)。 */
+	/* 上限 128:配置体系需传多条 --unigo-config key=value(此前 16 会静默截断尾部配置,违反绝对控制)。 */
+	const char *argv_buf[128];
 	const bool has_host_argv = argc > 0 && argv != nullptr;
 	const int host_argc = has_host_argv ? argc : 0;
 	int argn = 1;
@@ -145,10 +178,15 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 		argv_buf[argn++] = "--path";
 		argv_buf[argn++] = project_path;
 	}
-	for (int i = has_host_argv ? 1 : 0; i < host_argc && argn < 16; i++) {
+	for (int i = has_host_argv ? 1 : 0; i < host_argc; i++) {
+		if (argn >= 128) {
+			/* argv 超上限:显式失败而非静默截断(静默丢配置与宿主声明不一致)。 */
+			unigo_set_error("unigo_engine_create: 宿主参数超过 argv 上限 128");
+			return nullptr;
+		}
 		argv_buf[argn++] = argv[i];
 	}
-	char *argv_ptrs[16];
+	char *argv_ptrs[128];
 	for (int i = 0; i < argn; i++) {
 		argv_ptrs[i] = const_cast<char *>(argv_buf[i]);
 	}
@@ -307,6 +345,214 @@ UNIGO_API int32_t unigo_engine_query_render_support(void) {
 	/* 后续接入 DisplayServer 真实探测(无图形会话等场景)。 */
 	return 1;
 }
+
+/* ---- 运行时配置接口(统一模式:收 unigo_handle + 锁内校验生命周期) ---- */
+/* 全部须在引擎线程调用(与 unigo_engine_iterate 同线程)——操作 SceneTree/
+ * DisplayServer 等主线程单例;宿主主循环单线程满足,跨线程需自行同步。 */
+
+/* ---- get_vsync:查询主窗口当前 vsync 模式(0=DISABLED,1=ENABLED,2=ADAPTIVE,3=MAILBOX) ---- */
+UNIGO_API int32_t unigo_engine_get_vsync(unigo_handle p_handle) {
+	unigo_set_error(nullptr);
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		result = -1; /* 无窗口后端(空或 headless),宿主按不可用处理——headless 的 window_get_vsync_mode 固定返回 ENABLED,会伪造验证 */
+	} else {
+		DisplayServerEnums::VSyncMode mode = ds->window_get_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID);
+		result = (int32_t)mode;
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- set_vsync:设置主窗口 vsync 模式(引擎线程;p_mode 0-3) ---- */
+UNIGO_API int32_t unigo_engine_set_vsync(unigo_handle p_handle, int32_t p_mode) {
+	unigo_set_error(nullptr);
+	if (p_mode < (int32_t)DisplayServerEnums::VSYNC_DISABLED || p_mode > (int32_t)DisplayServerEnums::VSYNC_MAILBOX) {
+		unigo_set_error("unigo_engine_set_vsync: 非法 vsync 模式");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		unigo_set_error("unigo_engine_set_vsync: 无窗口后端(空或 headless)");
+		result = -UNIGO_ERR_UNSUPPORTED; /* headless 的 window_set_vsync_mode 是空操作——不能假成功 */
+	} else {
+		ds->window_set_vsync_mode((DisplayServerEnums::VSyncMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- get_msaa:查询根 viewport 当前 3D MSAA 档位(Viewport::MSAA 索引 0-3) ---- */
+UNIGO_API int32_t unigo_engine_get_msaa(unigo_handle p_handle) {
+	unigo_set_error(nullptr);
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result;
+	SceneTree *st = SceneTree::get_singleton();
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr || ds == nullptr || ds->get_name() == "headless") {
+		/* SceneTree 未就绪或无窗口后端(headless 的 get_msaa_3d 只读 Viewport 缓存属性,
+		 * RasterizerDummy 无实际 MSAA——返回不可用防伪造验证) */
+		result = -1;
+	} else {
+		result = (int32_t)st->get_root()->get_msaa_3d();
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- get_setting_string:回读任意 ProjectSettings 配置(文本化) ---- */
+/* 返回 0=成功;1=key 不存在;-2=缓冲不足;负值=参数非法/内核 shutdown。 */
+UNIGO_API int32_t unigo_engine_get_setting_string(unigo_handle p_handle, const char *p_key, char *p_buf, int32_t p_buf_size) {
+	unigo_set_error(nullptr);
+	if (p_key == nullptr || p_buf == nullptr || p_buf_size <= 0) {
+		return -1;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (ps == nullptr || !ps->has_setting(p_key)) {
+		result = 1; /* key 不存在 */
+	} else if (!ps->is_builtin_setting(p_key)) {
+		/* key 存在但非 Godot 注册(builtin)——是宿主 set_setting 自创(拼错/Godot 改名后残留)。
+		 * 返回 -3:宿主配置验证据此发现 key 漂移(自证回读无法区分,review 关键 finding)。 */
+		unigo_set_error("unigo_engine_get_setting_string: key 非 Godot 注册(疑似拼错/已改名)");
+		result = -3;
+	} else {
+		Variant v = ps->get_setting(p_key);
+		String s = v.stringify();
+		errno_t e = strncpy_s(p_buf, p_buf_size, s.utf8().get_data(), _TRUNCATE);
+		if (e == STRUNCATE) {
+			unigo_set_error("unigo_engine_get_setting_string: 缓冲不足");
+			result = -2; /* 缓冲不足:宿主应扩大重试 */
+		}
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- set_msaa:运行时改根 viewport 3D MSAA(引擎线程;p_msaa 索引 0-3) ---- */
+UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa) {
+	unigo_set_error(nullptr);
+	if (p_msaa < (int32_t)Viewport::MSAA_DISABLED || p_msaa >= (int32_t)Viewport::MSAA_MAX) {
+		unigo_set_error("unigo_engine_set_msaa: 非法 MSAA 档位");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	SceneTree *st = SceneTree::get_singleton();
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (st == nullptr || st->get_root() == nullptr || ds == nullptr || ds->get_name() == "headless") {
+		/* SceneTree 未就绪或无窗口后端(headless:set_msaa_3d 只改 Viewport 缓存属性,
+		 * RasterizerDummy 无实际 MSAA——返回 UNSUPPORTED 防假成功) */
+		unigo_set_error("unigo_engine_set_msaa: SceneTree 未就绪或无窗口后端(headless)");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else {
+		/* 注:gl_compatibility(GLES3)也实现了 3D MSAA(render_scene_buffers_gles3.cpp
+		 * 按设备能力建 multisample 缓冲)——不按渲染方法名拒绝,仅 headless 无实际渲染 */
+		st->get_root()->set_msaa_3d((Viewport::MSAA)p_msaa); /* 重建 render buffers;须引擎线程(ERR_MAIN_THREAD_GUARD) */
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- set_window_size:运行时改主窗口尺寸(像素)(引擎线程) ---- */
+UNIGO_API int32_t unigo_engine_set_window_size(unigo_handle p_handle, int32_t p_width, int32_t p_height) {
+	unigo_set_error(nullptr);
+	if (p_width <= 0 || p_height <= 0) {
+		unigo_set_error("unigo_engine_set_window_size: 非法尺寸");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		unigo_set_error("unigo_engine_set_window_size: 无窗口后端(headless)");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else {
+		ds->window_set_size(Size2i(p_width, p_height), DisplayServerEnums::MAIN_WINDOW_ID);
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- set_window_mode:运行时改主窗口模式(引擎线程;p_mode 0-4) ---- */
+UNIGO_API int32_t unigo_engine_set_window_mode(unigo_handle p_handle, int32_t p_mode) {
+	unigo_set_error(nullptr);
+	if (p_mode < (int32_t)DisplayServerEnums::WINDOW_MODE_WINDOWED || p_mode > (int32_t)DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
+		unigo_set_error("unigo_engine_set_window_mode: 非法窗口模式");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (ds == nullptr || ds->get_name() == "headless") {
+		unigo_set_error("unigo_engine_set_window_mode: 无窗口后端(headless)");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else {
+		ds->window_set_mode((DisplayServerEnums::WindowMode)p_mode, DisplayServerEnums::MAIN_WINDOW_ID);
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- get_renderer:回读当前渲染方法(forward_plus/mobile/gl_compatibility) ---- */
+/* 供宿主确认渲染器真实生效。返回 0=成功;-2=缓冲不足;负值=内核未初始化/shutdown。 */
+UNIGO_API int32_t unigo_engine_get_renderer(unigo_handle p_handle, char *p_buf, int32_t p_buf_size) {
+	unigo_set_error(nullptr);
+	if (p_buf == nullptr || p_buf_size <= 0) {
+		return -1;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result = 0;
+	DisplayServer *ds = DisplayServer::get_singleton();
+	if (OS::get_singleton() == nullptr) {
+		unigo_set_error("unigo_engine_get_renderer: OS 未初始化");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else if (ds == nullptr || ds->get_name() == "headless") {
+		/* headless 用 RasterizerDummy,current_rendering_method 只是配置缓存值非真实
+		 * 渲染后端——返回 UNSUPPORTED 防宿主"真实渲染器生效"校验误通过 */
+		unigo_set_error("unigo_engine_get_renderer: 无窗口渲染后端(headless)");
+		result = -UNIGO_ERR_UNSUPPORTED;
+	} else {
+		String m = OS::get_singleton()->get_current_rendering_method();
+		errno_t e = strncpy_s(p_buf, p_buf_size, m.utf8().get_data(), _TRUNCATE);
+		if (e == STRUNCATE) {
+			unigo_set_error("unigo_engine_get_renderer: 缓冲不足");
+			result = -2;
+		}
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*
