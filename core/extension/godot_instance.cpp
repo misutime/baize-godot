@@ -82,7 +82,6 @@ bool GodotInstance::iteration() {
 	DisplayServer::get_singleton()->process_events();
 	return Main::iteration();
 }
-
 void GodotInstance::stop() {
 	print_verbose("GodotInstance::stop()");
 	if (started) {

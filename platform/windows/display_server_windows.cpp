@@ -2595,6 +2595,27 @@ void DisplayServerWindows::window_set_size(const Size2i p_size, DisplayServerEnu
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
+	/* 外部窗直渲:窗口尺寸由宿主(C# WinForms)掌控,Godot 不 MoveWindow。
+	 * 此调用仅同步内部尺寸 + 触发 swapchain rebuild(渲染 surface 跟随新的客户区)。
+	 * (宿主窗口 resize 后经 unigo_engine_set_window_size 通知;若宿主窗口尺寸
+	 * 与声明不符,以宿主实际客户区为准。) */
+	if (external_window_mode) {
+		if (p_size.width <= 0 || p_size.height <= 0) {
+			return;
+		}
+		wd.width = p_size.width;
+		wd.height = p_size.height;
+#if defined(RD_ENABLED)
+		if (rendering_context && wd.rendering_context_window_created) {
+			rendering_context->window_set_size(p_window, p_size.width, p_size.height);
+		}
+#endif
+		/* 通知场景层(viewport 尺寸依赖 wd 尺寸;rect_changed_callback 由 Window 设置)。 */
+		if (wd.rect_changed_callback.is_valid()) {
+			wd.rect_changed_callback.call(Rect2i(wd.last_pos.x, wd.last_pos.y, wd.width, wd.height));
+		}
+		return;
+	}
 
 	if (wd.fullscreen || wd.maximized) {
 		return;
