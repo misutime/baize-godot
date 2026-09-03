@@ -2379,7 +2379,7 @@ void DisplayServerWindows::window_set_current_screen(int p_screen, DisplayServer
 	}
 	const WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded window can't be moved to another screen.");
 		return;
 	}
@@ -2465,7 +2465,7 @@ void DisplayServerWindows::window_set_position(const Point2i &p_position, Displa
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded window can't be moved.");
 		return;
 	}
@@ -2554,7 +2554,7 @@ void DisplayServerWindows::window_set_max_size(const Size2i p_size, DisplayServe
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded windows can't have a maximum size.");
 		return;
 	}
@@ -2580,7 +2580,7 @@ void DisplayServerWindows::window_set_min_size(const Size2i p_size, DisplayServe
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded windows can't have a minimum size.");
 		return;
 	}
@@ -2606,7 +2606,7 @@ void DisplayServerWindows::window_set_size(const Size2i p_size, DisplayServerEnu
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded window can't be resized.");
 		return;
 	}
@@ -2757,6 +2757,11 @@ void DisplayServerWindows::_update_window_style(DisplayServerEnums::WindowID p_w
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
+	/* 外部窗直渲:窗口样式由宿主(C#)管理,Godot 不篡改宿主窗口样式。 */
+	if (external_window_mode) {
+		return;
+	}
+
 	DWORD style = 0;
 	DWORD style_ex = 0;
 
@@ -2804,7 +2809,7 @@ void DisplayServerWindows::window_set_mode(DisplayServerEnums::WindowMode p_mode
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (p_mode != DisplayServerEnums::WINDOW_MODE_WINDOWED && wd.parent_hwnd) {
+	if (p_mode != DisplayServerEnums::WINDOW_MODE_WINDOWED && wd.parent_hwnd && !external_window_mode) {
 		print_line("Embedded window only supports Windowed mode.");
 		return;
 	}
@@ -2992,7 +2997,7 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 			_update_window_style(p_window);
 		} break;
 		case DisplayServerEnums::WINDOW_FLAG_RESIZE_DISABLED: {
-			if (p_enabled && wd.parent_hwnd) {
+			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
 				print_line("Embedded window resize can't be disabled.");
 				return;
 			}
@@ -3010,7 +3015,7 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 		} break;
 		case DisplayServerEnums::WINDOW_FLAG_ALWAYS_ON_TOP: {
 			ERR_FAIL_COND_MSG(wd.transient_parent != DisplayServerEnums::INVALID_WINDOW_ID && p_enabled, "Transient windows can't become on top.");
-			if (p_enabled && wd.parent_hwnd) {
+			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
 				print_line("Embedded window can't become on top.");
 				return;
 			}
@@ -3072,7 +3077,7 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 		case DisplayServerEnums::WINDOW_FLAG_POPUP: {
 			ERR_FAIL_COND_MSG(p_window == DisplayServerEnums::MAIN_WINDOW_ID, "Main window can't be popup.");
 			ERR_FAIL_COND_MSG(IsWindowVisible(wd.hWnd) && (wd.is_popup != p_enabled), "Popup flag can't changed while window is opened.");
-			if (p_enabled && wd.parent_hwnd) {
+			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
 				print_line("Embedded window can't be popup.");
 				return;
 			}
@@ -5322,7 +5327,7 @@ void DisplayServerWindows::window_start_drag(DisplayServerEnums::WindowID p_wind
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		return; // Embedded window.
 	}
 
@@ -5355,7 +5360,7 @@ void DisplayServerWindows::window_start_resize(DisplayServerEnums::WindowResizeE
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd) {
+	if (wd.parent_hwnd && !external_window_mode) {
 		return; // Embedded window.
 	}
 
@@ -5794,7 +5799,7 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 			}
 			// When embedded, the window is a child of the parent and is not activated
 			// by default because it lacks native controls.
-			if (windows[window_id].parent_hwnd) {
+			if (windows[window_id].parent_hwnd && !external_window_mode) {
 				SetFocus(windows[window_id].hWnd);
 				return MA_ACTIVATE;
 			}
@@ -6836,7 +6841,7 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 					MoveWindow(window.hWnd, pos.x, pos.y, size.width, size.height, TRUE);
 				}
 			} else {
-				if (window.parent_hwnd) {
+				if (window.parent_hwnd && !external_window_mode) {
 					// WM_WINDOWPOSCHANGED is sent when the parent changes.
 					// If we are supposed to have a parent and now we don't, it's likely
 					// because the parent was closed. We will close our window as well.
@@ -7371,6 +7376,14 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 		WindowData &wd = windows[id];
 
 		wd.id = id;
+		if (external_window_mode && p_parent_hwnd != nullptr) {
+			/* 外部窗直渲:wd.hWnd 直接引用宿主窗口,不 CreateWindowExW。
+			 * 消息由宿主窗口过程(C#)处理,Godot 的 WndProc 与此窗无关
+			 * (渲染 surface 只认 HWND,渲染链自动跟随 wd.hWnd)。
+			 * 尺寸从 p_rect(宿主已定)取,供渲染 surface/内部逻辑使用。 */
+			wd.hWnd = p_parent_hwnd;
+			goto extern_window_skip_creation;
+		}
 		wd.hWnd = CreateWindowExW(
 				dwExStyle,
 				L"Engine", L"",
@@ -7392,6 +7405,7 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 			ERR_FAIL_V_MSG(ERR_CANT_CREATE, "Failed to create Windows OS window.");
 		}
 
+extern_window_skip_creation:
 		wd.parent_hwnd = p_parent_hwnd;
 
 		if (has_winrt_queue) {
@@ -7441,46 +7455,49 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 		}
 
 		wd.sharp_corners = p_flags & DisplayServerEnums::WINDOW_FLAG_SHARP_CORNERS_BIT;
-		{
-			DWORD value = wd.sharp_corners ? DWMWCP_DONOTROUND : DWMWCP_DEFAULT;
-			::DwmSetWindowAttribute(wd.hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &value, sizeof(value));
-		}
+		if (!external_window_mode) {
+			// 以下为自建窗专属初始化(外观/输入/属性)——外部窗直渲时窗口归宿主,全部跳过。
+			{
+				DWORD value = wd.sharp_corners ? DWMWCP_DONOTROUND : DWMWCP_DEFAULT;
+				::DwmSetWindowAttribute(wd.hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &value, sizeof(value));
+			}
 
-		if (is_dark_mode_supported() && dark_title_available) {
-			BOOL value = is_dark_mode();
-			::DwmSetWindowAttribute(wd.hWnd, use_legacy_dark_mode_before_20H1 ? DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 : DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
-		}
+			if (is_dark_mode_supported() && dark_title_available) {
+				BOOL value = is_dark_mode();
+				::DwmSetWindowAttribute(wd.hWnd, use_legacy_dark_mode_before_20H1 ? DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 : DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+			}
 
-		RegisterTouchWindow(wd.hWnd, 0);
-		DragAcceptFiles(wd.hWnd, true);
+			RegisterTouchWindow(wd.hWnd, 0);
+			DragAcceptFiles(wd.hWnd, true);
 
-		if ((tablet_get_current_driver() == "wintab") && wintab_available) {
-			wintab_WTInfo(WTI_DEFSYSCTX, 0, &wd.wtlc);
-			wd.wtlc.lcOptions |= CXO_MESSAGES;
-			wd.wtlc.lcPktData = PK_STATUS | PK_NORMAL_PRESSURE | PK_TANGENT_PRESSURE | PK_ORIENTATION;
-			wd.wtlc.lcMoveMask = PK_STATUS | PK_NORMAL_PRESSURE | PK_TANGENT_PRESSURE;
-			wd.wtlc.lcPktMode = 0;
-			wd.wtlc.lcOutOrgX = 0;
-			wd.wtlc.lcOutExtX = wd.wtlc.lcInExtX;
-			wd.wtlc.lcOutOrgY = 0;
-			wd.wtlc.lcOutExtY = -wd.wtlc.lcInExtY;
-			wd.wtctx = wintab_WTOpen(wd.hWnd, &wd.wtlc, false);
-			if (wd.wtctx) {
-				wintab_WTEnable(wd.wtctx, true);
-				AXIS pressure;
-				if (wintab_WTInfo(WTI_DEVICES + wd.wtlc.lcDevice, DVC_NPRESSURE, &pressure)) {
-					wd.min_pressure = int(pressure.axMin);
-					wd.max_pressure = int(pressure.axMax);
-				}
-				AXIS orientation[3];
-				if (wintab_WTInfo(WTI_DEVICES + wd.wtlc.lcDevice, DVC_ORIENTATION, &orientation)) {
-					wd.tilt_supported = orientation[0].axResolution && orientation[1].axResolution;
+			if ((tablet_get_current_driver() == "wintab") && wintab_available) {
+				wintab_WTInfo(WTI_DEFSYSCTX, 0, &wd.wtlc);
+				wd.wtlc.lcOptions |= CXO_MESSAGES;
+				wd.wtlc.lcPktData = PK_STATUS | PK_NORMAL_PRESSURE | PK_TANGENT_PRESSURE | PK_ORIENTATION;
+				wd.wtlc.lcMoveMask = PK_STATUS | PK_NORMAL_PRESSURE | PK_TANGENT_PRESSURE;
+				wd.wtlc.lcPktMode = 0;
+				wd.wtlc.lcOutOrgX = 0;
+				wd.wtlc.lcOutExtX = wd.wtlc.lcInExtX;
+				wd.wtlc.lcOutOrgY = 0;
+				wd.wtlc.lcOutExtY = -wd.wtlc.lcInExtY;
+				wd.wtctx = wintab_WTOpen(wd.hWnd, &wd.wtlc, false);
+				if (wd.wtctx) {
+					wintab_WTEnable(wd.wtctx, true);
+					AXIS pressure;
+					if (wintab_WTInfo(WTI_DEVICES + wd.wtlc.lcDevice, DVC_NPRESSURE, &pressure)) {
+						wd.min_pressure = int(pressure.axMin);
+						wd.max_pressure = int(pressure.axMax);
+					}
+					AXIS orientation[3];
+					if (wintab_WTInfo(WTI_DEVICES + wd.wtlc.lcDevice, DVC_ORIENTATION, &orientation)) {
+						wd.tilt_supported = orientation[0].axResolution && orientation[1].axResolution;
+					}
+				} else {
+					print_verbose("WinTab context creation failed.");
 				}
 			} else {
-				print_verbose("WinTab context creation failed.");
+				wd.wtctx = nullptr;
 			}
-		} else {
-			wd.wtctx = nullptr;
 		}
 
 		if (p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED) {
@@ -7497,23 +7514,34 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 		wd.last_pressure_update = 0;
 		wd.last_tilt = Vector2();
 
-		IPropertyStore *prop_store;
-		HRESULT hr = SHGetPropertyStoreForWindow(wd.hWnd, IID_IPropertyStore, (void **)&prop_store);
-		if (hr == S_OK) {
-			PROPVARIANT val;
-			String appid = _get_app_id();
-			InitPropVariantFromString((PCWSTR)appid.utf16().get_data(), &val);
-			prop_store->SetValue(PKEY_AppUserModel_ID, val);
-			prop_store->Release();
-		}
+		if (!external_window_mode) {
+			// 外部窗直渲:窗口属性(AppUserModelID/IME)归宿主管理,不接管。
+			IPropertyStore *prop_store;
+			HRESULT hr = SHGetPropertyStoreForWindow(wd.hWnd, IID_IPropertyStore, (void **)&prop_store);
+			if (hr == S_OK) {
+				PROPVARIANT val;
+				String appid = _get_app_id();
+				InitPropVariantFromString((PCWSTR)appid.utf16().get_data(), &val);
+				prop_store->SetValue(PKEY_AppUserModel_ID, val);
+				prop_store->Release();
+			}
 
-		// IME.
-		wd.im_himc = ImmGetContext(wd.hWnd);
-		ImmAssociateContext(wd.hWnd, (HIMC) nullptr);
+			// IME.
+			wd.im_himc = ImmGetContext(wd.hWnd);
+			ImmAssociateContext(wd.hWnd, (HIMC) nullptr);
+		}
 
 		wd.im_position = Vector2();
 
-		if (p_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED) {
+		if (external_window_mode) {
+			/* 外部窗直渲:尺寸以宿主窗口实际客户区为准(不信 p_rect——
+			 * 宿主可能已建好窗,真实尺寸才是渲染 surface 的依据)。 */
+			RECT r;
+			GetClientRect(wd.hWnd, &r);
+			wd.last_pos = Point2i();
+			wd.width = r.right - r.left;
+			wd.height = r.bottom - r.top;
+		} else if (p_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED) {
 			RECT r;
 			GetClientRect(wd.hWnd, &r);
 			ClientToScreen(wd.hWnd, (POINT *)&r.left);
@@ -7534,7 +7562,10 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 		if (!p_parent_hwnd && p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED && (p_flags & DisplayServerEnums::WINDOW_FLAG_BORDERLESS_BIT)) {
 			SetWindowPos(wd.hWnd, HWND_TOP, usable_rect.position.x - off.x, usable_rect.position.y - off.y, usable_rect.size.width + off.x, usable_rect.size.height + off.y, SWP_NOZORDER | SWP_NOACTIVATE);
 		}
-		_update_window_mouse_passthrough(id);
+		if (!external_window_mode) {
+			/* 外部窗直渲:鼠标穿透区域由宿主窗口管理,Godot 不动外部窗区域。 */
+			_update_window_mouse_passthrough(id);
+		}
 	}
 
 	return OK;
@@ -7542,6 +7573,18 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 
 void DisplayServerWindows::_destroy_window(DisplayServerEnums::WindowID p_window_id) {
 	WindowData &wd = windows[p_window_id];
+	if (external_window_mode) {
+		/* 外部窗直渲:窗口由宿主创建/销毁,Godot 只负责渲染。
+		 * 跳过一切对宿主窗口的属性质操作与 DestroyWindow。
+		 * (wd.wtctx/wd.drop_target 在外部窗模式下本未初始化)。 */
+		if (has_winrt_queue && wd.wrt_wd) {
+			WinRTUtils::destroy_wd(wd.wrt_wd);
+			wd.wrt_wd = nullptr;
+		}
+		windows.erase(p_window_id);
+		return;
+	}
+
 	IPropertyStore *prop_store;
 	HRESULT hr = SHGetPropertyStoreForWindow(wd.hWnd, IID_IPropertyStore, (void **)&prop_store);
 	if (hr == S_OK) {
@@ -8130,6 +8173,13 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 	if (p_parent_window) {
 		// Parented window.
 		parent_hwnd = (HWND)p_parent_window;
+	}
+
+	/* 外部窗直渲(唯一模式,UniGo 定制):宿主(C#)已建窗口,Godot 直接渲染进它,
+	 * 永不自建窗口。p_parent_window 非空即外部窗(UniGo 不采用 Godot 自带 --wid
+	 * 嵌入/自建窗语义——按复杂度简化原则,一种用法一种通道,不做多模式分支)。 */
+	if (p_parent_window) {
+		external_window_mode = true;
 	}
 
 	// Init context and rendering device.

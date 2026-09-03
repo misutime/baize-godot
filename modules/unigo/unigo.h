@@ -52,6 +52,10 @@ typedef struct unigo_config {
 	const char *execpath;       /* 宿主可执行文件路径(必填,Main::setup 需要) */
 	const char **argv;          /* 命令行参数(可选,如 --unigo-render-only --quiet) */
 	int argc;                   /* argv 长度 */
+	int64_t native_window;      /* 外部窗口句柄(HWND,0=无外部窗,沿用 Godot 自建窗;
+	                            * 非 0 = C# 宿主已建窗口,Godot 直接渲染进该窗口,
+	                            * 不自主创建窗口(外部窗直渲方案,unigo-external-window)。
+	                            * Windows 下为 HWND,其他平台为对应原生句柄。 */
 } unigo_config;
 
 /**

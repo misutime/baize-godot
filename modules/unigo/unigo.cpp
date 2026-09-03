@@ -39,6 +39,7 @@
 #include "servers/rendering/rendering_server_globals.h"
 
 #include <atomic>
+#include <cstdio>
 #include <map>
 #include <mutex>
 #include <set>
@@ -179,6 +180,20 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 	if (project_path != nullptr && project_path[0] != '\0') {
 		argv_buf[argn++] = "--path";
 		argv_buf[argn++] = project_path;
+	}
+	/* 外部窗直渲:native_window 非 0 时注入 --unigo-external-window <HWND>,由 main.cpp
+	 * 解析传给 DisplayServer::create 的 p_parent_window——Godot 不自主建窗,直接渲染进
+	 * C# 宿主已建的窗口(HWND 以十进制传入,64 位安全)。 */
+	char hwnd_arg[32];
+	if (p_cfg->native_window != 0) {
+		if (argn + 2 >= 128) {
+			unigo_set_error("unigo_engine_create: 宿主参数超过 argv 上限 128");
+			return nullptr;
+		}
+		argv_buf[argn++] = "--unigo-external-window";
+		/* uintptr_t 转十进制(64 位 HWND 可能超出 int32,不用 to_int)。 */
+		snprintf(hwnd_arg, sizeof(hwnd_arg), "%llu", (unsigned long long)p_cfg->native_window);
+		argv_buf[argn++] = hwnd_arg;
 	}
 	for (int i = has_host_argv ? 1 : 0; i < host_argc; i++) {
 		if (argn >= 128) {

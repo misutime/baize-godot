@@ -252,7 +252,10 @@ static bool init_always_on_top = false;
 static bool init_use_custom_pos = false;
 static bool init_use_custom_screen = false;
 static Vector2 init_custom_pos;
-static int64_t init_embed_parent_window_id = 0;
+/* 外部窗直渲(unigo-external-window):C# 宿主已建窗口的句柄(HWND)。
+ * Godot 直接渲染进宿主窗口、不自主创建窗口、窗口语义归宿主。
+ * UniGo 仅此一种窗口模式(删除了 Godot 自带 --wid 嵌入逻辑)。 */
+static int64_t init_external_window_hwnd = 0;
 #ifdef TOOLS_ENABLED
 static bool init_display_scale_found = false;
 static int init_display_scale = 0;
@@ -592,7 +595,6 @@ void Main::print_help(const char *p_binary) {
 #ifndef _3D_DISABLED
 	print_help_option("--xr-mode <mode>", "Select XR (Extended Reality) mode [\"default\", \"off\", \"on\"].\n");
 #endif
-	print_help_option("--wid <window_id>", "Request parented to window.\n");
 	print_help_option("--accessibility <mode>", "Select accessibility mode ['auto' (when screen reader is running, default), 'always', 'disabled'].\n");
 	print_help_option("--accessibility-driver <driver>", "Select accessibility driver ['accesskit', 'dummy'].\n");
 
@@ -2080,20 +2082,19 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				goto error;
 			}
 #endif // TOOLS_ENABLED
-		} else if (arg == "--wid") {
+		} else if (arg == "--unigo-external-window") {
+			/* 外部窗直渲(unigo,唯一窗口模式):C# 宿主已建窗口句柄(HWND),
+			 * Godot 直接渲染进它、不自主创建窗口(窗口语义归宿主)。
+			 * 64 位句柄用十进制传。 */
 			if (N) {
-				init_embed_parent_window_id = N->get().to_int();
-				if (init_embed_parent_window_id == 0) {
-					OS::get_singleton()->print("<window_id> argument for --wid <window_id> must be different then 0.\n");
+				init_external_window_hwnd = N->get().to_int();
+				if (init_external_window_hwnd == 0) {
+					OS::get_singleton()->print("<hwnd> argument for --unigo-external-window <hwnd> must be different then 0.\n");
 					goto error;
 				}
-
-				OS::get_singleton()->_embedded_in_editor = true;
-				Engine::get_singleton()->set_embedded_in_editor(true);
-
 				N = N->next();
 			} else {
-				OS::get_singleton()->print("Missing <window_id> argument for --wid <window_id>.\n");
+				OS::get_singleton()->print("Missing <hwnd> argument for --unigo-external-window <hwnd>.\n");
 				goto error;
 			}
 
@@ -3390,16 +3391,6 @@ Error Main::setup2(bool p_show_boot_logo) {
 			context = DisplayServerEnums::CONTEXT_ENGINE;
 		}
 
-		if (init_embed_parent_window_id) {
-			// Reset flags and other settings to be sure it's borderless and windowed. The position and size should have been initialized correctly
-			// from --position and --resolution parameters.
-			window_mode = DisplayServerEnums::WINDOW_MODE_WINDOWED;
-			window_flags = DisplayServerEnums::WINDOW_FLAG_BORDERLESS_BIT;
-			if (bool(GLOBAL_GET("display/window/size/transparent"))) {
-				window_flags |= DisplayServerEnums::WINDOW_FLAG_TRANSPARENT_BIT;
-			}
-		}
-
 #ifdef TOOLS_ENABLED
 		if ((project_manager || editor) && init_expand_to_title) {
 			window_flags |= DisplayServerEnums::WINDOW_FLAG_EXTEND_TO_TITLE_BIT;
@@ -3468,7 +3459,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 		accessibility_server->set_mode(accessibility_mode);
 
 		String rendering_driver = OS::get_singleton()->get_current_rendering_driver_name();
-		display_server = DisplayServer::create(display_driver_idx, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_embed_parent_window_id, err);
+		display_server = DisplayServer::create(display_driver_idx, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_external_window_hwnd, err);
 		if (err != OK || display_server == nullptr) {
 			String last_name = DisplayServer::get_create_function_name(display_driver_idx);
 
@@ -3482,7 +3473,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 				String name = DisplayServer::get_create_function_name(i);
 				WARN_PRINT(vformat("Display driver %s failed, falling back to %s.", last_name, name));
 
-				display_server = DisplayServer::create(i, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_embed_parent_window_id, err);
+				display_server = DisplayServer::create(i, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_external_window_hwnd, err);
 				if (err == OK && display_server != nullptr) {
 					break;
 				}
@@ -3719,7 +3710,8 @@ Error Main::setup2(bool p_show_boot_logo) {
 
 		MAIN_PRINT("Main: Setup Logo");
 
-		if (!init_embed_parent_window_id) {
+		/* 外部窗直渲:窗口初始化(模式/置顶)由宿主(C#)管理,Godot 不设置。 */
+		if (!init_external_window_hwnd) {
 			if (init_windowed) {
 				//do none..
 			} else if (init_maximized) {
