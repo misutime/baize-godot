@@ -61,7 +61,9 @@ DEFAULT_SCONS_ARGS = {
     "angle": "no",
     # 外部窗直渲(UNIGO_EXTERNAL_ONLY):编译期强制外部窗——自建窗分支
     # 常量折叠剔除,产物 = 只渲染进 C# 宿主窗(UniGo 唯一窗口模式)。
-    "CPPDEFINES": "UNIGO_EXTERNAL_ONLY",
+    # 注意:必须是 scons 选项注册的小写 "cppdefines"(SConstruct 读 env.get("cppdefines"));
+    # 大写 CPPDEFINES 不匹配 opts.Add,宏不进入编译环境(实测产物含自建窗符号——曾静默失效)。
+    "cppdefines": "UNIGO_EXTERNAL_ONLY",
     # 产物命名:godot.windows.template_release.x86_64.pure.dll
     "extra_suffix": "pure",
 }
