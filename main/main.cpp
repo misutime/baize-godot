@@ -3054,6 +3054,7 @@ error:
 	unigo_render_only = false;
 	unigo_vsync_mode = -1;
 	unigo_msaa_mode = -1;
+	disable_vsync = false; /* 官方 --disable-vsync 也复位(防跨实例继承强制关) */
 	unigo_config_overrides.clear();
 
 	args.clear();
@@ -5298,6 +5299,7 @@ void Main::cleanup(bool p_force) {
 	unigo_render_only = false;
 	unigo_vsync_mode = -1;
 	unigo_msaa_mode = -1;
+	disable_vsync = false; /* 官方 --disable-vsync 也复位(防跨实例继承强制关) */
 	unigo_config_overrides.clear();
 
 	GodotProfileZone("cleanup");
