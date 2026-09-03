@@ -95,6 +95,12 @@ UNIGO_API int32_t unigo_engine_query_render_support(void);
  * DisplayServer 未就绪返回 -UNIGO_ERR_UNSUPPORTED;内核已 shutdown 返回 -UNIGO_ERR_SHUTDOWN。 */
 UNIGO_API int32_t unigo_engine_get_vsync(unigo_handle p_handle);
 UNIGO_API int32_t unigo_engine_set_vsync(unigo_handle p_handle, int32_t p_mode);
+/* 帧率上限查询/设置(宿主显式控制帧节奏,与 vsync 协同):0=不限帧。
+ * set:Engine::set_max_fps(0=不限;p>0=上限 p fps)——内部联动 RenderingDevice 限帧。
+ * 引擎线程调用(与 unigo_engine_iterate 同线程);带 handle 锁内校验生命周期。
+ * get:Engine 未就绪返回 -1;set:p<0 返回 -UNIGO_ERR_INVALID_ARG,内核已 shutdown 返回 -UNIGO_ERR_SHUTDOWN。 */
+UNIGO_API int32_t unigo_engine_get_max_fps(unigo_handle p_handle);
+UNIGO_API int32_t unigo_engine_set_max_fps(unigo_handle p_handle, int32_t p_fps);
 UNIGO_API int32_t unigo_engine_get_msaa(unigo_handle p_handle);
 UNIGO_API int32_t unigo_engine_get_setting_string(unigo_handle p_handle, const char *p_key, char *p_buf, int32_t p_buf_size);
 UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa);

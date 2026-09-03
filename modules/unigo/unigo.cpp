@@ -34,6 +34,7 @@
 #include "scene/resources/3d/world_3d.h"
 #include "servers/display/display_server.h"
 #include "core/config/project_settings.h"
+#include "core/config/engine.h"
 #include "core/input/input.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_globals.h"
@@ -141,6 +142,8 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_query_render_support")
 #pragma comment(linker, "/export:unigo_engine_get_vsync")
 #pragma comment(linker, "/export:unigo_engine_set_vsync")
+#pragma comment(linker, "/export:unigo_engine_get_max_fps")
+#pragma comment(linker, "/export:unigo_engine_set_max_fps")
 #pragma comment(linker, "/export:unigo_engine_get_msaa")
 #pragma comment(linker, "/export:unigo_engine_get_setting_string")
 #pragma comment(linker, "/export:unigo_engine_set_msaa")
@@ -402,6 +405,48 @@ UNIGO_API int32_t unigo_engine_set_vsync(unigo_handle p_handle, int32_t p_mode) 
 	}
 	state->instance_mutex.unlock();
 	return result;
+}
+
+/* ---- get_max_fps:查询当前帧率上限(0=不限帧;Engine::get_max_fps) ---- */
+UNIGO_API int32_t unigo_engine_get_max_fps(unigo_handle p_handle) {
+	unigo_set_error(nullptr);
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	int32_t result;
+	Engine *engine = Engine::get_singleton();
+	if (engine == nullptr) {
+		result = -1; /* 引擎未就绪,宿主按不可用处理。 */
+	} else {
+		result = engine->get_max_fps();
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
+
+/* ---- set_max_fps:设置帧率上限(引擎线程;p_fps 0=不限,>0=上限 p fps) ---- */
+UNIGO_API int32_t unigo_engine_set_max_fps(unigo_handle p_handle, int32_t p_fps) {
+	unigo_set_error(nullptr);
+	if (p_fps < 0) {
+		unigo_set_error("unigo_engine_set_max_fps: 非法帧率上限(须 >= 0)");
+		return -UNIGO_ERR_INVALID_ARG;
+	}
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return -UNIGO_ERR_SHUTDOWN;
+	}
+	/* Engine::set_max_fps 联动 RenderingDevice::_set_max_fps(渲染设备侧限帧)。
+	 * 非 headless 也有效(RD 存在即生效);Engine 单例在 Main::setup 后即存在。 */
+	Engine *engine = Engine::get_singleton();
+	if (engine == nullptr) {
+		unigo_set_error("unigo_engine_set_max_fps: Engine 未就绪");
+		state->instance_mutex.unlock();
+		return -UNIGO_ERR_UNSUPPORTED;
+	}
+	engine->set_max_fps(p_fps);
+	state->instance_mutex.unlock();
+	return 0;
 }
 
 /* ---- get_msaa:查询根 viewport 当前 3D MSAA 档位(Viewport::MSAA 索引 0-3) ---- */
