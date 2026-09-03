@@ -21,7 +21,7 @@
 | 文档/README | ~8 | ❌ |
 | AudioEffectPanner 防爆音 | 2 | ❌ 不用该 Effect |
 | Retarget 动画 | 2 | ❌ |
-| Metal 后端(subpass) | 2 | ❌ 用 Vulkan |
+| Metal 后端(subpass) | 2 | ⚠️ Mac/iOS 目标平台用 Metal,相关修复季度核查留意 |
 | iOS/Android luminance | 1 | ❌ |
 | AHashMap 微优化 | 1 | ⚠️ 低价值 |
 | **核心渲染/输入/窗口 bug 修复** | **≈0** | —— |
@@ -62,9 +62,12 @@
 
 ### 2.3 cherry-pick 规则(仅限季度核查命中时)
 
-- **范围**:仅 `core/`、`servers/rendering`、`servers/audio`、`core/input`、
-  `platform/windows`、`drivers/vulkan`、`main/` 内的 **bug 修复/性能优化**;
-- **排除**:新功能、重构、编辑器相关、我们不用的平台(Metal/D3D12/移动);
+- **范围**:仅核心层的 **bug 修复/性能优化**,按目标平台矩阵(§3.0):
+  - 通用核心:`core/` `servers/rendering` `servers/audio` `core/input` `main/`
+  - Windows:`platform/windows` `drivers/vulkan` `drivers/windows`
+  - mac/iOS:`platform/macos` `platform/ios` `drivers/vulkan` `drivers/metal`
+  - Android:`platform/android` `drivers/vulkan`
+- **排除**:新功能、重构、编辑器相关、确定不用的平台(按平台矩阵,如 D3D12/Web 未定先留)
 - **流程**:① 评估影响面(是否触及我们改过的 dsw.cpp/main/unigo);
   ② 有冲突则**手解**并回归验证;③ 无冲突 cherry-pick 后全量构建+测试;
 - **记录**:每次 cherry-pick 在 `unigo/README.md` 追加一行(上游 commit + 日期 + 内容)。
@@ -83,44 +86,80 @@
 > 故凡不被白名单模块 + 渲染核心编译引用的源码,可物理删除。
 > 物理删除前先 `scons` 空跑验证依赖。
 
+### 3.0 目标平台矩阵(决定裁剪的权威依据,先定此再谈删)
+
+> **已定架构决策(决策记录 §4.4)**:目标平台 = **Win / Mac / Android / iOS**,
+> 这是当初选 Godot 整引擎而非剥 RenderingServer 的核心原因之一
+> (三需求:坑少 / **多平台** / 风格化够用)。渲染目标限定 Mobile 也因"目标支持手机端"。
+
+| 平台 | 状态 | 对裁剪的影响 |
+|---|---|---|---|
+| Windows | ✅ 当前主目标 | platform/windows、drivers/{vulkan,windows,png} 保留 |
+| macOS | ✅ 目标平台 | **platform/macos、drivers/{vulkan,metal}、drivers/{coreaudio 等 mac 音频} 保留** |
+| Android | ✅ 目标平台(手机端) | **platform/android、drivers/vulkan(Android 也用 Vulkan)、音频驱动保留** |
+| iOS | ✅ 目标平台(手机端) | **platform/ios、drivers/{vulkan,metal} 保留** |
+| Linux/BSD | ⚠️ 可能未来(低成本开源向) | 不确定 → **先保留**(platform/linuxbsd、x11) |
+| Web | ⚠️ 可能未来(HTML5 向) | 不确定 → 先保留(platform/web) |
+| VisionOS | ❓ 不确定 | 先保留(成本低,确认前不删) |
+
+**铁律**:
+1. 只删**确定不可能用的**;
+2. 目标平台相关(Win/Mac/Android/iOS)+ 不确定的,**一律保留**;
+3. 每删一项须在本清单标注"依据:xxx"(对应某个确定性判断),
+   不允许"当前不用就删"。
+
 ### 3.1 顶层目录保留/删除
 
 | 目录 | 保留/精简 | 说明 |
 |---|---|---|
 | `core/` | ✅ 全保留 | 硬依赖(math/string/variant/OS/Thread/资源) |
 | `servers/` | ✅ 保留 | 渲染核心;内部可删子目录见 3.2 |
-| `scene/` | ⚠️ 需保留结构 | 渲染单位 Viewport/Window 在 scene;2D 节点/大部分节点类可删(见 3.3) |
-| `drivers/` | ⚠️ 精简 | 只留 vulkan + windows + png(+ egl 若需);删 d3d12/metal/alsa/coreaudio/pulseaudio/wasapi 等 |
-| `platform/` | ⚠️ 精简 | 只留 windows;删 android/ios/macos/web/linuxbsd/x11 |
-| `modules/` | ⚠️ 精简 | 只留白名单(见 unigo_modules.cfg);物理删 gdscript/mono/editor 等大模块 |
-| `editor/` | 🗑️ **可删** | template_release 不编译;46k 行 |
+| `scene/` | ⚠️ 需保留结构 | 渲染单位 Viewport/Window 在 scene;详见 3.3 |
+| `drivers/` | ⚠️ 按平台矩阵保留 | **vulkan/metal(目标平台用)/windows 平台驱动保留**;只删**确定不用**的(见 3.2 注) |
+| `platform/` | ⚠️ 按平台矩阵保留 | **windows/macos/android/ios 保留**(目标平台);linuxbsd/web/visionos 不确定 → 先留 |
+| `modules/` | ⚠️ 白名单已裁 | 构建层已白名单(见 unigo_modules.cfg);**物理删除暂不含模块源码**(gdscript/mono 等虽确定不用,但删收益低、影响大,待第一轮精简后评估) |
+| `editor/` | 🗑️ **可删** | template_release 不编译;46k 行。**确认**:editor 仅编辑器构建用,运行时不编(已验) |
 | `main/` | ✅ 保留 | 启动/迭代(我们改了) |
 | `tests/` | 🗑️ 可删 | 上游测试(74k 行);我们用自己的测试 |
-| `thirdparty/` | ⚠️ 精简 | 只留实际用到的(glslang/mbedtls/…),删其余 |
-| `doc/` `docs/` `misc/` | 🗑️ 可删 | 上游文档/杂项 |
+| `thirdparty/` | ⚠️ 按需 | 只删**确认无引用**的(如只给被删模块用的);不确定保留 |
+| `doc/` `docs/` `misc/` | 🗑️ 可删 | 上游文档/杂项(不属运行时,确定不用) |
 | `unigo/` | ✅ 保留 | 我们自己的构建体系 |
 | `modules/unigo` | ✅ 保留 | 我们的 C ABI 模块 |
 
+> **白名单 ≠ 实际编译(重要澄清,gltf/fbx 教训)**:即使模块在白名单,
+> 其 SCsub 可能仍有 `env.editor_build` 条件——例如 gltf/fbx 的 `editor/*.cpp`
+> 只在编辑器构建编译,但核心 `*.cpp + structures/*.cpp` **无条件编译**。
+> 因此判断"某模块/某目录是否编译"**必须以 SCsub 实读为准**,不能凭模块名或
+> 单个 grep 下结论。精简判断铁律:不确定 = 保留。
+
 ### 3.2 servers/ 内部精简
 
-| 子目录 | 保留/删除 | 说明 |
-|---|---|---|
-| `rendering/` | ✅ 全保留 | 渲染核心 |
-| `audio/` | ✅ 保留 | 音频(窗口零耦合,可独立) |
-| `physics_2d/` `physics_3d/` | ✅ 保留 | 物理服务器 |
-| `camera/` `text/` `xr/` | 🗑️ 可删 | 不用 |
-| `navigation_2d/` `navigation_3d/` | 🗑️ 可删 | 不用(需确认无引用) |
-| `display/` `movie_writer/` `debugger/` | 🗑️ 可删 | 编辑/调试相关 |
+> **drivers/ 补充**:删驱动须按平台矩阵判断——macOS/iOS 用 metal,Android 用 vulkan,
+> 各平台音频驱动(coreaudio/alsa/pulseaudio 等)跟着平台走,**不确定的先留**。
+> 真正"确定不用"的示例:`d3d12`(我们已定 vulkan,决策记录明确 d3d12=no)。
+
+| 子目录 | 保留处遇 | 说明(引用依据) |
+|---|---|---|---|
+| `rendering/` | ✅ 保留 | 渲染核心 |
+| `audio/` | ✅ 保留 | 音频服务器(核心) |
+| `physics_2d/` `physics_3d/` | ✅ 保留 | 物理服务器(核心) |
+| `display/` | ✅ **必须保留** | **DisplayServer 无条件注册**(register_server_types.cpp:404)——窗口方案核心 |
+| `camera/` | ⚠️ 保留 | CameraServer 无条件注册(同:403);无依据不删 |
+| `text/` | ✅ 保留 | TextServer(text_server_adv 模块实现引用) |
+| `xr/` | ⚠️ 保留待定 | XR 未来未定,决策未定不删 |
+| `navigation_2d/` `navigation_3d/` | ⚠️ 保留待定 | 游戏寻路未来可能用,先留 |
+| `debugger/` | ⚠️ 保留 | 脚本调试器;确认注销路径前不删 |
+| `movie_writer/` | ⚠️ 可条件裁 | 已有 `GD_IS_CLASS_ENABLED(MovieWriterPNGWAV)` 条件(378/391 行);**用开关而非删文件** |
 
 ### 3.3 scene/ 精简(最难,谨慎)
 
-- **保留**:`main/{viewport,window}.{h,cpp}`、`3d/` 中渲染相关节点、`resources/`
-  中渲染相关(材质/纹理/Mesh)等被渲染核心引用的;
-- **可删**:`2d/` 大部分、`gui/`(若不用 Control)、`animation/` 大部分、
-  不用的节点类;
+- **保留**:`main/{viewport,window}.{h,cpp}`、`3d/` 渲染相关节点、`resources/`
+  渲染相关(材质/纹理/Mesh);**2D 相关先留**(Godot 2D 游戏也可能未来做,且
+  2D/3D 共用 CanvasItem 基础,删错代价大);
+- **可删**(确认不用的):如 editor 相关专用类;
 - **铁律**:删前必须 `scons` 验证(引用爆炸点最可能在这);
-- 第一轮**建议只删明确的 editor/tests/无用平台**,scene/servers 内部留到
-  有把握时再逐块删(复杂度控制)。
+- 第一轮**只删最高确定性项**(editor/tests/上游文档),scene/servers/平台相关
+  一律不动,留到有明确需求判断时逐块评估(复杂度控制)。
 
 ### 3.4 已做的精简(记录,勿重复)
 
@@ -152,13 +191,12 @@
 ### 4.2 核查范围(只看这些,其余无视)
 
 ```
-core/
-servers/rendering/
-servers/audio/
-core/input/
-platform/windows/
-drivers/vulkan/
-main/
+# 通用核心
+core/  servers/rendering/  servers/audio/  core/input/  main/
+# 目标平台(按 §3.0 矩阵)
+platform/windows/  platform/macos/  platform/android/  platform/ios/
+drivers/vulkan/    drivers/metal/
+# 注意:每次核查记下 upstream/master 新到哪,作为下次起点
 ```
 
 ### 4.3 核查流程
@@ -168,7 +206,8 @@ cd vendor/godot
 git fetch upstream                                # 1. 拉取(不合并)
 # 2. 看本季度上游核心层提交
 git log --oneline <上次核查点>..upstream/master -- core/ servers/rendering/ \
-    servers/audio/ core/input/ platform/windows/ drivers/vulkan/ main/
+    servers/audio/ core/input/ main/ platform/windows/ platform/macos/ \
+    platform/android/ platform/ios/ drivers/vulkan/ drivers/metal/
 # 3. 逐个看内容(git show),判断:
 #    - bug 修复/性能优化且我们用到 → 按 §2.3 cherry-pick
 #    - 新功能/重构/不用平台/编辑器 → 跳过
