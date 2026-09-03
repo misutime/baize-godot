@@ -97,6 +97,8 @@ UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa);
 UNIGO_API int32_t unigo_engine_set_window_size(unigo_handle p_handle, int32_t p_width, int32_t p_height);
 UNIGO_API int32_t unigo_engine_set_window_mode(unigo_handle p_handle, int32_t p_mode);
 UNIGO_API int32_t unigo_engine_get_renderer(unigo_handle p_handle, char *p_buf, int32_t p_buf_size);
+/* 查询 Godot Input 当前帧按键状态(引擎线程);p_keycode 为 Godot Key 枚举原始值。返回 1=按下/0=未按。 */
+UNIGO_API int32_t unigo_engine_is_key_pressed(unigo_handle p_handle, int32_t p_keycode);
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*

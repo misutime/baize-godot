@@ -34,6 +34,7 @@
 #include "scene/resources/3d/world_3d.h"
 #include "servers/display/display_server.h"
 #include "core/config/project_settings.h"
+#include "core/input/input.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_globals.h"
 
@@ -141,6 +142,7 @@ extern "C" {
 #pragma comment(linker, "/export:unigo_engine_set_window_size")
 #pragma comment(linker, "/export:unigo_engine_set_window_mode")
 #pragma comment(linker, "/export:unigo_engine_get_renderer")
+#pragma comment(linker, "/export:unigo_engine_is_key_pressed")
 #pragma comment(linker, "/export:unigo_render_setup")
 #pragma comment(linker, "/export:unigo_render_apply")
 #pragma comment(linker, "/export:unigo_last_error")
@@ -553,6 +555,23 @@ UNIGO_API int32_t unigo_engine_get_renderer(unigo_handle p_handle, char *p_buf, 
 	return result;
 }
 
+/* ---- is_key_pressed:查询 Godot Input 单例当前帧按键状态(引擎线程) ---- */
+/* p_keycode:Godot Key 枚举原始 int 值(含 SPECIAL 高位,如 F11=SPECIAL|0x26)。
+ * 返回 1=按下 0=未按;内核未就绪/无 Input 单例返回 0。供宿主(如验证宿主
+ * 按键切窗口模式)经统一 C ABI 读输入——Engine 完整输入系统是 M7 范围,此处只读查询。 */
+UNIGO_API int32_t unigo_engine_is_key_pressed(unigo_handle p_handle, int32_t p_keycode) {
+	unigo_set_error(nullptr);
+	UnigoEngineState *state = unigo_lock_state(p_handle);
+	if (state == nullptr) {
+		return 0;
+	}
+	int32_t result = 0;
+	if (Input::get_singleton() != nullptr) {
+		result = Input::get_singleton()->is_key_pressed((Key)p_keycode) ? 1 : 0;
+	}
+	state->instance_mutex.unlock();
+	return result;
+}
 
 /* ---- 渲染命令缓冲(C# 驱动 RenderingServer,不经场景树) ---- */
 /*
