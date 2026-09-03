@@ -459,6 +459,12 @@ UNIGO_API int32_t unigo_engine_set_msaa(unigo_handle p_handle, int32_t p_msaa) {
 		 * RasterizerDummy 无实际 MSAA——返回 UNSUPPORTED 防假成功) */
 		unigo_set_error("unigo_engine_set_msaa: SceneTree 未就绪或无窗口后端(headless)");
 		result = -UNIGO_ERR_UNSUPPORTED;
+	} else if (p_msaa != (int32_t)Viewport::MSAA_DISABLED &&
+			OS::get_singleton()->get_current_rendering_method() == "gl_compatibility") {
+		/* gl_compatibility 不支持 3D MSAA:set_msaa_3d 会更新 Viewport 缓存但实际无效——
+		 * 非零档位返回 UNSUPPORTED 防假成功(仅 forward_plus/mobile 支持 MSAA) */
+		unigo_set_error("unigo_engine_set_msaa: gl_compatibility 渲染器不支持 3D MSAA");
+		result = -UNIGO_ERR_UNSUPPORTED;
 	} else {
 		st->get_root()->set_msaa_3d((Viewport::MSAA)p_msaa); /* 重建 render buffers;须引擎线程(ERR_MAIN_THREAD_GUARD) */
 	}

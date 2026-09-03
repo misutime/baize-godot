@@ -3049,6 +3049,13 @@ error:
 	Engine::get_singleton()->set_write_movie_path(String());
 	project_path = "";
 
+	/* FORK-UniGo:setup 失败路径也复位 UniGo 启动状态(与 cleanup 一致)——
+	 * 防失败后重试 create 继承前次配置(render_only/vsync/msaa/overrides)。 */
+	unigo_render_only = false;
+	unigo_vsync_mode = -1;
+	unigo_msaa_mode = -1;
+	unigo_config_overrides.clear();
+
 	args.clear();
 	main_args.clear();
 
