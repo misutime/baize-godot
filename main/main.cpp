@@ -4731,14 +4731,18 @@ int Main::start() {
 			sml->set_quit_on_go_back(GLOBAL_GET("application/config/quit_on_go_back"));
 			String appname = GLOBAL_GET("application/config/name");
 			appname = TranslationServer::get_singleton()->translate(appname);
+			/* 外部窗直渲:窗口标题归宿主(WinForms 已设),Godot 不覆盖。
+			 * 纯净内核无 application/config/name——若不跳过会把标题改成空。 */
+			if (!g_unigo_external_hwnd) {
 #ifdef DEBUG_ENABLED
-			// Append a suffix to the window title to denote that the project is running
-			// from a debug build (including the editor). Since this results in lower performance,
-			// this should be clearly presented to the user.
-			DisplayServer::get_singleton()->window_set_title(vformat("%s (DEBUG)", appname));
+				// Append a suffix to the window title to denote that the project is running
+				// from a debug build (including the editor). Since this results in lower performance,
+				// this should be clearly presented to the user.
+				DisplayServer::get_singleton()->window_set_title(vformat("%s (DEBUG)", appname));
 #else
-			DisplayServer::get_singleton()->window_set_title(appname);
+				DisplayServer::get_singleton()->window_set_title(appname);
 #endif
+			}
 
 			bool snap_controls = GLOBAL_GET("gui/common/snap_controls_to_pixels");
 			sml->get_root()->set_snap_controls_to_pixels(snap_controls);

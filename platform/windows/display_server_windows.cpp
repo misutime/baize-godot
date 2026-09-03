@@ -2265,6 +2265,11 @@ void DisplayServerWindows::window_set_title(const String &p_title, DisplayServer
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
+	/* 外部窗直渲:窗口标题归宿主(C# WinForms 已设),Godot 永不覆盖宿主窗标题 —
+	 * 纯净内核无 project name,displayed_title 为空,SceneTree/Window 会用空标题覆盖。 */
+	if (external_window_mode) {
+		return;
+	}
 	SetWindowTextW(windows[p_window].hWnd, (LPCWSTR)(p_title.utf16().get_data()));
 }
 
@@ -4755,6 +4760,10 @@ void DisplayServerWindows::_window_set_native_icon(const String &p_filename, Dis
 }
 
 void DisplayServerWindows::set_icon(const Ref<Image> &p_icon) {
+	/* 外部窗直渲:窗口图标归宿主,Godot 不设任何窗图标(含主窗=外部窗)。 */
+	if (external_window_mode) {
+		return;
+	}
 	for (const KeyValue<DisplayServerEnums::WindowID, WindowData> &E : windows) {
 		if (E.value.icon_set && E.key != DisplayServerEnums::MAIN_WINDOW_ID) {
 			continue;
@@ -4767,6 +4776,10 @@ void DisplayServerWindows::window_set_icon(const Ref<Image> &p_icon, DisplayServ
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
+	/* 外部窗直渲:窗口图标归宿主(C#),Godot 不把 logo 图标盖到宿主窗标题栏。 */
+	if (external_window_mode) {
+		return;
+	}
 	WindowData &wd = windows[p_window];
 
 	if (wd.icon_big) {
