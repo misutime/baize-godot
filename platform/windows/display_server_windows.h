@@ -251,11 +251,17 @@ class DisplayServerWindows : public DisplayServer {
 
 	DisplayServerEnums::WindowID window_mouseover_id = DisplayServerEnums::INVALID_WINDOW_ID;
 
+#ifdef UNIGO_EXTERNAL_ONLY
+	/* 外部窗直渲(编译期强制):UniGo 唯一窗口模式 — C# 宿主建窗,Godot 渲染进寄主窗。
+	 * 编译期恒 true → 所有自建窗分支(If 守卫)被编译器常量折叠剔除,自建窗逻辑不进产物。 */
+	static constexpr bool external_window_mode = true;
+#else
 	/* 外部窗直渲模式(unigo-external-window):C# 宿主已建窗口,Godot 直接渲染进它,不自主建窗。
 	 * 判定:构造时 p_parent_window 非 0 且 OS::_embedded_in_editor 为 false(嵌入 --wid 时
 	 * main.cpp 会置该标记)且非 headless。此模式下 _create_window 不调用 CreateWindowExW,
 	 * wd.hWnd 直接用外部 HWND——窗口语义(尺寸/消息/输入)归宿主。 */
 	bool external_window_mode = false;
+#endif
 
 	KeyEvent key_event_buffer[KEY_EVENT_BUFFER_SIZE];
 	int key_event_pos;

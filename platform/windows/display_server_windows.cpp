@@ -2379,10 +2379,6 @@ void DisplayServerWindows::window_set_current_screen(int p_screen, DisplayServer
 	}
 	const WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded window can't be moved to another screen.");
-		return;
-	}
 	if (wd.fullscreen) {
 		Point2 pos = screen_get_position(p_screen) + _get_screens_origin();
 		Size2 size = screen_get_size(p_screen);
@@ -2465,10 +2461,6 @@ void DisplayServerWindows::window_set_position(const Point2i &p_position, Displa
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded window can't be moved.");
-		return;
-	}
 
 	if (wd.fullscreen || wd.maximized) {
 		return;
@@ -2554,10 +2546,6 @@ void DisplayServerWindows::window_set_max_size(const Size2i p_size, DisplayServe
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded windows can't have a maximum size.");
-		return;
-	}
 
 	if ((p_size != Size2()) && ((p_size.x < wd.min_size.x) || (p_size.y < wd.min_size.y))) {
 		ERR_PRINT("Maximum window size can't be smaller than minimum window size!");
@@ -2580,10 +2568,6 @@ void DisplayServerWindows::window_set_min_size(const Size2i p_size, DisplayServe
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded windows can't have a minimum size.");
-		return;
-	}
 
 	if ((p_size != Size2()) && (wd.max_size != Size2()) && ((p_size.x > wd.max_size.x) || (p_size.y > wd.max_size.y))) {
 		ERR_PRINT("Minimum window size can't be larger than maximum window size!");
@@ -2606,10 +2590,6 @@ void DisplayServerWindows::window_set_size(const Size2i p_size, DisplayServerEnu
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded window can't be resized.");
-		return;
-	}
 
 	if (wd.fullscreen || wd.maximized) {
 		return;
@@ -2809,10 +2789,6 @@ void DisplayServerWindows::window_set_mode(DisplayServerEnums::WindowMode p_mode
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (p_mode != DisplayServerEnums::WINDOW_MODE_WINDOWED && wd.parent_hwnd && !external_window_mode) {
-		print_line("Embedded window only supports Windowed mode.");
-		return;
-	}
 
 	bool was_fullscreen = wd.fullscreen;
 	wd.was_fullscreen_pre_min = false;
@@ -2997,10 +2973,6 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 			_update_window_style(p_window);
 		} break;
 		case DisplayServerEnums::WINDOW_FLAG_RESIZE_DISABLED: {
-			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
-				print_line("Embedded window resize can't be disabled.");
-				return;
-			}
 			wd.resizable = !p_enabled;
 			_update_window_style(p_window);
 		} break;
@@ -3015,10 +2987,6 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 		} break;
 		case DisplayServerEnums::WINDOW_FLAG_ALWAYS_ON_TOP: {
 			ERR_FAIL_COND_MSG(wd.transient_parent != DisplayServerEnums::INVALID_WINDOW_ID && p_enabled, "Transient windows can't become on top.");
-			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
-				print_line("Embedded window can't become on top.");
-				return;
-			}
 			wd.always_on_top = p_enabled;
 			_update_window_style(p_window);
 		} break;
@@ -3077,10 +3045,6 @@ void DisplayServerWindows::window_set_flag(DisplayServerEnums::WindowFlags p_fla
 		case DisplayServerEnums::WINDOW_FLAG_POPUP: {
 			ERR_FAIL_COND_MSG(p_window == DisplayServerEnums::MAIN_WINDOW_ID, "Main window can't be popup.");
 			ERR_FAIL_COND_MSG(IsWindowVisible(wd.hWnd) && (wd.is_popup != p_enabled), "Popup flag can't changed while window is opened.");
-			if (p_enabled && wd.parent_hwnd && !external_window_mode) {
-				print_line("Embedded window can't be popup.");
-				return;
-			}
 			wd.is_popup = p_enabled;
 		} break;
 		default:
@@ -5327,9 +5291,6 @@ void DisplayServerWindows::window_start_drag(DisplayServerEnums::WindowID p_wind
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		return; // Embedded window.
-	}
 
 	ReleaseCapture();
 
@@ -5360,9 +5321,6 @@ void DisplayServerWindows::window_start_resize(DisplayServerEnums::WindowResizeE
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	if (wd.parent_hwnd && !external_window_mode) {
-		return; // Embedded window.
-	}
 
 	ReleaseCapture();
 
@@ -5799,10 +5757,6 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 			}
 			// When embedded, the window is a child of the parent and is not activated
 			// by default because it lacks native controls.
-			if (windows[window_id].parent_hwnd && !external_window_mode) {
-				SetFocus(windows[window_id].hWnd);
-				return MA_ACTIVATE;
-			}
 		} break;
 		case WM_ACTIVATEAPP: {
 			bool new_app_focused = (bool)wParam;
@@ -6841,15 +6795,6 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 					MoveWindow(window.hWnd, pos.x, pos.y, size.width, size.height, TRUE);
 				}
 			} else {
-				if (window.parent_hwnd && !external_window_mode) {
-					// WM_WINDOWPOSCHANGED is sent when the parent changes.
-					// If we are supposed to have a parent and now we don't, it's likely
-					// because the parent was closed. We will close our window as well.
-					// This prevents an embedded game from staying alive when the editor is closed or crashes.
-					if (!GetParent(window.hWnd)) {
-						SendMessage(window.hWnd, WM_CLOSE, 0, 0);
-					}
-				}
 			}
 
 			// Update HDR capabilities and reference luminance when window moves to different screen.
@@ -7302,6 +7247,8 @@ void DisplayServerWindows::_update_tablet_ctx(const String &p_old_driver, const 
 }
 
 Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window_id, DisplayServerEnums::WindowMode p_mode, uint32_t p_flags, const Rect2i &p_rect, bool p_exclusive, DisplayServerEnums::WindowID p_transient_parent, HWND p_parent_hwnd, bool p_no_redirection_bitmap) {
+#ifndef UNIGO_EXTERNAL_ONLY
+	/* 样式/窗口 rect 计算(仅自建窗用;外部窗直渲下窗口归宿主,不需要)。 */
 	DWORD dwExStyle;
 	DWORD dwStyle;
 
@@ -7354,9 +7301,11 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 	if (p_mode != DisplayServerEnums::WINDOW_MODE_FULLSCREEN && p_mode != DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
 		AdjustWindowRectEx(&WindowRect, dwStyle, FALSE, dwExStyle);
 	}
+#endif
 
 	DisplayServerEnums::WindowID id = p_window_id;
 	{
+#ifndef UNIGO_EXTERNAL_ONLY
 		WindowData *wd_transient_parent = nullptr;
 		HWND owner_hwnd = nullptr;
 		if (p_parent_hwnd) {
@@ -7372,10 +7321,24 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 				}
 			}
 		}
-
 		WindowData &wd = windows[id];
+#else
+		/* 外部窗直渲(编译期强制):无 transient/owner 概念——窗口归宿主,Godot 只渲染。 */
+		(void)p_transient_parent;
+		(void)p_exclusive;
+		WindowData &wd = windows[id];
+#endif
 
 		wd.id = id;
+#ifdef UNIGO_EXTERNAL_ONLY
+		/* 外部窗直渲(编译期强制):wd.hWnd 必须是宿主窗口(UniGo 唯一模式)。
+		 * 若调用方未传宿主窗(p_parent_hwnd 为 0),这是编程错误——显式失败而非自建窗。 */
+		if (p_parent_hwnd == nullptr) {
+			ERR_FAIL_V_MSG(ERR_UNCONFIGURED, "UNIGO_EXTERNAL_ONLY: 缺少宿主窗口句柄(必须传 native_window)。");
+		}
+		wd.hWnd = p_parent_hwnd;
+		goto extern_window_skip_creation;
+#else
 		if (external_window_mode && p_parent_hwnd != nullptr) {
 			/* 外部窗直渲:wd.hWnd 直接引用宿主窗口,不 CreateWindowExW。
 			 * 消息由宿主窗口过程(C#)处理,Godot 的 WndProc 与此窗无关
@@ -7404,6 +7367,7 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 			windows.erase(id);
 			ERR_FAIL_V_MSG(ERR_CANT_CREATE, "Failed to create Windows OS window.");
 		}
+#endif
 
 extern_window_skip_creation:
 		wd.parent_hwnd = p_parent_hwnd;
@@ -7412,14 +7376,14 @@ extern_window_skip_creation:
 			wd.wrt_wd = WinRTUtils::create_wd(wd.hWnd, callable_mp(this, &DisplayServerWindows::_winrt_adv_color_info_cb), wd.id);
 		}
 
-		// Detach the input queue from the parent window.
-		// This prevents the embedded window from waiting on the main window's input queue,
-		// causing lags input lags when resizing or moving the main window.
+#ifndef UNIGO_EXTERNAL_ONLY
+		// Detach the input queue from the parent window.(嵌入语义,外部窗不需要)
 		if (p_parent_hwnd) {
 			DWORD mainThreadId = GetWindowThreadProcessId(owner_hwnd, nullptr);
 			DWORD embeddedThreadId = GetCurrentThreadId();
 			AttachThreadInput(embeddedThreadId, mainThreadId, FALSE);
 		}
+#endif
 
 		if (p_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
 			wd.fullscreen = true;
@@ -7444,6 +7408,7 @@ extern_window_skip_creation:
 		}
 
 		wd.exclusive = p_exclusive;
+#ifndef UNIGO_EXTERNAL_ONLY
 		bool on_top = (p_flags & DisplayServerEnums::WINDOW_FLAG_ALWAYS_ON_TOP_BIT && p_mode != DisplayServerEnums::WINDOW_MODE_FULLSCREEN && p_mode != DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN);
 		if (wd_transient_parent) {
 			if (on_top) {
@@ -7453,6 +7418,7 @@ extern_window_skip_creation:
 				wd_transient_parent->transient_children.insert(id);
 			}
 		}
+#endif
 
 		wd.sharp_corners = p_flags & DisplayServerEnums::WINDOW_FLAG_SHARP_CORNERS_BIT;
 		if (!external_window_mode) {
@@ -8176,11 +8142,14 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 	}
 
 	/* 外部窗直渲(唯一模式,UniGo 定制):宿主(C#)已建窗口,Godot 直接渲染进它,
-	 * 永不自建窗口。p_parent_window 非空即外部窗(UniGo 不采用 Godot 自带 --wid
-	 * 嵌入/自建窗语义——按复杂度简化原则,一种用法一种通道,不做多模式分支)。 */
+	 * 永不自建窗口。p_parent_window 非空即外部窗。UNIGO_EXTERNAL_ONLY 下为编译期常量。 */
+#ifndef UNIGO_EXTERNAL_ONLY
 	if (p_parent_window) {
 		external_window_mode = true;
 	}
+#else
+	parent_hwnd = (HWND)p_parent_window;
+#endif
 
 	// Init context and rendering device.
 	if (rendering_driver == "dummy") {

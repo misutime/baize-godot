@@ -252,10 +252,10 @@ static bool init_always_on_top = false;
 static bool init_use_custom_pos = false;
 static bool init_use_custom_screen = false;
 static Vector2 init_custom_pos;
-/* 外部窗直渲(unigo-external-window):C# 宿主已建窗口的句柄(HWND)。
- * Godot 直接渲染进宿主窗口、不自主创建窗口、窗口语义归宿主。
- * UniGo 仅此一种窗口模式(删除了 Godot 自带 --wid 嵌入逻辑)。 */
-static int64_t init_external_window_hwnd = 0;
+/* 外部窗直渲(UniGo 唯一窗口模式):Godot 渲染进 C# 宿主窗口(HWND),不自主建窗。
+ * 句柄由 unigo 模块全局 g_unigo_external_hwnd 直传(create 时由 unigo_config.native_window 落地),
+ * 不经 argv——外部窗是唯一模式,无参数开关。 */
+extern int64_t g_unigo_external_hwnd;
 #ifdef TOOLS_ENABLED
 static bool init_display_scale_found = false;
 static int init_display_scale = 0;
@@ -2082,23 +2082,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				goto error;
 			}
 #endif // TOOLS_ENABLED
-		} else if (arg == "--unigo-external-window") {
-			/* 外部窗直渲(unigo,唯一窗口模式):C# 宿主已建窗口句柄(HWND),
-			 * Godot 直接渲染进它、不自主创建窗口(窗口语义归宿主)。
-			 * 64 位句柄用十进制传。 */
-			if (N) {
-				init_external_window_hwnd = N->get().to_int();
-				if (init_external_window_hwnd == 0) {
-					OS::get_singleton()->print("<hwnd> argument for --unigo-external-window <hwnd> must be different then 0.\n");
-					goto error;
-				}
-				N = N->next();
-			} else {
-				OS::get_singleton()->print("Missing <hwnd> argument for --unigo-external-window <hwnd>.\n");
-				goto error;
-			}
-
-		} else if (arg == "--" || arg == "++") {
+				} else if (arg == "--" || arg == "++") {
 			adding_user_args = true;
 		} else {
 			main_args.push_back(arg);
@@ -3459,7 +3443,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 		accessibility_server->set_mode(accessibility_mode);
 
 		String rendering_driver = OS::get_singleton()->get_current_rendering_driver_name();
-		display_server = DisplayServer::create(display_driver_idx, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_external_window_hwnd, err);
+		display_server = DisplayServer::create(display_driver_idx, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, g_unigo_external_hwnd, err);
 		if (err != OK || display_server == nullptr) {
 			String last_name = DisplayServer::get_create_function_name(display_driver_idx);
 
@@ -3473,7 +3457,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 				String name = DisplayServer::get_create_function_name(i);
 				WARN_PRINT(vformat("Display driver %s failed, falling back to %s.", last_name, name));
 
-				display_server = DisplayServer::create(i, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, init_external_window_hwnd, err);
+				display_server = DisplayServer::create(i, rendering_driver, window_mode, window_vsync_mode, window_flags, window_position, window_size, init_screen, context, g_unigo_external_hwnd, err);
 				if (err == OK && display_server != nullptr) {
 					break;
 				}
@@ -3711,7 +3695,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 		MAIN_PRINT("Main: Setup Logo");
 
 		/* 外部窗直渲:窗口初始化(模式/置顶)由宿主(C#)管理,Godot 不设置。 */
-		if (!init_external_window_hwnd) {
+		if (!g_unigo_external_hwnd) {
 			if (init_windowed) {
 				//do none..
 			} else if (init_maximized) {

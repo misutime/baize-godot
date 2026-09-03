@@ -46,6 +46,10 @@
 #include <string.h>
 
 /* ---- 最小 GDExtension 初始化函数 ---- */
+/* 外部窗句柄(unigo_config.native_window 的落地):unigo.cpp 在 create 时设置,
+ * main.cpp 的 DisplayServer::create 读取(同 DLL 链接,extern 声明在 main.cpp)。
+ * UniGo 唯一窗口模式 = Godot 渲染进 C# 宿主窗,无 argv 参数开关。 */
+int64_t g_unigo_external_hwnd = 0;
 /* libgodot 强制要求宿主提供一个 GDExtension 初始化函数(内部经它注册伪  */
 /* GDExtension 并走完整引擎初始化)。UniGo 不是 GDExtension,不注册任何    */
 /* 类,因此只提供最小合法实现:设置最低初始化等级,回调为空函数体          */
@@ -181,20 +185,11 @@ UNIGO_API unigo_handle unigo_engine_create(const unigo_config *p_cfg) {
 		argv_buf[argn++] = "--path";
 		argv_buf[argn++] = project_path;
 	}
-	/* 外部窗直渲:native_window 非 0 时注入 --unigo-external-window <HWND>,由 main.cpp
-	 * 解析传给 DisplayServer::create 的 p_parent_window——Godot 不自主建窗,直接渲染进
-	 * C# 宿主已建的窗口(HWND 以十进制传入,64 位安全)。 */
-	char hwnd_arg[32];
-	if (p_cfg->native_window != 0) {
-		if (argn + 2 >= 128) {
-			unigo_set_error("unigo_engine_create: 宿主参数超过 argv 上限 128");
-			return nullptr;
-		}
-		argv_buf[argn++] = "--unigo-external-window";
-		/* uintptr_t 转十进制(64 位 HWND 可能超出 int32,不用 to_int)。 */
-		snprintf(hwnd_arg, sizeof(hwnd_arg), "%llu", (unsigned long long)p_cfg->native_window);
-		argv_buf[argn++] = hwnd_arg;
-	}
+	/* 外部窗直渲:native_window(HWND)经 unigo.cpp 全局直传 main.cpp(DisplayServer::create
+	 * 的 p_parent_window),不注入 argv——外部窗是 UniGo 唯一窗口模式,无需参数开关。
+	 * 设全局供 main.cpp 读取(同 DLL 链接);native_window=0 时保持 0(生命周期冒烟用,无窗)。 */
+	g_unigo_external_hwnd = p_cfg->native_window;
+
 	for (int i = has_host_argv ? 1 : 0; i < host_argc; i++) {
 		if (argn >= 128) {
 			/* argv 超上限:显式失败而非静默截断(静默丢配置与宿主声明不一致)。 */

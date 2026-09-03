@@ -59,6 +59,9 @@ DEFAULT_SCONS_ARGS = {
     "d3d12": "no",
     "accesskit": "no",
     "angle": "no",
+    # 外部窗直渲(UNIGO_EXTERNAL_ONLY):编译期强制外部窗——自建窗分支
+    # 常量折叠剔除,产物 = 只渲染进 C# 宿主窗(UniGo 唯一窗口模式)。
+    "CPPDEFINES": "UNIGO_EXTERNAL_ONLY",
     # 产物命名:godot.windows.template_release.x86_64.pure.dll
     "extra_suffix": "pure",
 }
