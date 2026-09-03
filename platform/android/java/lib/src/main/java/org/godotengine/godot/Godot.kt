@@ -454,11 +454,15 @@ class Godot private constructor(val context: Context) {
 			controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 		} else {
 			val fullScreenThemeValue = TypedValue()
-			val hasStatusBar = if (activity.theme.resolveAttribute(android.R.attr.windowFullscreen, fullScreenThemeValue, true) && fullScreenThemeValue.type == TypedValue.TYPE_INT_BOOLEAN) {
+			var hasStatusBar = if (activity.theme.resolveAttribute(android.R.attr.windowFullscreen, fullScreenThemeValue, true) && fullScreenThemeValue.type == TypedValue.TYPE_INT_BOOLEAN) {
 				fullScreenThemeValue.data == 0
 			} else {
 				// Fallback to checking the editor build
 				!isEditorBuild()
+			}
+
+			if (isEditorBuild() && orientation == Configuration.ORIENTATION_PORTRAIT) {
+				hasStatusBar = true
 			}
 
 			val types = if (hasStatusBar) {
@@ -796,6 +800,18 @@ class Godot private constructor(val context: Context) {
 			runOnRenderThread {
 				GodotLib.onOrientationChange(orientation)
 			}
+
+			if (isEditorBuild() && !isInImmersiveMode()) {
+				val window = getActivity()?.window
+				if (window != null) {
+					val controller = WindowInsetsControllerCompat(window, window.decorView)
+					if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+						controller.show(WindowInsetsCompat.Type.statusBars())
+					} else {
+						controller.hide(WindowInsetsCompat.Type.statusBars())
+					}
+				}
+			}
 		}
 	}
 
@@ -879,6 +895,10 @@ class Godot private constructor(val context: Context) {
 		deviceOrientationEnabled.set(java.lang.Boolean.parseBoolean(GodotLib.getGlobal("input_devices/sensors/enable_device_orientation")))
 
 		runOnHostThread {
+			// Used to report 'Time to full display' metrics.
+			// See https://developer.android.com/topic/performance/vitals/launch-time#time-full for more info.
+			getActivity()?.reportFullyDrawn()
+
 			registerSensorsIfNeeded()
 		}
 
