@@ -7287,14 +7287,20 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 	DWORD dwStyle;
 
 	_get_window_style(p_window_id == DisplayServerEnums::MAIN_WINDOW_ID, false, (p_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN), p_mode != DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN, p_flags & DisplayServerEnums::WINDOW_FLAG_BORDERLESS_BIT, !(p_flags & DisplayServerEnums::WINDOW_FLAG_RESIZE_DISABLED_BIT), p_flags & DisplayServerEnums::WINDOW_FLAG_MINIMIZE_DISABLED_BIT, p_flags & DisplayServerEnums::WINDOW_FLAG_MAXIMIZE_DISABLED_BIT, p_mode == DisplayServerEnums::WINDOW_MODE_MINIMIZED, p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED, false, (p_flags & DisplayServerEnums::WINDOW_FLAG_NO_FOCUS_BIT) | (p_flags & DisplayServerEnums::WINDOW_FLAG_POPUP_BIT), p_parent_hwnd, p_no_redirection_bitmap, dwStyle, dwExStyle);
+#endif
 
+	/* rq_screen/offset 用于保存 pre_fs_rect(外部窗也需维护 fullscreen 状态标志)——
+	 * 必须在 UNIGO_EXTERNAL_ONLY 下也可用,不能放进自建窗专属 #ifndef 块(review 宏激活后裁剪缺口)。 */
 	int rq_screen = get_screen_from_rect(p_rect);
 	if (rq_screen < 0) {
 		rq_screen = get_primary_screen(); // Requested window rect is outside any screen bounds.
 	}
-	Rect2i usable_rect = screen_get_usable_rect(rq_screen);
 
+	/* offset(pre_fs_rect 屏幕原点换算)外部窗也需用,放 #ifndef 外。 */
 	Point2i offset = _get_screens_origin();
+
+#ifndef UNIGO_EXTERNAL_ONLY
+	Rect2i usable_rect = screen_get_usable_rect(rq_screen);
 
 	RECT WindowRect;
 
@@ -7366,9 +7372,14 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 		wd.id = id;
 #ifdef UNIGO_EXTERNAL_ONLY
 		/* 外部窗直渲(编译期强制):wd.hWnd 必须是宿主窗口(UniGo 唯一模式)。
-		 * 若调用方未传宿主窗(p_parent_hwnd 为 0),这是编程错误——显式失败而非自建窗。 */
+		 * 若调用方未传宿主窗(p_parent_hwnd 为 0)或句柄无效(已销毁/伪造),这是编程错误——
+		 * 显式失败而非自建窗/带病继续(review P1-3:非零但非法 HWND 会导致后续
+		 * GetClientRect 读未初始化 RECT、Vulkan surface 建失败甚至驱动崩溃)。 */
 		if (p_parent_hwnd == nullptr) {
 			ERR_FAIL_V_MSG(ERR_UNCONFIGURED, "UNIGO_EXTERNAL_ONLY: 缺少宿主窗口句柄(必须传 native_window)。");
+		}
+		if (!IsWindow(p_parent_hwnd)) {
+			ERR_FAIL_V_MSG(ERR_INVALID_PARAMETER, "UNIGO_EXTERNAL_ONLY: 宿主窗口句柄无效(IsWindow 失败——已销毁或伪造)。");
 		}
 		wd.hWnd = p_parent_hwnd;
 		goto extern_window_skip_creation;
@@ -7378,6 +7389,9 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 			 * 消息由宿主窗口过程(C#)处理,Godot 的 WndProc 与此窗无关
 			 * (渲染 surface 只认 HWND,渲染链自动跟随 wd.hWnd)。
 			 * 尺寸从 p_rect(宿主已定)取,供渲染 surface/内部逻辑使用。 */
+			if (!IsWindow(p_parent_hwnd)) {
+				ERR_FAIL_V_MSG(ERR_INVALID_PARAMETER, "外部窗模式:宿主窗口句柄无效(IsWindow 失败——已销毁或伪造)。");
+			}
 			wd.hWnd = p_parent_hwnd;
 			goto extern_window_skip_creation;
 		}
@@ -7537,11 +7551,17 @@ extern_window_skip_creation:
 			/* 外部窗直渲:尺寸以宿主窗口实际客户区为准(不信 p_rect——
 			 * 宿主可能已建好窗,真实尺寸才是渲染 surface 的依据)。 */
 			RECT r;
-			GetClientRect(wd.hWnd, &r);
+			if (!GetClientRect(wd.hWnd, &r)) {
+				ERR_PRINT("外部窗模式:GetClientRect 失败(宿主窗口句柄无效?)——按 0 尺寸处理。");
+				wd.width = 0;
+				wd.height = 0;
+			} else {
+				wd.width = r.right - r.left;
+				wd.height = r.bottom - r.top;
+			}
 			wd.last_pos = Point2i();
-			wd.width = r.right - r.left;
-			wd.height = r.bottom - r.top;
 		} else if (p_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_EXCLUSIVE_FULLSCREEN || p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED) {
+#ifndef UNIGO_EXTERNAL_ONLY
 			RECT r;
 			GetClientRect(wd.hWnd, &r);
 			ClientToScreen(wd.hWnd, (POINT *)&r.left);
@@ -7549,6 +7569,7 @@ extern_window_skip_creation:
 			wd.last_pos = Point2i(r.left, r.top) - _get_screens_origin();
 			wd.width = r.right - r.left - off.x;
 			wd.height = r.bottom - r.top - off.y;
+#endif
 		} else {
 			wd.last_pos = p_rect.position;
 			wd.width = p_rect.size.width;
@@ -7558,10 +7579,13 @@ extern_window_skip_creation:
 		wd.no_redirection_bitmap = p_no_redirection_bitmap;
 
 		wd.create_completed = true;
+#ifndef UNIGO_EXTERNAL_ONLY
 		// Set size of maximized borderless window (by default it covers the entire screen).
+		// (自建窗专属:外部窗下 p_parent_hwnd 非空恒不走此分支;编译期裁剪。) */
 		if (!p_parent_hwnd && p_mode == DisplayServerEnums::WINDOW_MODE_MAXIMIZED && (p_flags & DisplayServerEnums::WINDOW_FLAG_BORDERLESS_BIT)) {
 			SetWindowPos(wd.hWnd, HWND_TOP, usable_rect.position.x - off.x, usable_rect.position.y - off.y, usable_rect.size.width + off.x, usable_rect.size.height + off.y, SWP_NOZORDER | SWP_NOACTIVATE);
 		}
+#endif
 		if (!external_window_mode) {
 			/* 外部窗直渲:鼠标穿透区域由宿主窗口管理,Godot 不动外部窗区域。 */
 			_update_window_mouse_passthrough(id);

@@ -254,8 +254,14 @@ static bool init_use_custom_screen = false;
 static Vector2 init_custom_pos;
 /* 外部窗直渲(UniGo 唯一窗口模式):Godot 渲染进 C# 宿主窗口(HWND),不自主建窗。
  * 句柄由 unigo 模块全局 g_unigo_external_hwnd 直传(create 时由 unigo_config.native_window 落地),
- * 不经 argv——外部窗是唯一模式,无参数开关。 */
+ * 不经 argv——外部窗是唯一模式,无参数开关。
+ * 注意:g_unigo_external_hwnd 定义在 unigo 模块(可禁用/仅 Windows);main 层无条件 extern
+ * 会在禁用/非 Windows 构建产生未解析符号(review P2-1)——用 MODULE_UNIGO_ENABLED 隔离。 */
+#ifdef MODULE_UNIGO_ENABLED
 extern int64_t g_unigo_external_hwnd;
+#else
+static constexpr int64_t g_unigo_external_hwnd = 0; /* unigo 模块未启用:恒非外部窗。 */
+#endif
 #ifdef TOOLS_ENABLED
 static bool init_display_scale_found = false;
 static int init_display_scale = 0;
@@ -5161,6 +5167,7 @@ bool Main::iteration() {
 		wants_present |= force_redraw_requested;
 		if ((!force_redraw_requested) && OS::get_singleton()->is_in_low_processor_usage_mode()) {
 			if (RenderingServer::get_singleton()->has_changed()) {
+				RenderingServer::get_singleton()->draw(wants_present, scaled_step); // flush visual commands
 				Engine::get_singleton()->increment_frames_drawn();
 			}
 		} else {
