@@ -29,7 +29,7 @@
 /**************************************************************************/
 
 #include "script_text_editor.h"
-
+#include "modules/modules_enabled.gen.h" // For MODULE_GDSCRIPT_ENABLED.
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
 #include "core/io/dir_access.h"
@@ -962,6 +962,7 @@ void ScriptTextEditor::_update_warnings() {
 
 	bool has_connections_table = false;
 	// Add missing connections.
+#ifdef MODULE_GDSCRIPT_ENABLED
 	if (GLOBAL_GET("debug/gdscript/warnings/enable")) {
 		Node *base = get_tree()->get_edited_scene_root();
 		if (base && missing_connections.size() > 0) {
@@ -983,6 +984,7 @@ void ScriptTextEditor::_update_warnings() {
 			warning_nb += missing_connections.size();
 		}
 	}
+#endif // MODULE_GDSCRIPT_ENABLED
 
 	code_editor->set_warning_count(warning_nb);
 

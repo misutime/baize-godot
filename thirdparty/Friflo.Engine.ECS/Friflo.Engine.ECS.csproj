@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>library</OutputType>
+    <!-- FORK-CUSTOM（All-in C#）：只目标 net11.0（上游多目标 net6-10 + ns2.1） -->
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Friflo.Engine.ECS</RootNamespace>
+    <AssemblyName>Friflo.Engine.ECS</AssemblyName>
+    <!-- FORK-CUSTOM：LangVersion 跟随项目（latest = C# 15 预览期写法） -->
+    <LangVersion>latest</LangVersion>
+
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+
+    <!-- FORK-CUSTOM：去打包配置（vendor 本地库，不发布 NuGet） -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <NoWarn>1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

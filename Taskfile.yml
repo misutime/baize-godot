@@ -1,0 +1,50 @@
+version: '3'
+
+dotenv:
+  - .env.worktree
+  - .env
+
+vars:
+  PYTHON: '{{if eq .OS "windows"}}python{{else}}python3{{end}}'
+  # dev-run 用：平台对应开发版可执行文件（console 版日志直出终端）
+  GODOT_EXE: '{{if eq .OS "windows"}}bin/godot.windows.editor.dev.x86_64.console.exe{{else}}bin/godot.macos.editor.dev.arm64{{end}}'
+
+tasks:
+  default:
+    desc: "列出可用任务"
+    cmd: task --list
+
+  dev:
+    desc: "构建当前平台开发版编辑器（迭代模式：无调试符号）"
+    # 原命令（2026-08-02 注释保留，勿删）：dev_build 默认开 debug_symbols，PDB 568MB，迭代编译慢
+    # cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "16"}}'
+    # 新命令：-- debug_symbols=no 跳过符号生成/链接；-j20 匹配 14700K 20 核；需要符号时用 scons debug_symbols=yes 覆盖
+    cmd: '{{.PYTHON}} misc/scripts/build.py --preset dev --jobs {{.JOBS | default "20"}} -- debug_symbols=no'
+
+  pro:
+    desc: "构建当前平台 pro 版编辑器"
+    cmd: '{{.PYTHON}} misc/scripts/build.py --preset pro --jobs {{.JOBS | default "16"}}'
+
+  dev-install:
+    desc: "构建并安装开发版编辑器"
+    platforms: [darwin]
+    cmds:
+      - task: dev
+        vars:
+          JOBS: '{{.JOBS | default "16"}}'
+      - mkdir -p ~/Applications
+      - ditto bin/godot_macos_editor.app ~/Applications/Godot.app
+
+  pro-install:
+    desc: "构建并安装 pro 版编辑器"
+    platforms: [darwin]
+    cmds:
+      - task: pro
+        vars:
+          JOBS: '{{.JOBS | default "16"}}'
+      - mkdir -p ~/Applications
+      - ditto bin/godot_macos_editor.app ~/Applications/Godot.app
+
+  dev-run:
+    desc: "直接运行开发版编辑器（原生/headless 调试）"
+    cmd: '"{{.GODOT_EXE}}" --editor'

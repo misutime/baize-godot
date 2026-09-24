@@ -1,0 +1,9 @@
+<!-- SPDX-License-Identifier: MIT -->
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="ExportDebug" />
+    <BuildType Name="ExportRelease" />
+  </Configurations>
+  <Project Path="godot-slice.csproj" />
+</Solution>

@@ -50,7 +50,7 @@ namespace GodotTools.Build
             }
 
             // Needed when running from Developer Command Prompt for VS
-            RemovePlatformVariable(startInfo.EnvironmentVariables);
+            SanitizeDotNetCliEnvironment(startInfo.EnvironmentVariables);
 
             var process = new Process { StartInfo = startInfo };
 
@@ -120,7 +120,7 @@ namespace GodotTools.Build
             }
 
             // Needed when running from Developer Command Prompt for VS
-            RemovePlatformVariable(startInfo.EnvironmentVariables);
+            SanitizeDotNetCliEnvironment(startInfo.EnvironmentVariables);
 
             var process = new Process { StartInfo = startInfo };
 
@@ -300,19 +300,30 @@ namespace GodotTools.Build
             arguments.Add("-ds:False"); // Honestly never understood why -bl also switches -ds on.
         }
 
-        private static void RemovePlatformVariable(StringDictionary environmentVariables)
+        private static void SanitizeDotNetCliEnvironment(StringDictionary environmentVariables)
+        {
+            RemoveEnvironmentVariable(environmentVariables, "PLATFORM");
+
+            // FORK-CUSTOM: MSBuildLocator configures these for in-process project evaluation. The dotnet CLI
+            // must derive them from its selected SDK instead of inheriting stale or malformed editor values.
+            RemoveEnvironmentVariable(environmentVariables, "MSBUILD_EXE_PATH");
+            RemoveEnvironmentVariable(environmentVariables, "MSBuildExtensionsPath");
+            RemoveEnvironmentVariable(environmentVariables, "MSBuildSDKsPath");
+        }
+
+        private static void RemoveEnvironmentVariable(StringDictionary environmentVariables, string variableName)
         {
             // EnvironmentVariables is case sensitive? Seriously?
 
-            var platformEnvironmentVariables = new List<string>();
+            var variablesToRemove = new List<string>();
 
             foreach (string env in environmentVariables.Keys)
             {
-                if (env.ToUpperInvariant() == "PLATFORM")
-                    platformEnvironmentVariables.Add(env);
+                if (env.Equals(variableName, StringComparison.OrdinalIgnoreCase))
+                    variablesToRemove.Add(env);
             }
 
-            foreach (string env in platformEnvironmentVariables)
+            foreach (string env in variablesToRemove)
                 environmentVariables.Remove(env);
         }
 
@@ -344,7 +355,7 @@ namespace GodotTools.Build
             }
 
             // Needed when running from Developer Command Prompt for VS.
-            RemovePlatformVariable(startInfo.EnvironmentVariables);
+            RemoveEnvironmentVariable(startInfo.EnvironmentVariables, "PLATFORM");
 
             var process = new Process { StartInfo = startInfo };
 

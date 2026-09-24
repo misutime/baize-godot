@@ -4144,6 +4144,7 @@ void AnimationTrackEditor::set_animation(const Ref<Animation> &p_anim, bool p_re
 		bezier_edit_icon->set_disabled(true);
 		auto_fit->set_disabled(true);
 		auto_fit_bezier->set_disabled(true);
+		imported_anim_warning->hide();
 	}
 }
 

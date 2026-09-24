@@ -1,0 +1,139 @@
+using System.Reflection;
+using System;
+using System.Collections.Generic;
+
+// ReSharper disable once CheckNamespace
+namespace Friflo.Engine.ECS;
+
+/// <summary>
+/// Maps a tag type to an enum id.<br/>
+/// This enables the use of switch statements on tag types using <see cref="TagType.AsEnum{TEnum}"/>.<br/>
+/// E.g. when iterating <see cref="Entity.Tags"/> or <see cref="Archetype.Tags"/>.<br/>
+/// Or to handle specific <see cref="TagType"/>'s in event handlers like <see cref="TagsChanged"/>.<br/>
+/// It also improves project overview by grouping a domain of tag types to an enum.
+/// </summary>
+/// <remarks>
+/// <b>Note</b>: use non-generic attribute only for C# 10 or lower<br/>
+/// Usage:<br/>
+/// Declare an <c>enum</c> and map tag types to enum ids with <c>[MapTag()]</c>.
+/// <code>
+/// public enum CombatTags
+/// {
+///     Undefined = 0, // 0 => unmapped tag types switch to default case 
+///     [MapTag(typeof(MeleeTag))]      Melee,
+///     [MapTag(typeof(RangedTag))]     Ranged,
+///     [MapTag(typeof(TankTag))]       Tank,
+/// }
+/// </code>
+/// <code>
+/// // switch statement on enum CombatTags
+/// foreach (var tag in entity.Tags)
+/// {
+///     var combatId = tag.AsEnum&lt;CombatTags>();
+///     switch (combatId) {
+///         case CombatTags.Melee:  ...  break;
+///         case CombatTags.Ranged: ...  break;
+///         case CombatTags.Tank:   ...  break;
+///         default:                ...  break;
+///     }
+/// }
+/// </code>
+/// </remarks>
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class MapTagAttribute : Attribute {
+    public MapTagAttribute (Type tagType) { }
+}
+
+/// <summary>
+/// Maps a tag type to an enum id.<br/>
+/// This enables the use of switch statements on tag types using <see cref="TagType.AsEnum{TEnum}"/>.<br/>
+/// E.g. when iterating <see cref="Entity.Tags"/> or <see cref="Archetype.Tags"/>.<br/>
+/// Or to handle specific <see cref="TagType"/>'s in event handlers like <see cref="TagsChanged"/>.<br/>
+/// It also improves project overview by grouping a domain of tag types to an enum.
+/// </summary>
+/// <remarks>
+/// Usage:<br/>
+/// Declare an <c>enum</c> and map tag types to enum ids with <c>[MapTag()]</c>.
+/// <code>
+/// public enum CombatTags
+/// {
+///     Undefined = 0, // 0 => unmapped tag types switch to default case
+///     [MapTag&lt;MeleeTag>]   Melee,
+///     [MapTag&lt;RangedTag>]  Ranged,
+///     [MapTag&lt;TankTag>]    Tank,
+/// }
+/// </code>
+/// <code>
+/// // switch statement on enum CombatTags
+/// foreach (var tag in entity.Tags)
+/// {
+///     var combatId = tag.AsEnum&lt;CombatTags>();
+///     switch (combatId) {
+///         case CombatTags.Melee:  ...  break;
+///         case CombatTags.Ranged: ...  break;
+///         case CombatTags.Tank:   ...  break;
+///         default:                ...  break;
+///     }
+/// }
+/// </code>
+/// </remarks>
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class MapTagAttribute<TTag> : Attribute where TTag : struct, ITag { }
+
+
+internal static class TagEnum<TEnum> where TEnum : struct, Enum
+{
+    internal static readonly TEnum[] IdMap = CreateIdMap();
+    
+    private static TEnum[] CreateIdMap()
+    {
+        var schema = EntityStore.GetEntitySchema();
+        var tagTypes = schema.Tags;
+        var ids = new TEnum[tagTypes.Length];
+        var enumValues = (TEnum[])Enum.GetValues(typeof(TEnum));
+        foreach (var value in enumValues)
+        {
+            var type = GetAttributeType(value);
+            if (type == null) {
+                continue;
+            }
+            var tagType = schema.TagTypeByType[type];
+            var id = ids[tagType.TagIndex];
+            if (!EqualityComparer<TEnum>.Default.Equals(id, default)) {
+                throw new InvalidOperationException($"Map error: [MapTag<{type.Name}>] {typeof(TEnum).Name}.{value} - Already mapped to: {typeof(TEnum).Name}.{id}");
+            }
+            ids[tagType.TagIndex] = value;
+        }
+        return ids;
+    }
+    
+    private static Type GetAttributeType(TEnum value)
+    {
+        var memberInfo = typeof(TEnum).GetMember(value.ToString()!)[0];
+        var type = EnumUtils.GetCustomAttributeType (memberInfo, typeof(MapTagAttribute));
+        if (type != null) {
+            return type;
+        }
+        // generic attributes requires C# 11 or higher
+        var attributeGeneric = memberInfo.GetCustomAttribute(typeof(MapTagAttribute<>), false);
+        if (attributeGeneric != null) {
+            return attributeGeneric.GetType().GenericTypeArguments[0];
+        }
+        return null;
+    }
+}
+
+internal static class EnumUtils
+{
+    internal static Type GetCustomAttributeType(MemberInfo memberInfo, Type attributeType)
+    {
+        foreach (var attr in memberInfo.CustomAttributes) {
+            if (attr.AttributeType != attributeType) {
+                continue;
+            }
+            var arg = attr.ConstructorArguments; // ensure Unity compatibility
+            return (Type)arg[0].Value;
+        }
+        return null;
+    }  
+}

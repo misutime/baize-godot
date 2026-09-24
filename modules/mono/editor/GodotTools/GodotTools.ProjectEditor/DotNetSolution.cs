@@ -6,11 +6,21 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using Microsoft.VisualStudio.SolutionPersistence;
+using Microsoft.VisualStudio.SolutionPersistence.Model;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer;
 
 namespace GodotTools.ProjectEditor
 {
     public class DotNetSolution
     {
+        // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准，XML 简洁、merge 友好）。
+        // 用官方 SolutionPersistence（Microsoft.VisualStudio.SolutionPersistence）序列化——
+        // 自动保证 schema 正确（BuildType/Platform/ProjectType 声明）与 XML 属性转义。
+        // 保留 .sln 生成能力（GenerateSlnx=false 时兼容旧流程）。
+
+
         private const string _solutionTemplate =
 @"Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
@@ -55,6 +65,16 @@ EndProject";
             }
         }
 
+        // FORK-CUSTOM（All-in C#）：默认生成 .slnx（.NET 生态新标准）；设 false 回退 .sln。
+        public bool GenerateSlnx { get; set; } = true;
+
+        // slnx 的 Platform 声明（与上游 .sln 的 "Any CPU" 一致）。
+        private readonly List<string> _platforms = new() { "Any CPU" };
+
+        // FORK-CUSTOM（P1-3）：实际存在的旧解决方案完整路径（可能非默认命名，如 Tools.sln）。
+        // 保存后据此精确清理另一格式，避免双文件（FindSolutionFileWithAssemblyName 多匹配视为错误）。
+        public string? LegacySolutionPath { get; set; }
+
         public void AddNewProject(string name, ProjectInfo projectInfo)
         {
             _projects[name] = projectInfo;
@@ -79,6 +99,39 @@ EndProject";
         {
             if (!Directory.Exists(DirectoryPath))
                 throw new FileNotFoundException("The solution directory does not exist.");
+
+            // FORK-CUSTOM（All-in C#）：默认生成 .slnx（生态新标准）；GenerateSlnx=false 时生成 .sln。
+            if (GenerateSlnx)
+            {
+                // 用官方 SolutionPersistence 模型构建——自动产出 schema 合法的 slnx
+                // （BuildType/Platform 声明 + XML 属性转义）。
+                var model = new SolutionModel();
+                foreach (string platform in _platforms)
+                {
+                    model.AddPlatform(platform);
+                }
+                foreach (var pair in _projects)
+                {
+                    ProjectInfo projectInfo = pair.Value;
+                    foreach (string config in projectInfo.Configs)
+                    {
+                        model.AddBuildType(config);
+                    }
+                    model.AddProject(projectInfo.PathRelativeToSolution.Replace("/", "\\", StringComparison.Ordinal), null, null);
+                }
+
+                string slnxPath = Path.Combine(DirectoryPath, Name + ".slnx");
+                SolutionSerializers.SlnXml.SaveAsync(slnxPath, model, CancellationToken.None).GetAwaiter().GetResult();
+
+                // FORK-CUSTOM（P1-3 修复）：避免新旧格式双文件——生成 slnx 后移除实际旧解决方案
+                // （不假设文件名=Name；调用方传入 FindSolutionFileWithAssemblyName 检测到的精确路径）。
+                if (!string.IsNullOrEmpty(LegacySolutionPath) && File.Exists(LegacySolutionPath) && LegacySolutionPath.EndsWith(".sln", StringComparison.OrdinalIgnoreCase))
+                {
+                    FileUtils.SaveBackupCopy(LegacySolutionPath);
+                    File.Delete(LegacySolutionPath);
+                }
+                return;
+            }
 
             string projectsDecl = string.Empty;
             string slnPlatformsCfg = string.Empty;
@@ -118,6 +171,13 @@ EndProject";
             string content = string.Format(CultureInfo.InvariantCulture, _solutionTemplate, projectsDecl, slnPlatformsCfg, projPlatformsCfg);
 
             File.WriteAllText(solutionPath, content, Encoding.UTF8); // UTF-8 with BOM
+
+            // FORK-CUSTOM（P1-3 修复，反向切换）：生成 .sln 后移除已有 .slnx（避免双文件）。
+            if (!string.IsNullOrEmpty(LegacySolutionPath) && File.Exists(LegacySolutionPath) && LegacySolutionPath.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+            {
+                FileUtils.SaveBackupCopy(LegacySolutionPath);
+                File.Delete(LegacySolutionPath);
+            }
         }
 
         public DotNetSolution(string name, string directoryPath)
