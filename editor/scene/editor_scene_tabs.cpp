@@ -43,6 +43,8 @@
 #include "editor/inspector/editor_resource_preview.h"
 #include "editor/run/editor_run_bar.h"
 #include "editor/run/game_view_plugin.h"
+#include "editor/scene/3d/node_3d_editor_plugin.h"
+#include "editor/scene/canvas_item_editor_plugin.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
@@ -56,6 +58,12 @@
 
 void EditorSceneTabs::_notification(int p_what) {
 	switch (p_what) {
+		case NOTIFICATION_READY: {
+			// Layout restoration blocks the container's signals, but not its TabBar's.
+			EditorNode::get_editor_main_screen()->get_tab_bar()->connect("tab_changed", callable_mp(this, &EditorSceneTabs::_update_visibility).unbind(1));
+			_update_visibility();
+		} break;
+
 		case NOTIFICATION_THEME_CHANGED: {
 			tabbar_panel->add_theme_style_override(SceneStringName(panel), get_theme_stylebox(SNAME("tabbar_background"), SNAME("TabContainer")));
 			scene_tabs->add_theme_constant_override("icon_max_width", get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor)));
@@ -81,6 +89,22 @@ void EditorSceneTabs::_notification(int p_what) {
 		case NOTIFICATION_TRANSLATION_CHANGED: {
 			_update_tab_titles();
 		} break;
+	}
+}
+
+void EditorSceneTabs::_update_visibility() {
+	Control *screen = EditorNode::get_editor_main_screen()->get_current_tab_control();
+	const bool show_scene_tabs = screen && (screen == CanvasItemEditor::get_singleton() || screen == Node3DEditor::get_singleton());
+
+	// Keep global controls, such as distraction-free mode, available in every workspace.
+	scene_tabs->set_visible(show_scene_tabs);
+	scene_tab_add->set_visible(show_scene_tabs);
+	scene_tab_add_ph->set_visible(show_scene_tabs);
+	scene_list->set_visible(show_scene_tabs);
+	if (!show_scene_tabs) {
+		tab_preview_panel->hide();
+		scene_tabs_context_menu->hide();
+		scene_list->get_popup()->hide();
 	}
 }
 
@@ -391,7 +415,7 @@ void EditorSceneTabs::_scene_tabs_resized() {
 }
 
 void EditorSceneTabs::_tab_preview_done(const String &p_path, const Ref<Texture2D> &p_preview, const Ref<Texture2D> &p_small_preview, int p_tab) {
-	if (p_preview.is_valid()) {
+	if (p_preview.is_valid() && scene_tabs->is_visible_in_tree()) {
 		tab_preview->set_texture(p_preview);
 
 		Rect2 rect = scene_tabs->get_tab_rect(p_tab);
@@ -484,6 +508,7 @@ EditorSceneTabs::EditorSceneTabs() {
 	tabbar_panel = memnew(PanelContainer);
 	add_child(tabbar_panel);
 	tabbar_container = memnew(HBoxContainer);
+	tabbar_container->set_alignment(BoxContainer::ALIGNMENT_END);
 	tabbar_panel->add_child(tabbar_container);
 
 	scene_tabs = memnew(TabBar);

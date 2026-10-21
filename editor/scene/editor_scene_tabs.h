@@ -73,6 +73,7 @@ private:
 
 	int last_hovered_tab = -1;
 
+	void _update_visibility();
 	void _scene_tab_changed(int p_tab);
 	void _scene_tab_script_edited(int p_tab);
 	void _scene_tab_closed(int p_tab);
