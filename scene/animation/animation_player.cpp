@@ -161,7 +161,7 @@ void AnimationPlayer::_notification(int p_what) {
 }
 
 void AnimationPlayer::_process_playback_data(PlaybackData &cd, double p_delta, float p_blend, bool p_seeked, bool p_internal_seeked, bool p_started, bool p_is_current) {
-	double speed = speed_scale * cd.speed_scale;
+	double speed = _get_playback_speed_scale() * cd.speed_scale;
 	bool backwards = std::signbit(speed); // Negative zero means playing backwards too.
 	double delta = p_started ? 0 : p_delta * speed;
 	double next_pos = cd.pos + delta;
@@ -169,10 +169,17 @@ void AnimationPlayer::_process_playback_data(PlaybackData &cd, double p_delta, f
 	double start = cd.get_start_time();
 	double end = cd.get_end_time();
 	AnimationData *p_from = &animation_set[cd.animation_name];
+	Animation::LoopMode loop_mode = p_from->animation->get_loop_mode();
+#ifdef TOOLS_ENABLED
+	// Preview repetition is independent of the shared resource's runtime loop mode.
+	if (editor_preview) {
+		loop_mode = Animation::LOOP_LINEAR;
+	}
+#endif
 
 	Animation::LoopedFlag looped_flag = Animation::LOOPED_FLAG_NONE;
 
-	switch (p_from->animation->get_loop_mode()) {
+	switch (loop_mode) {
 		case Animation::LOOP_NONE: {
 			if (Animation::is_less_approx(next_pos, start)) {
 				next_pos = start;
@@ -212,7 +219,7 @@ void AnimationPlayer::_process_playback_data(PlaybackData &cd, double p_delta, f
 
 	// End detection.
 	if (p_is_current) {
-		if (p_from->animation->get_loop_mode() == Animation::LOOP_NONE) {
+		if (loop_mode == Animation::LOOP_NONE) {
 			if (!backwards && Animation::is_less_or_equal_approx(prev_pos, end) && Math::is_equal_approx(next_pos, end)) {
 				// Playback finished.
 				next_pos = end; // Snap to the edge.
@@ -290,7 +297,7 @@ void AnimationPlayer::_blend_playback_data(double p_delta, bool p_started) {
 	LocalVector<int> to_erase;
 	for (uint32_t i = 0; i < c.blend.size(); i++) {
 		Blend &b = c.blend[i];
-		b.blend_left = MAX(0, b.blend_left - Math::abs(speed_scale * p_delta) / b.blend_time);
+		b.blend_left = MAX(0, b.blend_left - Math::abs(_get_playback_speed_scale() * p_delta) / b.blend_time);
 		if (Animation::is_less_or_equal_approx(b.blend_left, 0)) {
 			to_erase.push_back(i);
 			b.blend_left = CMP_EPSILON; // May want to play last frame.
@@ -333,7 +340,7 @@ bool AnimationPlayer::_blend_pre_process(double p_delta, int p_track_count, cons
 }
 
 void AnimationPlayer::_blend_capture(double p_delta) {
-	blend_capture(p_delta * Math::abs(speed_scale));
+	blend_capture(p_delta * Math::abs(_get_playback_speed_scale()));
 }
 
 void AnimationPlayer::_blend_post_process() {
@@ -664,11 +671,20 @@ float AnimationPlayer::get_speed_scale() const {
 	return speed_scale;
 }
 
+double AnimationPlayer::_get_playback_speed_scale() const {
+#ifdef TOOLS_ENABLED
+	if (editor_preview) {
+		return editor_preview_speed;
+	}
+#endif
+	return speed_scale;
+}
+
 float AnimationPlayer::get_playing_speed() const {
 	if (!playing) {
 		return 0;
 	}
-	return speed_scale * playback.current.speed_scale;
+	return _get_playback_speed_scale() * playback.current.speed_scale;
 }
 
 void AnimationPlayer::seek_internal(double p_time, bool p_update, bool p_update_only, bool p_is_internal_seek) {

@@ -126,6 +126,11 @@ private:
 
 	StringName autoplay;
 
+#ifdef TOOLS_ENABLED
+	bool editor_preview = false;
+	double editor_preview_speed = 1.0;
+#endif
+
 	bool movie_quit_on_finish = false;
 	bool clear_cache_on_stop = true;
 
@@ -135,6 +140,7 @@ private:
 	void _blend_playback_data(double p_delta, bool p_started);
 	void _stop_internal(bool p_reset, bool p_keep_state);
 	void _check_immediately_after_start();
+	double _get_playback_speed_scale() const;
 
 	float get_current_blend_amount();
 
@@ -201,6 +207,8 @@ public:
 
 #ifdef TOOLS_ENABLED
 	void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;
+	void set_editor_preview(bool p_enabled) { editor_preview = p_enabled; }
+	void set_editor_preview_speed(double p_speed) { editor_preview_speed = p_speed; }
 #endif
 
 	void play(const StringName &p_name = StringName(), double p_custom_blend = -1, float p_custom_scale = 1.0, bool p_from_end = false);

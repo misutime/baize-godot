@@ -55,7 +55,6 @@
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "scene/resources/animation.h"
-#include "scene/resources/image_texture.h"
 #include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server.h"
 
@@ -119,30 +118,19 @@ void AnimationPlayerEditor::_notification(int p_what) {
 			updating = true;
 
 			if (player->is_playing()) {
-				{
-					StringName animname = player->get_assigned_animation();
-
-					if (player->has_animation(animname)) {
-						Ref<Animation> anim = player->get_animation(animname);
-						if (anim.is_valid()) {
-							frame->set_max((double)anim->get_length());
-						}
-					}
-				}
-				frame->set_value(player->get_current_animation_position());
 				track_editor->set_anim_pos(player->get_current_animation_position());
 			} else {
 				if (!player->is_valid()) {
 					// Reset timeline when the player has been stopped externally
-					frame->set_value(0);
+					timeline_position = 0;
 				} else if (last_active) {
 					// Need the last frame after it stopped.
-					frame->set_value(player->get_current_animation_position());
 					track_editor->set_anim_pos(player->get_current_animation_position());
 				}
 				stop->set_button_icon(stop_icon);
 			}
 
+			_update_position_display();
 			last_active = player->is_playing();
 
 			updating = false;
@@ -183,23 +171,12 @@ void AnimationPlayerEditor::_notification(int p_what) {
 				stop->set_button_icon(stop_icon);
 			}
 
-			autoplay->set_button_icon(get_editor_theme_icon(SNAME("AutoPlay")));
 			play->set_button_icon(get_editor_theme_icon(SNAME("PlayStart")));
 			play_from->set_button_icon(get_editor_theme_icon(SNAME("Play")));
 			play_bw->set_button_icon(get_editor_theme_icon(SNAME("PlayStartBackwards")));
 			play_bw_from->set_button_icon(get_editor_theme_icon(SNAME("PlayBackwards")));
 
-			autoplay_icon = get_editor_theme_icon(SNAME("AutoPlay"));
 			reset_icon = get_editor_theme_icon(SNAME("Reload"));
-			{
-				Ref<Image> autoplay_img = autoplay_icon->get_image();
-				Ref<Image> reset_img = reset_icon->get_image();
-				Size2 icon_size = autoplay_img->get_size();
-				Ref<Image> autoplay_reset_img = Image::create_empty(icon_size.x * 2, icon_size.y, false, autoplay_img->get_format());
-				autoplay_reset_img->blit_rect(autoplay_img, Rect2i(Point2i(), icon_size), Point2i());
-				autoplay_reset_img->blit_rect(reset_img, Rect2i(Point2i(), icon_size), Point2i(icon_size.x, 0));
-				autoplay_reset_icon = ImageTexture::create_from_image(autoplay_reset_img);
-			}
 
 			onion_toggle->set_button_icon(get_editor_theme_icon(SNAME("Onion")));
 			onion_skinning->set_button_icon(get_editor_theme_icon(SNAME("GuiTabMenuHl")));
@@ -226,34 +203,40 @@ void AnimationPlayerEditor::_notification(int p_what) {
 	}
 }
 
-void AnimationPlayerEditor::_autoplay_pressed() {
-	if (updating) {
+void AnimationPlayerEditor::_toggle_preview_playback() {
+	if (!player || _get_current().is_empty() || play_from->is_disabled()) {
 		return;
 	}
-	if (animation->has_selectable_items() == 0) {
-		return;
-	}
-
-	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
-	String current = animation->get_item_text(animation->get_selected());
-	if (player->get_autoplay() == current) {
-		//unset
-		undo_redo->create_action(TTR("Toggle Autoplay"));
-		undo_redo->add_do_method(player, "set_autoplay", StringName());
-		undo_redo->add_undo_method(player, "set_autoplay", player->get_autoplay());
-		undo_redo->add_do_method(this, "_animation_player_changed", player);
-		undo_redo->add_undo_method(this, "_animation_player_changed", player);
-		undo_redo->commit_action();
-
+	if (player->is_playing()) {
+		_stop_pressed();
+	} else if (resume_backwards) {
+		_play_bw_from_pressed();
 	} else {
-		//set
-		undo_redo->create_action(TTR("Toggle Autoplay"));
-		undo_redo->add_do_method(player, "set_autoplay", StringName(current));
-		undo_redo->add_undo_method(player, "set_autoplay", player->get_autoplay());
-		undo_redo->add_do_method(this, "_animation_player_changed", player);
-		undo_redo->add_undo_method(this, "_animation_player_changed", player);
-		undo_redo->commit_action();
+		_play_from_pressed();
 	}
+}
+
+// Handle Space before focused buttons or the timeline's panner can consume it.
+// The 3D editor is included so the previewed pose can be watched there; claiming
+// Space before the GUI also keeps its release from toggling the maximized viewport.
+void AnimationPlayerEditor::input(const Ref<InputEvent> &p_event) {
+	Ref<InputEventKey> key = p_event;
+	if (!is_visible_in_tree() || key.is_null() || !ED_IS_SHORTCUT("animation_editor/toggle_preview_playback", p_event)) {
+		return;
+	}
+	Control *focus = get_viewport()->gui_get_focus_owner();
+	if (!focus || focus->is_text_field()) {
+		return;
+	}
+	const bool in_panel = focus == this || is_ancestor_of(focus);
+	const bool in_3d_editor = Node3DEditor::get_singleton() && Node3DEditor::get_singleton()->is_ancestor_of(focus);
+	if (!in_panel && (!in_3d_editor || !player || _get_current().is_empty())) {
+		return;
+	}
+	if (key->is_pressed() && !key->is_echo()) {
+		_toggle_preview_playback();
+	}
+	get_viewport()->set_input_as_handled();
 }
 
 void AnimationPlayerEditor::go_to_nearest_keyframe(bool p_backward) {
@@ -315,8 +298,8 @@ void AnimationPlayerEditor::go_to_nearest_keyframe(bool p_backward) {
 	}
 
 	player->seek_internal(nearest_key_time, true, true, true);
-	frame->set_value(nearest_key_time);
 	track_editor->set_anim_pos(nearest_key_time);
+	_update_position_display();
 }
 
 void AnimationPlayerEditor::_play_pressed() {
@@ -431,6 +414,8 @@ void AnimationPlayerEditor::_stop_pressed() {
 	}
 
 	if (player->is_playing()) {
+		// Preview speed is always positive, so the sign is the playback direction.
+		resume_backwards = player->get_playing_speed() < 0;
 		player->pause();
 	} else {
 		String current = _get_current();
@@ -440,6 +425,13 @@ void AnimationPlayerEditor::_stop_pressed() {
 		track_editor->set_anim_pos(0);
 	}
 	stop->set_button_icon(stop_icon);
+}
+
+void AnimationPlayerEditor::_animation_selection_committed(int p_which) {
+	_animation_selected(p_which);
+	// The popup may restore focus outside the dock, especially after searching.
+	// A committed user selection returns keyboard control to animation transport.
+	animation->grab_focus();
 }
 
 void AnimationPlayerEditor::_animation_selected(int p_which) {
@@ -484,17 +476,14 @@ void AnimationPlayerEditor::_animation_selected(int p_which) {
 				track_editor->set_root(root);
 			}
 		}
-		frame->set_max((double)anim->get_length());
-		autoplay->set_pressed(current == player->get_autoplay());
-		player->stop();
 	} else {
 		track_editor->set_animation(Ref<Animation>(), true);
 		track_editor->set_root(nullptr);
-		autoplay->set_pressed(false);
 	}
 
 	AnimationPlayerEditor::get_singleton()->get_track_editor()->update_keying();
 	_animation_key_editor_seek(timeline_position);
+	_update_position_display();
 
 	emit_signal("animation_selected", current);
 }
@@ -584,7 +573,6 @@ void AnimationPlayerEditor::_animation_remove_confirmed() {
 	if (player->get_autoplay() == current) {
 		undo_redo->add_do_method(player, "set_autoplay", StringName());
 		undo_redo->add_undo_method(player, "set_autoplay", StringName(current));
-		// Avoid having the autoplay icon linger around if there is only one animation in the player.
 		undo_redo->add_do_method(this, "_animation_player_changed", player);
 	}
 	undo_redo->add_do_method(al.ptr(), "remove_animation", current);
@@ -927,6 +915,7 @@ void AnimationPlayerEditor::set_state(const Dictionary &p_state) {
 		Node *n = EditorNode::get_singleton()->get_edited_scene()->get_node(p_state["player"]);
 		if (Object::cast_to<AnimationPlayer>(n) && EditorNode::get_singleton()->get_editor_selection()->is_selected(n)) {
 			if (player) {
+				player->set_editor_preview(false);
 				if (player->is_connected(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated))) {
 					player->disconnect(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated));
 				}
@@ -936,6 +925,8 @@ void AnimationPlayerEditor::set_state(const Dictionary &p_state) {
 			}
 			player = Object::cast_to<AnimationPlayer>(n);
 			if (player) {
+				player->set_editor_preview(true);
+				player->set_editor_preview_speed(preview_speed);
 				if (!player->is_connected(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated))) {
 					player->connect(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated), CONNECT_DEFERRED);
 				}
@@ -993,8 +984,48 @@ void AnimationPlayerEditor::_animation_edit() {
 	}
 }
 
-void AnimationPlayerEditor::_scale_changed(const String &p_scale) {
-	player->set_speed_scale(p_scale.to_float());
+// Menu ids 0..2 are these presets; PREVIEW_SPEED_CUSTOM follows them.
+static constexpr double PREVIEW_SPEED_PRESETS[] = { 0.5, 1.0, 2.0 };
+static constexpr int PREVIEW_SPEED_CUSTOM = 3;
+
+static String _format_preview_speed(double p_speed) {
+	return String::num(p_speed, 2).trim_suffix(".0") + U"×";
+}
+
+void AnimationPlayerEditor::_set_preview_speed(double p_speed) {
+	preview_speed = p_speed;
+	if (player) {
+		player->set_editor_preview_speed(preview_speed);
+	}
+	preview_speed_button->set_text(_format_preview_speed(preview_speed));
+	PopupMenu *menu = preview_speed_button->get_popup();
+	bool is_preset = false;
+	for (int i = 0; i < PREVIEW_SPEED_CUSTOM; i++) {
+		const bool matches = Math::is_equal_approx(preview_speed, PREVIEW_SPEED_PRESETS[i]);
+		menu->set_item_checked(menu->get_item_index(i), matches);
+		is_preset |= matches;
+	}
+	menu->set_item_checked(menu->get_item_index(PREVIEW_SPEED_CUSTOM), !is_preset);
+}
+
+void AnimationPlayerEditor::_preview_speed_selected(int p_option) {
+	if (p_option == PREVIEW_SPEED_CUSTOM) {
+		custom_speed->set_value(custom_preview_speed);
+		preview_speed_dialog->popup_centered(Size2(300, 0) * EDSCALE);
+		custom_speed->get_line_edit()->grab_focus();
+		custom_speed->get_line_edit()->select_all();
+		return;
+	}
+	ERR_FAIL_INDEX(p_option, PREVIEW_SPEED_CUSTOM);
+	_set_preview_speed(PREVIEW_SPEED_PRESETS[p_option]);
+	preview_speed_button->grab_focus();
+}
+
+void AnimationPlayerEditor::_custom_preview_speed_confirmed() {
+	custom_speed->apply();
+	custom_preview_speed = custom_speed->get_value();
+	_set_preview_speed(custom_preview_speed);
+	preview_speed_button->grab_focus();
 }
 
 void AnimationPlayerEditor::_update_animation() {
@@ -1009,7 +1040,6 @@ void AnimationPlayerEditor::_update_animation() {
 		stop->set_button_icon(stop_icon);
 	}
 
-	scale->set_text(String::num(player->get_speed_scale(), 2));
 	String current = player->get_assigned_animation();
 
 	for (int i = 0; i < animation->get_item_count(); i++) {
@@ -1089,7 +1119,6 @@ void AnimationPlayerEditor::_update_player() {
 	updating = false;
 	if (active_idx != -1) {
 		animation->select(active_idx);
-		autoplay->set_pressed(animation->get_item_text(active_idx) == player->get_autoplay());
 		_animation_selected(active_idx);
 	} else if (animation->has_selectable_items()) {
 		int item = reset_index;
@@ -1097,7 +1126,6 @@ void AnimationPlayerEditor::_update_player() {
 			item = animation->get_selectable_item();
 		}
 		animation->select(item);
-		autoplay->set_pressed(animation->get_item_text(item) == player->get_autoplay());
 		_animation_selected(item);
 	} else {
 		_animation_selected(0);
@@ -1130,7 +1158,7 @@ void AnimationPlayerEditor::_set_controls_disabled(bool p_disabled) {
 	play_bw_from->set_disabled(p_disabled);
 	play_from->set_disabled(p_disabled);
 	animation->set_disabled(p_disabled);
-	autoplay->set_disabled(p_disabled);
+	preview_speed_button->set_disabled(p_disabled);
 	onion_toggle->set_disabled(p_disabled);
 	onion_skinning->set_disabled(p_disabled);
 }
@@ -1143,13 +1171,7 @@ void AnimationPlayerEditor::_update_animation_list_icons() {
 		}
 
 		Ref<Texture2D> icon;
-		if (anim_name == player->get_autoplay()) {
-			if (anim_name == SceneStringName(RESET)) {
-				icon = autoplay_reset_icon;
-			} else {
-				icon = autoplay_icon;
-			}
-		} else if (anim_name == SceneStringName(RESET)) {
+		if (anim_name == SceneStringName(RESET)) {
 			icon = reset_icon;
 		}
 
@@ -1226,9 +1248,10 @@ void AnimationPlayerEditor::_update_name_dialog_library_dropdown() {
 }
 
 void AnimationPlayerEditor::_update_playback_tooltips() {
-	stop->set_tooltip_text(TTR("Pause/Stop Animation") + " (" + ED_GET_SHORTCUT("animation_editor/stop_animation")->get_as_text() + ")");
+	const String preview_hint = "\n" + vformat(TTR("Preview always repeats. Play/pause: %s."), ED_GET_SHORTCUT("animation_editor/toggle_preview_playback")->get_as_text());
+	stop->set_tooltip_text(TTR("Pause/Stop Animation") + " (" + ED_GET_SHORTCUT("animation_editor/stop_animation")->get_as_text() + ")" + preview_hint);
 	play->set_tooltip_text(TTR("Play Animation from Start") + " (" + ED_GET_SHORTCUT("animation_editor/play_animation_from_start")->get_as_text() + ")");
-	play_from->set_tooltip_text(TTR("Play Animation") + " (" + ED_GET_SHORTCUT("animation_editor/play_animation")->get_as_text() + ")");
+	play_from->set_tooltip_text(TTR("Play Animation") + " (" + ED_GET_SHORTCUT("animation_editor/play_animation")->get_as_text() + ")" + preview_hint);
 	play_bw_from->set_tooltip_text(TTR("Play Animation Backwards") + " (" + ED_GET_SHORTCUT("animation_editor/play_animation_backwards")->get_as_text() + ")");
 	play_bw->set_tooltip_text(TTR("Play Animation Backwards from End") + " (" + ED_GET_SHORTCUT("animation_editor/play_animation_from_end")->get_as_text() + ")");
 }
@@ -1245,9 +1268,6 @@ void AnimationPlayerEditor::_ensure_dummy_player() {
 		}
 	}
 
-	int selected = animation->get_selected();
-	autoplay->set_disabled(selected != -1 ? (animation->get_item_text(selected).is_empty() ? true : dummy_exists) : true);
-
 	// Show warning.
 	if (track_editor) {
 		track_editor->show_dummy_player_warning(dummy_exists);
@@ -1260,6 +1280,7 @@ void AnimationPlayerEditor::edit(AnimationMixer *p_node, AnimationPlayer *p_play
 	}
 
 	if (player) {
+		player->set_editor_preview(false);
 		if (player->is_connected(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated))) {
 			player->disconnect(SNAME("animation_list_changed"), callable_mp(this, &AnimationPlayerEditor::_animation_libraries_updated));
 		}
@@ -1281,6 +1302,10 @@ void AnimationPlayerEditor::edit(AnimationMixer *p_node, AnimationPlayer *p_play
 
 	original_node = p_node;
 	player = p_player;
+	if (player) {
+		player->set_editor_preview(true);
+		player->set_editor_preview_speed(preview_speed);
+	}
 	is_dummy = p_is_dummy;
 
 	if (tree) {
@@ -1436,6 +1461,40 @@ Ref<Animation> AnimationPlayerEditor::_animation_clone(Ref<Animation> p_anim) {
 	return new_anim;
 }
 
+void AnimationPlayerEditor::_update_position_display() {
+	if (!player || !player->has_animation(player->get_assigned_animation())) {
+		return;
+	}
+	const Ref<Animation> anim = player->get_animation(player->get_assigned_animation());
+	const bool use_frames = track_editor->is_using_fps() && anim->get_step() > 0.0;
+	const double display_scale = use_frames ? 1.0 / anim->get_step() : 1.0;
+	// All playback and timeline positions remain in seconds. Changing display units
+	// or FPS must not feed the converted SpinBox value back into the player's seek.
+	const bool was_updating = updating;
+	updating = true;
+	// Frames display as whole numbers; fractional frames overflow the field, and the
+	// LineEdit then hides the leading digits. Playback itself keeps sub-frame time.
+	frame->set_step(use_frames ? 1.0 : 0.0001);
+	frame->set_max(anim->get_length() * display_scale);
+	frame->set_suffix(use_frames ? TTR("frames") : TTR("s"));
+	const String tooltip = use_frames ? TTR("Animation position (frames).") : (track_editor->is_using_fps() ? TTR("Frame display needs a positive FPS; showing seconds.") : TTR("Animation position (in seconds)."));
+	frame->set_tooltip_text(tooltip);
+	frame->set_accessibility_name(tooltip);
+	frame->set_value(timeline_position * display_scale);
+	updating = was_updating;
+}
+
+void AnimationPlayerEditor::_position_value_changed(double p_value) {
+	if (updating || !player || !player->has_animation(player->get_assigned_animation())) {
+		return;
+	}
+	const Ref<Animation> anim = player->get_animation(player->get_assigned_animation());
+	if (track_editor->is_using_fps() && anim->get_step() > 0.0) {
+		p_value *= anim->get_step();
+	}
+	_seek_value_changed(p_value);
+}
+
 void AnimationPlayerEditor::_seek_value_changed(float p_value, bool p_timeline_only) {
 	if (updating || !player || player->is_playing()) {
 		return;
@@ -1452,7 +1511,7 @@ void AnimationPlayerEditor::_seek_value_changed(float p_value, bool p_timeline_o
 	Ref<Animation> anim;
 	anim = player->get_animation(current);
 
-	double pos = CLAMP((double)anim->get_length() * (p_value / frame->get_max()), 0, (double)anim->get_length());
+	double pos = CLAMP((double)p_value, 0, (double)anim->get_length());
 	if (track_editor->is_snap_timeline_enabled()) {
 		pos = Math::snapped(pos, _get_editor_step());
 	}
@@ -1463,6 +1522,7 @@ void AnimationPlayerEditor::_seek_value_changed(float p_value, bool p_timeline_o
 	}
 
 	track_editor->set_anim_pos(pos);
+	updating = false;
 }
 
 void AnimationPlayerEditor::_animation_player_changed(Object *p_pl) {
@@ -1562,7 +1622,7 @@ void AnimationPlayerEditor::_current_animation_changed(const StringName &p_name)
 }
 
 void AnimationPlayerEditor::_animation_key_editor_anim_len_changed(float p_len) {
-	frame->set_max(p_len);
+	_update_position_display();
 }
 
 void AnimationPlayerEditor::_animation_key_editor_seek(float p_pos, bool p_timeline_only, bool p_update_position_only) {
@@ -1576,10 +1636,8 @@ void AnimationPlayerEditor::_animation_key_editor_seek(float p_pos, bool p_timel
 		return;
 	}
 
-	updating = true;
-	frame->set_value(track_editor->is_snap_timeline_enabled() ? Math::snapped(p_pos, _get_editor_step()) : p_pos);
-	updating = false;
 	_seek_value_changed(p_pos, p_timeline_only);
+	_update_position_display();
 }
 
 void AnimationPlayerEditor::_animation_update_key_frame() {
@@ -2080,6 +2138,7 @@ AnimationPlayerEditor::AnimationPlayerEditor(AnimationPlayerEditorPlugin *p_plug
 
 	set_focus_mode(FOCUS_ALL);
 	set_process_shortcut_input(true);
+	set_process_input(true);
 
 	VBoxContainer *main_vbox_container = memnew(VBoxContainer);
 	add_child(main_vbox_container);
@@ -2112,19 +2171,47 @@ AnimationPlayerEditor::AnimationPlayerEditor(AnimationPlayerEditorPlugin *p_plug
 
 	frame = memnew(SpinBox);
 	hb->add_child(frame);
-	frame->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
+	frame->set_custom_minimum_size(Size2(115, 0) * EDSCALE);
 	frame->set_stretch_ratio(2);
 	frame->set_step(0.0001);
 	frame->set_tooltip_text(TTRC("Animation position (in seconds)."));
 
 	hb->add_child(memnew(VSeparator));
 
-	scale = memnew(LineEdit);
-	hb->add_child(scale);
-	scale->set_h_size_flags(SIZE_EXPAND_FILL);
-	scale->set_stretch_ratio(1);
-	scale->set_tooltip_text(TTRC("Scale animation playback globally for the node."));
-	scale->hide();
+	preview_speed_button = memnew(MenuButton);
+	preview_speed_button->set_focus_mode(FOCUS_ALL);
+	preview_speed_button->set_theme_type_variation("FlatMenuButton");
+	preview_speed_button->set_text(U"1\u00D7");
+	preview_speed_button->set_tooltip_text(TTRC("Animation Preview Speed (does not change runtime playback)"));
+	preview_speed_button->set_accessibility_name(TTRC("Animation Preview Speed"));
+	preview_speed_button->set_custom_minimum_size(Size2(60, 0) * EDSCALE);
+	for (int i = 0; i < PREVIEW_SPEED_CUSTOM; i++) {
+		preview_speed_button->get_popup()->add_radio_check_item(_format_preview_speed(PREVIEW_SPEED_PRESETS[i]), i);
+	}
+	preview_speed_button->get_popup()->add_separator();
+	preview_speed_button->get_popup()->add_radio_check_item(TTRC("Custom..."), PREVIEW_SPEED_CUSTOM);
+	preview_speed_button->get_popup()->set_item_checked(1, true);
+	preview_speed_button->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &AnimationPlayerEditor::_preview_speed_selected));
+	hb->add_child(preview_speed_button);
+
+	preview_speed_dialog = memnew(ConfirmationDialog);
+	preview_speed_dialog->set_title(TTRC("Custom Preview Speed"));
+	preview_speed_dialog->set_ok_button_text(TTRC("Apply"));
+	add_child(preview_speed_dialog);
+	HBoxContainer *speed_hbox = memnew(HBoxContainer);
+	preview_speed_dialog->add_child(speed_hbox);
+	speed_hbox->add_child(memnew(Label(TTRC("Preview Speed:"))));
+	custom_speed = memnew(SpinBox);
+	custom_speed->set_min(0.01);
+	custom_speed->set_max(100);
+	custom_speed->set_step(0.01);
+	custom_speed->set_value(1.0);
+	custom_speed->set_suffix(U"\u00D7");
+	custom_speed->set_h_size_flags(SIZE_EXPAND_FILL);
+	speed_hbox->add_child(custom_speed);
+	preview_speed_dialog->register_text_enter(custom_speed->get_line_edit());
+	preview_speed_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AnimationPlayerEditor::_custom_preview_speed_confirmed));
+	preview_speed_dialog->connect(SNAME("canceled"), callable_mp((Control *)preview_speed_button, &Control::grab_focus).bind(false));
 
 	delete_dialog = memnew(ConfirmationDialog);
 	delete_dialog->set_flag(Window::FLAG_RESIZE_DISABLED, true);
@@ -2161,11 +2248,6 @@ AnimationPlayerEditor::AnimationPlayerEditor(AnimationPlayerEditorPlugin *p_plug
 	animation->set_clip_text(true);
 	animation->set_fit_to_longest_item(false);
 	animation->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
-
-	autoplay = memnew(Button);
-	autoplay->set_theme_type_variation(SceneStringName(FlatButton));
-	hb->add_child(autoplay);
-	autoplay->set_tooltip_text(TTRC("Autoplay on Load"));
 
 	hb->add_child(memnew(VSeparator));
 
@@ -2271,18 +2353,15 @@ AnimationPlayerEditor::AnimationPlayerEditor(AnimationPlayerEditorPlugin *p_plug
 	blend_editor.next->connect(SceneStringName(item_selected), callable_mp(this, &AnimationPlayerEditor::_blend_editor_next_changed));
 	blend_vb->add_margin_child(TTRC("Next (Auto Queue):"), blend_editor.next);
 
-	autoplay->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_autoplay_pressed));
-	autoplay->set_toggle_mode(true);
 	play->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_play_pressed));
 	play_from->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_play_from_pressed));
 	play_bw->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_play_bw_pressed));
 	play_bw_from->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_play_bw_from_pressed));
 	stop->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_stop_pressed));
 
-	animation->connect(SceneStringName(item_selected), callable_mp(this, &AnimationPlayerEditor::_animation_selected));
+	animation->connect(SceneStringName(item_selected), callable_mp(this, &AnimationPlayerEditor::_animation_selection_committed));
 
-	frame->connect(SceneStringName(value_changed), callable_mp(this, &AnimationPlayerEditor::_seek_value_changed).bind(false));
-	scale->connect(SceneStringName(text_submitted), callable_mp(this, &AnimationPlayerEditor::_scale_changed));
+	frame->connect(SceneStringName(value_changed), callable_mp(this, &AnimationPlayerEditor::_position_value_changed));
 
 	main_vbox_container->add_child(track_editor);
 	track_editor->set_v_size_flags(SIZE_EXPAND_FILL);
@@ -2336,6 +2415,7 @@ void fragment() {
 )");
 	RS::get_singleton()->material_set_shader(onion.capture.material->get_rid(), onion.capture.shader->get_rid());
 
+	ED_SHORTCUT("animation_editor/toggle_preview_playback", TTRC("Play/Pause Animation Preview"), Key::SPACE);
 	ED_SHORTCUT("animation_editor/stop_animation", TTRC("Pause/Stop Animation"), Key::S, true);
 	ED_SHORTCUT("animation_editor/play_animation", TTRC("Play Animation"), Key::D, true);
 	ED_SHORTCUT("animation_editor/play_animation_backwards", TTRC("Play Animation Backwards"), Key::A, true);

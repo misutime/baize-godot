@@ -22274,3 +22274,63 @@ msgstr ""
 "正在尝试将模型空间的顶点位置 VERTEX 赋值给裁剪空间的顶点位置 POSITION。4.3 版"
 "本修改了裁剪空间的定义，因此如果这段代码是在 4.3 之前编写的，就会无法继续工"
 "作。请考虑直接指定裁剪空间的 Z 分量，即使用 `vec4(VERTEX.xy, 1.0, 1.0)`。"
+
+msgid "Play/Pause Animation Preview"
+msgstr "播放/暂停动画预览"
+
+msgid "Preview always repeats. Play/pause: %s."
+msgstr "预览始终循环播放。播放/暂停：%s。"
+
+msgid "Original: %s s"
+msgstr "原始：%s 秒"
+
+msgid "Baseline: %s s"
+msgstr "基准：%s 秒"
+
+msgid "Drag to scrub. Ctrl-drag the end handle to change animation length. Pan with the middle mouse button."
+msgstr "拖动以查看动画姿势。按住 Ctrl 拖动截止手柄可修改动画时长。中键拖动可平移时间线。"
+
+msgid "Original is the duration recorded during import. Baseline is the duration before the first length edit of an older or hand-authored animation; earlier trims cannot be recovered. This reference is saved with the animation."
+msgstr "原始时长在导入时记录。旧资源或手工动画显示首次调整时长前的基准值，无法恢复此前已裁短的时长。参考值会随动画保存。"
+
+msgid "Runtime Animation Looping (preview always repeats)"
+msgstr "运行时动画循环（编辑器预览始终循环）"
+
+msgid "Animation Preview Speed (does not change runtime playback)"
+msgstr "动画预览速度（不影响运行时播放）"
+
+msgid "Animation Preview Speed"
+msgstr "动画预览速度"
+
+msgid "Custom Preview Speed"
+msgstr "自定义预览速度"
+
+msgid "Preview Speed:"
+msgstr "预览速度："
+
+msgid "Custom..."
+msgstr "自定义…"
+
+msgid "Original: %s frames"
+msgstr "原始：%s 帧"
+
+msgid "Baseline: %s frames"
+msgstr "基准：%s 帧"
+
+msgid "Frames"
+msgstr "帧"
+
+msgid "frames"
+msgstr "帧"
+
+msgid "s"
+msgstr "秒"
+
+msgid "Animation position (frames)."
+msgstr "动画当前位置（帧）。"
+
+msgid "Frame display needs a positive FPS; showing seconds."
+msgstr "需要大于 0 的 FPS 才能换算为帧；当前显示秒。"
+
+msgid "Display times in seconds or frames. Frames use the animation's FPS; preview speed does not change frame numbers."
+msgstr "按秒或帧显示时间。帧数使用动画的编辑 FPS 换算，不受预览速度影响。"

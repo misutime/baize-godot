@@ -208,6 +208,8 @@ class AnimationTimelineEdit : public Range {
 	HBoxContainer *add_track_hb = nullptr;
 	HBoxContainer *len_hb = nullptr;
 	EditorSpinSlider *length = nullptr;
+	Label *original_length_label = nullptr;
+	double original_length = 0.0;
 	Button *loop = nullptr;
 	TextureRect *time_icon = nullptr;
 
@@ -218,6 +220,7 @@ class AnimationTimelineEdit : public Range {
 
 	void _zoom_changed(double);
 	void _anim_length_changed(double p_new_len);
+	void _remember_original_length();
 	void _anim_loop_pressed();
 
 	void _play_position_draw();
@@ -282,6 +285,7 @@ public:
 
 	void set_hscroll(HScrollBar *p_hscroll);
 
+	virtual String get_tooltip(const Point2 &p_pos) const override;
 	virtual CursorShape get_cursor_shape(const Point2 &p_pos) const override;
 
 	AnimationTimelineEdit();
@@ -991,6 +995,7 @@ public:
 	bool is_key_clipboard_active() const;
 	bool is_moving_selection() const;
 	bool is_snap_timeline_enabled() const;
+	bool is_using_fps() const { return timeline->is_using_fps(); }
 	bool is_snap_keys_enabled() const;
 	bool is_insert_at_current_time_enabled() const;
 	void resolve_insertion_offset(float &r_offset) const;

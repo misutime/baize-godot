@@ -41,7 +41,6 @@
 #include "scene/resources/material.h"
 
 class AnimationPlayerEditorPlugin;
-class ImageTexture;
 
 class AnimationPlayerEditor : public EditorDock {
 	GDCLASS(AnimationPlayerEditor, EditorDock);
@@ -94,23 +93,25 @@ class AnimationPlayerEditor : public EditorDock {
 	Button *play_from = nullptr;
 	Button *play_bw = nullptr;
 	Button *play_bw_from = nullptr;
-	Button *autoplay = nullptr;
 
 	MenuButton *tool_anim = nullptr;
 	Button *onion_toggle = nullptr;
 	MenuButton *onion_skinning = nullptr;
 	Button *pin = nullptr;
 	SpinBox *frame = nullptr;
-	LineEdit *scale = nullptr;
+	MenuButton *preview_speed_button = nullptr;
+	ConfirmationDialog *preview_speed_dialog = nullptr;
+	SpinBox *custom_speed = nullptr;
+	double preview_speed = 1.0;
+	double custom_preview_speed = 1.0;
+	bool resume_backwards = false;
 	LineEdit *name = nullptr;
 	OptionButton *library = nullptr;
 	Label *name_title = nullptr;
 
 	Ref<Texture2D> stop_icon;
 	Ref<Texture2D> pause_icon;
-	Ref<Texture2D> autoplay_icon;
 	Ref<Texture2D> reset_icon;
-	Ref<ImageTexture> autoplay_reset_icon;
 
 	bool finishing = false;
 	bool last_active = false;
@@ -183,9 +184,10 @@ class AnimationPlayerEditor : public EditorDock {
 	void _play_from_pressed();
 	void _play_bw_pressed();
 	void _play_bw_from_pressed();
-	void _autoplay_pressed();
+	void _toggle_preview_playback();
 	void _stop_pressed();
 	void _animation_selected(int p_which);
+	void _animation_selection_committed(int p_which);
 	void _animation_new();
 	void _animation_rename();
 	void _animation_name_edited();
@@ -196,7 +198,11 @@ class AnimationPlayerEditor : public EditorDock {
 	void _animation_duplicate();
 	Ref<Animation> _animation_clone(const Ref<Animation> p_anim);
 	void _animation_resource_edit();
-	void _scale_changed(const String &p_scale);
+	void _set_preview_speed(double p_speed);
+	void _preview_speed_selected(int p_option);
+	void _custom_preview_speed_confirmed();
+	void _update_position_display();
+	void _position_value_changed(double p_value);
 	void _seek_value_changed(float p_value, bool p_timeline_only = false);
 	void _blend_editor_next_changed(const int p_idx);
 
@@ -222,6 +228,7 @@ class AnimationPlayerEditor : public EditorDock {
 	void _animation_update_key_frame();
 
 	virtual void shortcut_input(const Ref<InputEvent> &p_ev) override;
+	virtual void input(const Ref<InputEvent> &p_event) override;
 	void _animation_tool_menu(int p_option);
 	void _onion_skinning_menu(int p_option);
 

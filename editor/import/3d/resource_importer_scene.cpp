@@ -1969,6 +1969,8 @@ Node *ResourceImporterScene::_post_fix_node(Node *p_node, Node *p_root, HashMap<
 }
 
 Ref<Animation> ResourceImporterScene::_save_animation_to_file(Ref<Animation> anim, bool p_save_to_file, const String &p_save_to_path, bool p_keep_custom_tracks) {
+	// Preserve source duration independently of subsequent editor length edits.
+	anim->set_meta("_editor_source_length", anim->get_length());
 	String res_path = ResourceUID::ensure_path(p_save_to_path);
 	if (!p_save_to_file || !res_path.is_resource_file()) {
 		return anim;

@@ -1371,6 +1371,7 @@ void AnimationTimelineEdit::_anim_length_changed(double p_new_len) {
 	editing = true;
 	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
 	undo_redo->create_action(TTR("Change Animation Length"), UndoRedo::MERGE_ENDS);
+	_remember_original_length();
 	undo_redo->add_do_method(animation.ptr(), "set_length", p_new_len);
 	undo_redo->add_undo_method(animation.ptr(), "set_length", animation->get_length());
 	undo_redo->commit_action();
@@ -1378,6 +1379,18 @@ void AnimationTimelineEdit::_anim_length_changed(double p_new_len) {
 	queue_redraw();
 
 	emit_signal(SNAME("length_changed"), p_new_len);
+}
+
+void AnimationTimelineEdit::_remember_original_length() {
+	if (animation->has_meta("_editor_source_length")) {
+		return;
+	}
+	// Always add the do op: MERGE_ENDS drops earlier do ops, so only the first edit would keep it.
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	undo_redo->add_do_method(animation.ptr(), "set_meta", "_editor_original_length", original_length);
+	if (!animation->has_meta("_editor_original_length")) {
+		undo_redo->add_undo_method(animation.ptr(), "remove_meta", "_editor_original_length");
+	}
 }
 
 void AnimationTimelineEdit::_anim_loop_pressed() {
@@ -1439,7 +1452,7 @@ int AnimationTimelineEdit::get_buttons_width() const {
 	int total_w = interp_mode->get_width() + interp_type->get_width() + loop_type->get_width() + remove_icon->get_width() + outer_margin;
 	total_w += (down_icon->get_width() + h_separation) * 4;
 
-	return total_w;
+	return MAX(total_w, len_hb ? int(len_hb->get_combined_minimum_size().x) : 0);
 }
 
 int AnimationTimelineEdit::get_name_limit() const {
@@ -1699,9 +1712,9 @@ void AnimationTimelineEdit::_notification(int p_what) {
 
 			draw_line(Vector2(0, get_size().height), get_size(), h_line_color, Math::round(EDSCALE));
 
-			int px = get_name_limit() + end_px - timeline_resize_rect.size.width * 0.5;
+			int px = get_name_limit() + (l - get_value()) * scale - timeline_resize_rect.size.width * 0.5;
 			timeline_resize_rect.position.x = px;
-			if (px >= get_name_limit() && px < zoomw + get_buttons_width()) {
+			if (px >= get_name_limit() && px < get_size().width - get_buttons_width()) {
 				draw_texture(get_editor_theme_icon(SNAME("TimelineHandle")), Point2(timeline_resize_rect.position.x, 0));
 			}
 
@@ -1719,6 +1732,11 @@ void AnimationTimelineEdit::_notification(int p_what) {
 }
 
 void AnimationTimelineEdit::set_animation(const Ref<Animation> &p_animation, bool p_read_only) {
+	if (animation != p_animation && p_animation.is_valid()) {
+		// Older resources have no source duration. Keep an explicit editing baseline
+		// instead of presenting an inferred last key as the original source duration.
+		original_length = p_animation->get_meta("_editor_original_length", p_animation->get_length());
+	}
 	animation = p_animation;
 	read_only = p_read_only;
 
@@ -1845,7 +1863,11 @@ void AnimationTimelineEdit::update_values() {
 	}
 
 	editing = true;
+	const bool has_source_length = animation->has_meta("_editor_source_length");
+	const double reference_length = has_source_length ? double(animation->get_meta("_editor_source_length")) : original_length;
 	if (use_fps && animation->get_step() > 0.0) {
+		const String reference_frames = String::num(reference_length / animation->get_step(), 4).trim_suffix(".0");
+		original_length_label->set_text(vformat(has_source_length ? TTR("Original: %s frames") : TTR("Baseline: %s frames"), reference_frames));
 		length->set_step(FPS_DECIMAL);
 		length->set_value(animation->get_length() / animation->get_step());
 		length->set_tooltip_text(TTR("Animation length (frames)"));
@@ -1855,6 +1877,7 @@ void AnimationTimelineEdit::update_values() {
 			track_edit->editor->marker_edit->_update_key_edit();
 		}
 	} else {
+		original_length_label->set_text(vformat(has_source_length ? TTR("Original: %s s") : TTR("Baseline: %s s"), String::num(reference_length, 4)));
 		length->set_step(SECOND_DECIMAL);
 		length->set_value(animation->get_length());
 		length->set_tooltip_text(TTR("Animation length (seconds)"));
@@ -1927,7 +1950,7 @@ void AnimationTimelineEdit::gui_input(const Ref<InputEvent> &p_event) {
 		}
 
 		if (!resizing_timeline && !dragging_hsize && mb->is_pressed() && mb->get_button_index() == MouseButton::LEFT) {
-			if (timeline_resize_rect.has_point(mb->get_position())) {
+			if (!read_only && mb->is_command_or_control_pressed() && timeline_resize_rect.has_point(mb->get_position())) {
 				resizing_timeline = true;
 				timeline_resize_from = timeline_resize_rect.position.x + timeline_resize_rect.size.width / 2 - mb->get_position().x;
 				timeline_resize_at = animation->get_length();
@@ -1978,7 +2001,11 @@ void AnimationTimelineEdit::gui_input(const Ref<InputEvent> &p_event) {
 		} else if (resizing_timeline) {
 			int x = mm->get_position().x + timeline_resize_from - get_name_limit();
 			float ofs = x / get_zoom_scale() + get_value();
-			animation->set_length(editor->snap_time(ofs));
+			// Ctrl selects resizing here, so holding it must not also invert key snapping.
+			if (editor->is_snap_keys_enabled() != Input::get_singleton()->is_key_pressed(Key::CMD_OR_CTRL)) {
+				ofs = Math::snapped(ofs, editor->get_snap_unit() * (Input::get_singleton()->is_key_pressed(Key::SHIFT) ? 0.25 : 1.0));
+			}
+			animation->set_length(ofs);
 		} else if (dragging_timeline) {
 			int x = mm->get_position().x - get_name_limit();
 			float ofs = x / get_zoom_scale() + get_value();
@@ -1991,9 +2018,10 @@ void AnimationTimelineEdit::_commit_timeline_resize() {
 	if (animation->get_length() != timeline_resize_at) {
 		EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
 		undo_redo->create_action(TTR("Change Animation Length"));
+		_remember_original_length();
 		undo_redo->add_do_method(animation.ptr(), "set_length", animation->get_length());
 		undo_redo->add_undo_method(animation.ptr(), "set_length", timeline_resize_at);
-		undo_redo->commit_action(false);
+		undo_redo->commit_action();
 	}
 	resizing_timeline = false;
 }
@@ -2003,8 +2031,17 @@ void AnimationTimelineEdit::_stop_dragging() {
 	dragging_timeline = false;
 }
 
+String AnimationTimelineEdit::get_tooltip(const Point2 &p_pos) const {
+	// Only the end handle needs the hint; a ruler-wide tooltip would pop up while scrubbing.
+	if (!read_only && timeline_resize_rect.has_point(p_pos)) {
+		return TTR("Drag to scrub. Ctrl-drag the end handle to change animation length. Pan with the middle mouse button.");
+	}
+	return Range::get_tooltip(p_pos);
+}
+
 Control::CursorShape AnimationTimelineEdit::get_cursor_shape(const Point2 &p_pos) const {
-	if (dragging_hsize || resizing_timeline || hsize_rect.has_point(p_pos) || timeline_resize_rect.has_point(p_pos)) {
+	if (dragging_hsize || resizing_timeline || hsize_rect.has_point(p_pos) ||
+			(!read_only && Input::get_singleton()->is_key_pressed(Key::CMD_OR_CTRL) && timeline_resize_rect.has_point(p_pos))) {
 		// Indicate that the track name column's width and the timeline length can be adjusted.
 		return Control::CURSOR_HSIZE;
 	} else {
@@ -2053,6 +2090,7 @@ void AnimationTimelineEdit::_bind_methods() {
 
 AnimationTimelineEdit::AnimationTimelineEdit() {
 	name_limit = 150 * EDSCALE;
+	set_focus_mode(FOCUS_CLICK);
 
 	play_position = memnew(Control);
 	play_position->set_mouse_filter(MOUSE_FILTER_PASS);
@@ -2078,6 +2116,7 @@ AnimationTimelineEdit::AnimationTimelineEdit() {
 	add_track_hb->add_child(filter_track);
 
 	len_hb = memnew(HBoxContainer);
+	len_hb->set_h_grow_direction(GROW_DIRECTION_BEGIN);
 
 	Control *expander = memnew(Control);
 	expander->set_custom_minimum_size(Vector2(2 * EDSCALE, 0));
@@ -2103,9 +2142,13 @@ AnimationTimelineEdit::AnimationTimelineEdit() {
 	length->connect(SceneStringName(value_changed), callable_mp(this, &AnimationTimelineEdit::_anim_length_changed));
 	len_hb->add_child(length);
 
+	original_length_label = memnew(Label);
+	original_length_label->set_tooltip_text(TTRC("Original is the duration recorded during import. Baseline is the duration before the first length edit of an older or hand-authored animation; earlier trims cannot be recovered. This reference is saved with the animation."));
+	len_hb->add_child(original_length_label);
+
 	loop = memnew(Button);
 	loop->set_flat(true);
-	loop->set_tooltip_text(TTRC("Animation Looping"));
+	loop->set_tooltip_text(TTRC("Runtime Animation Looping (preview always repeats)"));
 	loop->connect(SceneStringName(pressed), callable_mp(this, &AnimationTimelineEdit::_anim_loop_pressed));
 	loop->set_toggle_mode(true);
 	len_hb->add_child(loop);
@@ -5512,6 +5555,8 @@ void AnimationTrackEditor::_snap_mode_changed(int p_mode) {
 	marker_edit->set_use_fps(use_fps);
 	// To ensure that the conversion results are consistent between serialization and load, the value is snapped with 0.0625 to be a rational number when FPS mode is used.
 	step->set_step(use_fps ? FPS_DECIMAL : SECOND_DECIMAL);
+	// The selector names the display unit, so the step field states what its own value means.
+	step->set_suffix(use_fps ? "FPS" : TTR("s"));
 	if (use_fps) {
 		fps_compat->hide();
 	} else {
@@ -8467,7 +8512,8 @@ AnimationTrackEditor::AnimationTrackEditor() {
 
 	snap_mode = memnew(OptionButton);
 	snap_mode->add_item(TTRC("Seconds"));
-	snap_mode->add_item(TTRC("FPS"));
+	snap_mode->add_item(TTRC("Frames"));
+	snap_mode->set_tooltip_text(TTRC("Display times in seconds or frames. Frames use the animation's FPS; preview speed does not change frame numbers."));
 	snap_mode->set_accessibility_name(TTRC("Snap Mode"));
 	snap_mode->set_disabled(true);
 	time_hb->add_child(snap_mode);
