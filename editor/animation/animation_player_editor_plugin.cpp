@@ -55,6 +55,7 @@
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "scene/resources/animation.h"
+#include "scene/resources/image_texture.h"
 #include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server.h"
 
@@ -176,7 +177,18 @@ void AnimationPlayerEditor::_notification(int p_what) {
 			play_bw->set_button_icon(get_editor_theme_icon(SNAME("PlayStartBackwards")));
 			play_bw_from->set_button_icon(get_editor_theme_icon(SNAME("PlayBackwards")));
 
+			autoplay_icon = get_editor_theme_icon(SNAME("AutoPlay"));
+			autoplay->set_button_icon(autoplay_icon);
 			reset_icon = get_editor_theme_icon(SNAME("Reload"));
+			{
+				Ref<Image> autoplay_img = autoplay_icon->get_image();
+				Ref<Image> reset_img = reset_icon->get_image();
+				Size2 icon_size = autoplay_img->get_size();
+				Ref<Image> autoplay_reset_img = Image::create_empty(icon_size.x * 2, icon_size.y, false, autoplay_img->get_format());
+				autoplay_reset_img->blit_rect(autoplay_img, Rect2i(Point2i(), icon_size), Point2i());
+				autoplay_reset_img->blit_rect(reset_img, Rect2i(Point2i(), icon_size), Point2i(icon_size.x, 0));
+				autoplay_reset_icon = ImageTexture::create_from_image(autoplay_reset_img);
+			}
 
 			onion_toggle->set_button_icon(get_editor_theme_icon(SNAME("Onion")));
 			onion_skinning->set_button_icon(get_editor_theme_icon(SNAME("GuiTabMenuHl")));
@@ -201,6 +213,21 @@ void AnimationPlayerEditor::_notification(int p_what) {
 			_ensure_dummy_player();
 		} break;
 	}
+}
+
+void AnimationPlayerEditor::_autoplay_pressed() {
+	if (updating || !animation->has_selectable_items()) {
+		return;
+	}
+
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	String current = animation->get_item_text(animation->get_selected());
+	undo_redo->create_action(TTR("Toggle Autoplay"));
+	undo_redo->add_do_method(player, "set_autoplay", player->get_autoplay() == current ? StringName() : StringName(current));
+	undo_redo->add_undo_method(player, "set_autoplay", player->get_autoplay());
+	undo_redo->add_do_method(this, "_animation_player_changed", player);
+	undo_redo->add_undo_method(this, "_animation_player_changed", player);
+	undo_redo->commit_action();
 }
 
 void AnimationPlayerEditor::_toggle_preview_playback() {
@@ -454,6 +481,7 @@ void AnimationPlayerEditor::_animation_selected(int p_which) {
 
 	if (!current.is_empty()) {
 		player->set_assigned_animation(current);
+		autoplay->set_pressed(current == player->get_autoplay());
 
 		Ref<Animation> anim = player->get_animation(current);
 		ERR_FAIL_COND(anim.is_null());
@@ -479,6 +507,7 @@ void AnimationPlayerEditor::_animation_selected(int p_which) {
 	} else {
 		track_editor->set_animation(Ref<Animation>(), true);
 		track_editor->set_root(nullptr);
+		autoplay->set_pressed(false);
 	}
 
 	AnimationPlayerEditor::get_singleton()->get_track_editor()->update_keying();
@@ -1158,6 +1187,7 @@ void AnimationPlayerEditor::_set_controls_disabled(bool p_disabled) {
 	play_bw_from->set_disabled(p_disabled);
 	play_from->set_disabled(p_disabled);
 	animation->set_disabled(p_disabled);
+	autoplay->set_disabled(p_disabled);
 	preview_speed_button->set_disabled(p_disabled);
 	onion_toggle->set_disabled(p_disabled);
 	onion_skinning->set_disabled(p_disabled);
@@ -1171,7 +1201,9 @@ void AnimationPlayerEditor::_update_animation_list_icons() {
 		}
 
 		Ref<Texture2D> icon;
-		if (anim_name == SceneStringName(RESET)) {
+		if (anim_name == player->get_autoplay()) {
+			icon = anim_name == SceneStringName(RESET) ? Ref<Texture2D>(autoplay_reset_icon) : autoplay_icon;
+		} else if (anim_name == SceneStringName(RESET)) {
 			icon = reset_icon;
 		}
 
@@ -1267,6 +1299,9 @@ void AnimationPlayerEditor::_ensure_dummy_player() {
 			original_node->set_editing(false);
 		}
 	}
+
+	int selected = animation->get_selected();
+	autoplay->set_disabled(selected == -1 || animation->get_item_text(selected).is_empty() || dummy_exists);
 
 	// Show warning.
 	if (track_editor) {
@@ -2248,6 +2283,13 @@ AnimationPlayerEditor::AnimationPlayerEditor(AnimationPlayerEditorPlugin *p_plug
 	animation->set_clip_text(true);
 	animation->set_fit_to_longest_item(false);
 	animation->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
+
+	autoplay = memnew(Button);
+	autoplay->set_theme_type_variation(SceneStringName(FlatButton));
+	autoplay->set_tooltip_text(TTRC("Autoplay on Load"));
+	autoplay->set_toggle_mode(true);
+	autoplay->connect(SceneStringName(pressed), callable_mp(this, &AnimationPlayerEditor::_autoplay_pressed));
+	hb->add_child(autoplay);
 
 	hb->add_child(memnew(VSeparator));
 

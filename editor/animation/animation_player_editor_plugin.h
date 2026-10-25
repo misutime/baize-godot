@@ -41,6 +41,7 @@
 #include "scene/resources/material.h"
 
 class AnimationPlayerEditorPlugin;
+class ImageTexture;
 
 class AnimationPlayerEditor : public EditorDock {
 	GDCLASS(AnimationPlayerEditor, EditorDock);
@@ -93,6 +94,7 @@ class AnimationPlayerEditor : public EditorDock {
 	Button *play_from = nullptr;
 	Button *play_bw = nullptr;
 	Button *play_bw_from = nullptr;
+	Button *autoplay = nullptr;
 
 	MenuButton *tool_anim = nullptr;
 	Button *onion_toggle = nullptr;
@@ -111,7 +113,9 @@ class AnimationPlayerEditor : public EditorDock {
 
 	Ref<Texture2D> stop_icon;
 	Ref<Texture2D> pause_icon;
+	Ref<Texture2D> autoplay_icon;
 	Ref<Texture2D> reset_icon;
+	Ref<ImageTexture> autoplay_reset_icon;
 
 	bool finishing = false;
 	bool last_active = false;
@@ -184,6 +188,7 @@ class AnimationPlayerEditor : public EditorDock {
 	void _play_from_pressed();
 	void _play_bw_pressed();
 	void _play_bw_from_pressed();
+	void _autoplay_pressed();
 	void _toggle_preview_playback();
 	void _stop_pressed();
 	void _animation_selected(int p_which);
