@@ -96,7 +96,7 @@ Patches:
 ## brotli
 
 - Upstream: https://github.com/google/brotli
-- Version: 1.2.0 (028fb5a23661f123017c060daa546b55cf4bde29, 2025)
+- Version: 1.2.1 (db24a98aed38a16de78cc05ca15cdd8dc2a0d92d, 2026)
 - License: MIT
 
 Files extracted from upstream source:
@@ -109,7 +109,7 @@ Files extracted from upstream source:
 ## certs
 
 - Upstream: Mozilla, via https://github.com/bagder/ca-bundle
-- Version: git (38fe30abb189fb714e8b1f1b354c6c4caffbe6dc, 2026)
+- Version: git (c4d4f0b9ed23c6ef1d19ad2565598cf0c2b24112, 2026)
 - License: MPL 2.0
 
 Files extracted from upstream source:
@@ -356,13 +356,13 @@ for UI.
 ## freetype
 
 - Upstream: https://gitlab.freedesktop.org/freetype/freetype
-- Version: 2.14.3 (0a0221a1347e2f1e07c395263540026e9a0aa7c7, 2026)
+- Version: 2.15.0 (37515cf56ba3349656049edbed89ffc6f6466f2d, 2026)
 - License: FreeType License (BSD-like)
 
 Files extracted from upstream source:
 
 - `src/` folder, minus the `dlg` and `tools` subfolders
-  * These files can be removed: `.dat`, `.diff`, `.mk`, `.rc`, `README*`
+  * These files can be removed: `.cin`, `.dat`, `.diff`, `.hin`, `.mk`, `.rc`, `README*`
   * In `src/gzip/`, keep only `ftgzip.c`
 - `include/` folder, minus the `dlg` subfolder
 - `LICENSE.TXT` and `docs/FTL.TXT`
@@ -470,7 +470,7 @@ Patches:
 ## harfbuzz
 
 - Upstream: https://github.com/harfbuzz/harfbuzz
-- Version: 14.4.0 (36cb489cb02ce4b92099669ba9f9bea348eff93f, 2026)
+- Version: 15.0.0 (35f656a1a2bab548ea7f54a6dd3fba2b09680d14, 2026)
 - License: MIT
 
 Files extracted from upstream source:
@@ -484,7 +484,7 @@ Files extracted from upstream source:
 ## icu4c
 
 - Upstream: https://github.com/unicode-org/icu
-- Version: 78.3 (21d1eb0f306e1141c10931e914dfc038c06121da, 2026)
+- Version: 79.1 (ddc6b66926bfac6036144ca9902992a0d6d50af9, 2026)
 - License: Unicode
 
 Files extracted from upstream source:
@@ -507,6 +507,11 @@ Files generated from upstream source:
    `ICU_DATA_FILTER_FILE={GODOT_SOURCE}/thirdparty/icu4c/godot_data.json ./runConfigureICU {PLATFORM} --with-data-packaging=common`
 4. Delete `data/out` folder and rebuild data: `cd data && rm -rf ./out && make`
 5. Copy `source/data/out/icudt{ICU_VERSION}l.dat` to the `{GODOT_SOURCE}/thirdparty/icu4c/icudt_godot.dat`
+
+Patches:
+
+- `0001-ustr-literals.patch` ([GH-124792](https://github.com/godotengine/godot/pull/124792))
+- `0002-tuple-include.patch` ([GH-124792](https://github.com/godotengine/godot/pull/124792))
 
 
 ## jolt_physics
@@ -773,6 +778,12 @@ Files extracted from upstream source:
 - `src/miniupnpcstrings.h` was created manually for Godot (it is usually generated
   by CMake). Bump the version number for miniupnpc in that file when upgrading.
 
+Patches:
+
+- `0001-minixml-fix-buffer-read-overflow.patch` ([GH-124962](https://github.com/godotengine/godot/pull/124962))
+- `0002-minixml-fix-buffer-overrun-after-namespace-separator.patch` ([GH-124962](https://github.com/godotengine/godot/pull/124962))
+- `0003-minixml-fix-1-byte-out-of-bounds-read.patch` ([GH-124962](https://github.com/godotengine/godot/pull/124962))
+
 
 ## minizip
 
@@ -853,9 +864,9 @@ Collection of single-file libraries used in Godot components.
   * Version: git (1bf9bc04673df55dc554021b768006836f69d53a, 2026)
   * License: MIT
   * Modifications: Added implementation through `qoa.c`.
-- `r128.{c,h}`
+- `r128.h`
   * Upstream: https://github.com/fahickman/r128
-  * Version: git (6fc177671c47640d5bb69af10cf4ee91050015a1, 2023)
+  * Version: 1.6.2 (69ba68f1ea666c9136cf56e0105b0cbbe9cd1534, 2026)
   * License: Public Domain or Unlicense
 - `smaz.{c,h}`
   * Upstream: https://github.com/antirez/smaz
