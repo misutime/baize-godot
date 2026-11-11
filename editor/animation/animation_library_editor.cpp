@@ -910,7 +910,41 @@ String AnimationLibraryEditor::_get_mixer_signature() const {
 	return signature.md5_text();
 }
 
+void AnimationLibraryEditor::_set_action_dialog_parent(Node *p_parent) {
+	// Standalone quick dialogs must not be children of an invisible Window.
+	for (Window *dialog : { static_cast<Window *>(file_dialog), static_cast<Window *>(add_library_dialog), static_cast<Window *>(error_dialog) }) {
+		if (dialog->get_parent() != p_parent) {
+			dialog->hide();
+			dialog->reparent(p_parent);
+		}
+	}
+}
+
+void AnimationLibraryEditor::open_action(int p_action, const StringName &p_library) {
+	if (p_action == 0) {
+		show_dialog();
+		return;
+	}
+	// Quick actions need only their own dialog, not the full library manager behind it.
+	hide();
+	_set_action_dialog_parent(get_parent());
+	update_tree();
+	if (p_action == 1) {
+		_add_library();
+	} else if (p_action == 2) {
+		_load_library();
+	} else if (p_action == 3 || p_action == 4) {
+		for (TreeItem *item = tree->get_root()->get_first_child(); item; item = item->get_next()) {
+			if (StringName(item->get_metadata(0)) == p_library) {
+				_button_pressed(item, 0, p_action == 3 ? LIB_BUTTON_ADD : LIB_BUTTON_LOAD, MouseButton::LEFT);
+				break;
+			}
+		}
+	}
+}
+
 void AnimationLibraryEditor::show_dialog() {
+	_set_action_dialog_parent(this);
 	update_tree();
 	popup_centered_ratio(0.5);
 }

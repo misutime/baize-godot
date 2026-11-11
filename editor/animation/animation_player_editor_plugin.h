@@ -271,6 +271,7 @@ public:
 	Node *get_cached_root_node() const;
 
 	static AnimationPlayerEditor *get_singleton() { return singleton; }
+	void edit_animation_libraries(AnimationMixer *p_mixer, int p_action, const StringName &p_library);
 
 	bool is_pinned() const { return pin->is_pressed(); }
 	void unpin() {

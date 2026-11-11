@@ -36,6 +36,7 @@
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "editor/animation/animation_player_editor_plugin.h"
 #include "editor/docks/editor_dock_manager.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
@@ -705,6 +706,11 @@ void EditorInterface::inspect_object(Object *p_obj, const String &p_for_property
 	EditorNode::get_singleton()->push_item(p_obj, p_for_property, p_inspector_only);
 }
 
+void EditorInterface::edit_animation_libraries(AnimationMixer *p_mixer, int p_action, const StringName &p_library) {
+	ERR_FAIL_NULL(p_mixer);
+	AnimationPlayerEditor::get_singleton()->edit_animation_libraries(p_mixer, p_action, p_library);
+}
+
 void EditorInterface::edit_resource(const Ref<Resource> &p_resource) {
 	EditorNode::get_singleton()->edit_resource(p_resource);
 }
@@ -944,6 +950,7 @@ void EditorInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("inspect_object", "object", "for_property", "inspector_only"), &EditorInterface::inspect_object, DEFVAL(String()), DEFVAL(false));
 
 	ClassDB::bind_method(D_METHOD("edit_resource", "resource"), &EditorInterface::edit_resource);
+	ClassDB::bind_method(D_METHOD("edit_animation_libraries", "mixer", "action", "library"), &EditorInterface::edit_animation_libraries, DEFVAL(0), DEFVAL(StringName()));
 	ClassDB::bind_method(D_METHOD("edit_node", "node"), &EditorInterface::edit_node);
 	ClassDB::bind_method(D_METHOD("edit_script", "script", "line", "column", "grab_focus"), &EditorInterface::edit_script, DEFVAL(-1), DEFVAL(0), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("open_scene_from_path", "scene_filepath", "set_inherited"), &EditorInterface::open_scene_from_path, DEFVAL(false));

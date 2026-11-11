@@ -2668,3 +2668,11 @@ AnimationMarkerKeyEditEditorPlugin::AnimationMarkerKeyEditEditorPlugin() {
 bool AnimationMarkerKeyEditEditorPlugin::handles(Object *p_object) const {
 	return p_object->is_class("AnimationMarkerKeyEdit");
 }
+
+void AnimationPlayerEditor::edit_animation_libraries(AnimationMixer *p_mixer, int p_action, const StringName &p_library) {
+	ERR_FAIL_NULL(p_mixer);
+	ERR_FAIL_COND(p_action < 0 || p_action > 4);
+	ERR_FAIL_COND(p_action >= 3 && !p_mixer->has_animation_library(p_library));
+	library_editor->set_animation_mixer(p_mixer);
+	library_editor->open_action(p_action, p_library);
+}

@@ -34,6 +34,7 @@
 #include "core/object/object.h"
 #include "core/object/script_language.h"
 
+class AnimationMixer;
 class Control;
 class CreateDialog;
 class EditorCommandPalette;
@@ -178,6 +179,7 @@ public:
 	void inspect_object(Object *p_obj, const String &p_for_property = String(), bool p_inspector_only = false);
 
 	void edit_resource(const Ref<Resource> &p_resource);
+	void edit_animation_libraries(AnimationMixer *p_mixer, int p_action = 0, const StringName &p_library = StringName());
 	void edit_node(Node *p_node);
 	void edit_script(const Ref<Script> &p_script, int p_line = -1, int p_col = 0, bool p_grab_focus = true);
 	void open_scene_from_path(const String &scene_path, bool p_set_inherited = false);

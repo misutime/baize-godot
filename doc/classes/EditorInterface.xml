@@ -39,6 +39,15 @@
 				Edits the given [Node]. The node will be also selected if it's inside the scene tree.
 			</description>
 		</method>
+		<method name="edit_animation_libraries">
+			<return type="void" />
+			<param index="0" name="mixer" type="AnimationMixer" />
+			<param index="1" name="action" type="int" default="0" />
+			<param index="2" name="library" type="StringName" default="&amp;&quot;&quot;" />
+			<description>
+				Opens the native animation library manager for [param mixer], without opening the bottom animation editor. [param action] is 0 to manage, 1 to create a library, 2 to load libraries, 3 to create an animation in [param library], or 4 to load animations into [param library].
+			</description>
+		</method>
 		<method name="edit_resource">
 			<return type="void" />
 			<param index="0" name="resource" type="Resource" />
