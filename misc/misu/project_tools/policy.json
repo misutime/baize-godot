@@ -1,0 +1,15 @@
+{
+  "formatter": "gdtoolkit==4.5.0",
+  "line_length": 100,
+  "warnings": {
+    "enable": true,
+    "untyped_declaration": 2,
+    "inference_on_variant": 2,
+    "unsafe_property_access": 2,
+    "unsafe_method_access": 2,
+    "unsafe_cast": 2,
+    "unsafe_call_argument": 2,
+    "unsafe_void_return": 2,
+    "inferred_declaration": 0
+  }
+}
