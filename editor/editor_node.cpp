@@ -2546,19 +2546,19 @@ static void _reset_animation_mixers(Node *p_node, List<Pair<AnimationMixer *, Re
 	}
 }
 
-void EditorNode::_save_scene(String p_file, int idx) {
-	ERR_FAIL_COND_MSG(!saving_scene.is_empty() && saving_scene == p_file, "Scene saved while already being saved!");
+Error EditorNode::_save_scene(String p_file, int idx, bool p_save_plugin_data) {
+	ERR_FAIL_COND_V_MSG(!saving_scene.is_empty() && saving_scene == p_file, ERR_BUSY, "Scene saved while already being saved!");
 
 	Node *scene = editor_data.get_edited_scene_root(idx);
 
 	if (!scene) {
 		show_warning(TTR("This operation can't be done without a tree root."));
-		return;
+		return ERR_CANT_CREATE;
 	}
 
 	if (!scene->get_scene_file_path().is_empty() && _validate_scene_recursive(scene->get_scene_file_path(), scene)) {
 		show_warning(TTR("This scene can't be saved because there is a cyclic instance inclusion.\nPlease resolve it and then attempt to save again."));
-		return;
+		return ERR_CANT_CREATE;
 	}
 
 	scene->propagate_notification(NOTIFICATION_EDITOR_PRE_SAVE);
@@ -2568,7 +2568,7 @@ void EditorNode::_save_scene(String p_file, int idx) {
 	if (animation_error != OK) {
 		_dialog_display_save_error(p_file, animation_error);
 		scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
-		return;
+		return animation_error;
 	}
 	save_default_environment();
 	List<Pair<AnimationMixer *, Ref<AnimatedValuesBackup>>> anim_backups;
@@ -2595,7 +2595,11 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	if (err != OK) {
 		show_warning(TTR("Couldn't save scene. Likely dependencies (instances or inheritance) couldn't be satisfied."));
-		return;
+		for (Pair<AnimationMixer *, Ref<AnimatedValuesBackup>> &E : anim_backups) {
+			E.first->restore(E.second);
+		}
+		scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
+		return err;
 	}
 
 	int flg = 0;
@@ -2612,7 +2616,9 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	_save_external_resources();
 	saving_scene = p_file; // Some editors may save scenes of built-in resources as external data, so avoid saving this scene again.
-	editor_data.save_editor_external_data();
+	if (p_save_plugin_data) {
+		editor_data.save_editor_external_data();
+	}
 	saving_scene = "";
 
 	for (Pair<AnimationMixer *, Ref<AnimatedValuesBackup>> &E : anim_backups) {
@@ -2646,6 +2652,7 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
 	_update_unsaved_cache();
+	return err;
 }
 
 void EditorNode::save_all_scenes() {
