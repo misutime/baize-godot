@@ -1875,16 +1875,20 @@ HashMap<StringName, HashMap<StringName, Variant>> ClassDB::default_values;
 HashSet<StringName> ClassDB::default_values_cached;
 
 Variant ClassDB::class_get_default_property_value(const StringName &p_class, const StringName &p_property, bool *r_valid) {
+	HashMap<StringName, Variant> new_values;
 	{
 		Locker::Lock lock(Locker::STATE_READ);
 		if (default_values_cached.has(p_class)) {
 			return _class_get_cached_default_property_value(p_class, p_property, r_valid);
 		}
+		// Registered defaults take precedence and may replace getters that require an extension implementation.
+		if (const HashMap<StringName, Variant> *registered_defaults = default_values.getptr(p_class)) {
+			new_values = *registered_defaults;
+		}
 	}
 	// Do NOT hold the ClassDB lock while instantiating the class or calling get_property_list()/get():
 	// that is arbitrary code which can block on other threads (e.g. RenderingServer calls that sync
 	// with the main thread's command queue), while those threads may be waiting on this lock.
-	HashMap<StringName, Variant> new_values;
 
 	Object *c = nullptr;
 	bool cleanup_c = false;
