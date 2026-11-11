@@ -37,6 +37,7 @@
 #include "core/object/class_db.h"
 #include "core/object/script_language.h"
 #include "scene/property_utils.h"
+#include "scene/resources/animation_library.h"
 #include "scene/resources/packed_scene.h"
 
 String ResourceLoaderText::_get_error_string() {
@@ -1435,7 +1436,14 @@ Ref<Resource> ResourceFormatLoaderText::load(const String &p_path, const String 
 		*r_error = err;
 	}
 	if (err == OK) {
-		return loader.get_resource();
+		Ref<Resource> resource = loader.get_resource();
+		if (path.get_extension().to_lower() == "animlib" && Ref<AnimationLibrary>(resource).is_null()) {
+			if (r_error) {
+				*r_error = ERR_FILE_UNRECOGNIZED;
+			}
+			return Ref<Resource>();
+		}
+		return resource;
 	} else {
 		return Ref<Resource>();
 	}
@@ -1451,6 +1459,10 @@ void ResourceFormatLoaderText::get_recognized_extensions_for_type(const String &
 		p_extensions->push_back("tscn");
 	}
 
+	if (ClassDB::is_parent_class("AnimationLibrary", p_type)) {
+		p_extensions->push_back("animlib");
+	}
+
 	// Don't allow .tres for PackedScenes or GDExtension.
 	if (p_type != "PackedScene" && p_type != "GDExtension") {
 		p_extensions->push_back("tres");
@@ -1459,6 +1471,7 @@ void ResourceFormatLoaderText::get_recognized_extensions_for_type(const String &
 
 void ResourceFormatLoaderText::get_recognized_extensions(List<String> *p_extensions) const {
 	p_extensions->push_back("tscn");
+	p_extensions->push_back("animlib");
 	p_extensions->push_back("tres");
 }
 
@@ -1490,7 +1503,7 @@ String ResourceFormatLoaderText::get_resource_type(const String &p_path) const {
 	const String ext = p_path.get_extension().to_lower();
 	if (ext == "tscn") {
 		return "PackedScene";
-	} else if (ext != "tres") {
+	} else if (ext != "tres" && ext != "animlib") {
 		return String();
 	}
 
@@ -1505,11 +1518,15 @@ String ResourceFormatLoaderText::get_resource_type(const String &p_path) const {
 	loader.local_path = ProjectSettings::get_singleton()->localize_path(p_path);
 	loader.res_path = loader.local_path;
 	String r = loader.recognize(f);
-	return ClassDB::get_compatibility_remapped_class(r);
+	r = ClassDB::get_compatibility_remapped_class(r);
+	if (ext == "animlib" && !ClassDB::is_parent_class(r, "AnimationLibrary")) {
+		return String();
+	}
+	return r;
 }
 
 String ResourceFormatLoaderText::get_resource_script_class(const String &p_path) const {
-	if (!p_path.has_extension("tres")) {
+	if (!p_path.has_extension("tres") && !p_path.has_extension("animlib")) {
 		return String();
 	}
 
@@ -1528,7 +1545,7 @@ String ResourceFormatLoaderText::get_resource_script_class(const String &p_path)
 
 ResourceUID::ID ResourceFormatLoaderText::get_resource_uid(const String &p_path) const {
 	const String ext = p_path.get_extension().to_lower();
-	if (ext != "tscn" && ext != "tres") {
+	if (ext != "tscn" && ext != "tres" && ext != "animlib") {
 		return ResourceUID::INVALID_ID;
 	}
 
@@ -2192,13 +2209,20 @@ Error ResourceFormatSaverText::save(const Ref<Resource> &p_resource, const Strin
 		return ERR_FILE_UNRECOGNIZED;
 	}
 
+	if (p_path.get_extension().to_lower() == "animlib") {
+		Ref<AnimationLibrary> library = p_resource;
+		ERR_FAIL_COND_V(library.is_null(), ERR_FILE_UNRECOGNIZED);
+		Error err = library->save_external_animations(p_path);
+		ERR_FAIL_COND_V(err != OK, err);
+		p_flags &= ~ResourceSaver::FLAG_BUNDLE_RESOURCES;
+	}
 	ResourceFormatSaverTextInstance saver;
 	return saver.save(p_path, p_resource, p_flags);
 }
 
 Error ResourceFormatSaverText::set_uid(const String &p_path, ResourceUID::ID p_uid) {
 	String lc = p_path.to_lower();
-	if (!lc.ends_with(".tscn") && !lc.ends_with(".tres")) {
+	if (!lc.ends_with(".tscn") && !lc.ends_with(".tres") && !lc.ends_with(".animlib")) {
 		return ERR_FILE_UNRECOGNIZED;
 	}
 
@@ -2233,6 +2257,9 @@ void ResourceFormatSaverText::get_recognized_extensions(const Ref<Resource> &p_r
 	if (Ref<PackedScene>(p_resource).is_valid()) {
 		p_extensions->push_back("tscn"); // Text scene.
 	} else {
+		if (Ref<AnimationLibrary>(p_resource).is_valid()) {
+			p_extensions->push_back("animlib");
+		}
 		p_extensions->push_back("tres"); // Text resource.
 	}
 }

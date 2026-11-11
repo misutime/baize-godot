@@ -175,6 +175,7 @@
 #include "scene/main/window.h"
 #include "scene/property_utils.h"
 #include "scene/resources/3d/mesh_library.h"
+#include "scene/resources/animation_library.h"
 #include "scene/resources/dpi_texture.h"
 #include "scene/resources/image_texture.h"
 #include "scene/resources/packed_scene.h"
@@ -1936,6 +1937,14 @@ void EditorNode::save_resource_as(const Ref<Resource> &p_resource, const String 
 		preferred.move_to_back(res_element);
 	}
 
+	const String animation_extension = Ref<AnimationLibrary>(p_resource).is_valid() ? "animlib" : (Ref<Animation>(p_resource).is_valid() ? "anim" : "");
+	if (!animation_extension.is_empty()) {
+		List<String>::Element *animation_element = preferred.find(animation_extension);
+		if (animation_element) {
+			preferred.move_to_front(animation_element);
+		}
+	}
+
 	String resource_name_snake_case = p_resource->get_class().to_snake_case();
 	String new_resource_name_snake_case;
 	if (!preferred.is_empty()) {
@@ -2555,6 +2564,12 @@ void EditorNode::_save_scene(String p_file, int idx) {
 	scene->propagate_notification(NOTIFICATION_EDITOR_PRE_SAVE);
 
 	editor_data.apply_changes_in_editors();
+	Error animation_error = AnimationLibrary::save_scene_libraries(scene, p_file);
+	if (animation_error != OK) {
+		_dialog_display_save_error(p_file, animation_error);
+		scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
+		return;
+	}
 	save_default_environment();
 	List<Pair<AnimationMixer *, Ref<AnimatedValuesBackup>>> anim_backups;
 	_reset_animation_mixers(scene, &anim_backups);

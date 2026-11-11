@@ -199,7 +199,7 @@ void AnimationLibraryEditor::_file_popup_selected(int p_id) {
 			if (al->get_path().is_resource_file()) {
 				file_dialog->set_current_path(al->get_path());
 			} else {
-				file_dialog->set_current_file(String(file_dialog_library) + ".res");
+				file_dialog->set_current_file(String(file_dialog_library) + ".animlib");
 			}
 			file_dialog->clear_filters();
 			List<String> exts;
@@ -277,7 +277,7 @@ void AnimationLibraryEditor::_file_popup_selected(int p_id) {
 			if (anim->get_path().is_resource_file()) {
 				file_dialog->set_current_path(anim->get_path());
 			} else {
-				file_dialog->set_current_file(String(file_dialog_animation) + ".res");
+				file_dialog->set_current_file(String(file_dialog_animation) + ".anim");
 			}
 			file_dialog->clear_filters();
 			List<String> exts;

@@ -277,6 +277,9 @@ String ResourceImporterScene::get_save_extension() const {
 	if (_scene_import_type == "PackedScene") {
 		return "scn";
 	}
+	if (_scene_import_type == "AnimationLibrary") {
+		return "animlib";
+	}
 	return "res";
 }
 
@@ -285,7 +288,7 @@ String ResourceImporterScene::get_resource_type() const {
 }
 
 int ResourceImporterScene::get_format_version() const {
-	return 1;
+	return 2;
 }
 
 bool ResourceImporterScene::get_option_visibility(const String &p_path, const String &p_option, const HashMap<StringName, Variant> &p_options) const {
@@ -3513,6 +3516,14 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 		post_importer_plugins.write[i]->post_process(scene, p_options);
 	}
 
+	if (_scene_import_type == "PackedScene" || _scene_import_type == "AnimationLibrary") {
+		err = AnimationLibrary::save_scene_libraries(scene, p_source_file, true, fps);
+		if (err != OK) {
+			memdelete(scene);
+			return err;
+		}
+	}
+
 	progress.step(TTR("Saving..."), 104);
 
 	int flags = 0;
@@ -3538,9 +3549,9 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 			library.instantiate(); // Will be empty
 		}
 
-		print_verbose("Saving animation to: " + p_save_path + ".res");
-		err = ResourceSaver::save(library, p_save_path + ".res", flags); //do not take over, let the changed files reload themselves
-		ERR_FAIL_COND_V_MSG(err != OK, err, "Cannot save animation to file '" + p_save_path + ".res'.");
+		print_verbose("Saving animation to: " + p_save_path + ".animlib");
+		err = ResourceSaver::save(library, p_save_path + ".animlib", flags); //do not take over, let the changed files reload themselves
+		ERR_FAIL_COND_V_MSG(err != OK, err, "Cannot save animation to file '" + p_save_path + ".animlib'.");
 	} else if (_scene_import_type == "PackedScene") {
 		Ref<PackedScene> packer = memnew(PackedScene);
 		packer->pack(scene);
