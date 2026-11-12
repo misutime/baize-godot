@@ -30,14 +30,8 @@
 
 #include "animation_library.h"
 
-#include "core/io/dir_access.h"
-#include "core/io/file_access.h"
-#include "core/io/resource_loader.h"
-#include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
-#include "scene/3d/node_3d.h"
-#include "scene/animation/animation_player.h"
 #include "scene/scene_string_names.h"
 
 bool AnimationLibrary::is_valid_animation_name(const String &p_name) {
@@ -184,103 +178,4 @@ void AnimationLibrary::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("animation_changed", PropertyInfo(Variant::STRING_NAME, "anim_name")));
 }
 AnimationLibrary::AnimationLibrary() {
-}
-
-// A text animation library is an index of standalone clips, never a container for key data.
-Error AnimationLibrary::save_external_animations(const String &p_library_path) {
-	const String folder = p_library_path.get_basename() + ".clips";
-	LocalVector<StringName> names;
-	get_animation_list(&names);
-	for (const StringName &name : names) {
-		Ref<Animation> animation = get_animation(name);
-		const String old_path = animation->get_path();
-		if (old_path.is_resource_file() && !animation->is_built_in() && old_path.get_extension().to_lower() == "anim") {
-			continue;
-		}
-		Error err = DirAccess::make_dir_recursive_absolute(folder);
-		ERR_FAIL_COND_V(err != OK, err);
-		const String key = name;
-		const String path = folder.path_join(key.validate_filename() + "-" + key.md5_text().substr(0, 8) + ".anim");
-		if (FileAccess::exists(path)) {
-			Ref<Animation> existing = ResourceLoader::load(path, "Animation", ResourceFormatLoader::CACHE_MODE_IGNORE);
-			ERR_FAIL_COND_V_MSG(existing.is_null() || String(existing->get_meta("_animlib_owner", "")) != p_library_path || String(existing->get_meta("_animlib_key", "")) != key, ERR_ALREADY_EXISTS, "Animation output belongs to another resource: " + path);
-		}
-		animation->set_meta("_animlib_owner", p_library_path);
-		animation->set_meta("_animlib_key", key);
-		err = ResourceSaver::save(animation, path);
-		ERR_FAIL_COND_V(err != OK, err);
-		Ref<Animation> cached = ResourceCache::get_ref(path);
-		if (cached.is_valid() && cached != animation) {
-			cached->copy_from(animation);
-			animation = cached;
-			add_animation(name, animation);
-		}
-		animation->set_path(path, true);
-	}
-	return OK;
-}
-
-// Export all 3D animation libraries before packing the scene. Paths depend on source
-// and player/library identity, so reimports overwrite the same files and keep UIDs.
-Error AnimationLibrary::save_scene_libraries(Node *p_scene, const String &p_source, bool p_import, double p_sample_rate) {
-	LocalVector<Node *> pending;
-	pending.push_back(p_scene);
-	while (!pending.is_empty()) {
-		Node *node = pending[pending.size() - 1];
-		pending.remove_at(pending.size() - 1);
-		if (!p_import && node != p_scene && node->get_owner() != p_scene) {
-			continue; // Skip preview nodes and unedited children of other scene instances.
-		}
-		for (int i = 0; i < node->get_child_count(); i++) {
-			pending.push_back(node->get_child(i));
-		}
-		AnimationPlayer *player = Object::cast_to<AnimationPlayer>(node);
-		if (!player || !Object::cast_to<Node3D>(player->get_node_or_null(player->get_root_node()))) {
-			continue;
-		}
-		LocalVector<StringName> names;
-		player->get_animation_library_list(&names);
-		for (const StringName &name : names) {
-			Ref<AnimationLibrary> library = player->get_animation_library(name);
-			if (p_import && p_sample_rate > 0.0) {
-				LocalVector<StringName> clip_names;
-				library->get_animation_list(&clip_names);
-				for (const StringName &clip_name : clip_names) {
-					Ref<Animation> clip = library->get_animation(clip_name);
-					clip->set_meta("_animation_sample_rate", p_sample_rate);
-					// Advanced import settings may already have written an external clip.
-					if (!clip->is_built_in() && clip->get_path().get_extension().to_lower() == "anim") {
-						Error err = ResourceSaver::save(clip, clip->get_path());
-						ERR_FAIL_COND_V(err != OK, err);
-					}
-				}
-			}
-			if (!p_import && library->get_path().is_resource_file() && library->get_path().get_extension().to_lower() == "animlib") {
-				Error err = ResourceSaver::save(library, library->get_path());
-				ERR_FAIL_COND_V(err != OK, err);
-				continue;
-			}
-			const String identity = String(p_scene->get_path_to(player)) + "/" + String(name);
-			const String folder = p_source + ".animations";
-			Error err = DirAccess::make_dir_recursive_absolute(folder);
-			ERR_FAIL_COND_V(err != OK, err);
-			const String path = folder.path_join(identity.validate_filename() + "-" + identity.md5_text().substr(0, 8) + ".animlib");
-			if (FileAccess::exists(path)) {
-				Ref<AnimationLibrary> previous = ResourceLoader::load(path, "AnimationLibrary", ResourceFormatLoader::CACHE_MODE_IGNORE);
-				ERR_FAIL_COND_V_MSG(previous.is_null() || String(previous->get_meta("_animation_source", "")) != p_source, ERR_ALREADY_EXISTS, "Animation library output belongs to another resource: " + path);
-			}
-			library->set_meta("_animation_source", p_source);
-			err = ResourceSaver::save(library, path);
-			ERR_FAIL_COND_V(err != OK, err);
-			Ref<AnimationLibrary> cached = ResourceCache::get_ref(path);
-			if (cached.is_valid() && cached != library) {
-				cached->copy_from(library);
-				library = cached;
-				player->remove_animation_library(name);
-				player->add_animation_library(name, library);
-			}
-			library->set_path(path, true);
-		}
-	}
-	return OK;
 }

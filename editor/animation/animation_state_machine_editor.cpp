@@ -2184,6 +2184,11 @@ AnimationNodeStateMachineEditor::AnimationNodeStateMachineEditor() {
 }
 
 void EditorAnimationMultiTransitionEdit::add_transition(const StringName &p_from, const StringName &p_to, Ref<AnimationNodeStateMachineTransition> p_transition) {
+	EditorUndoRedoManager *undo = EditorUndoRedoManager::get_singleton();
+	const int history = undo->get_history_id_for_object(p_transition.ptr());
+	if (history < EditorUndoRedoManager::INVALID_HISTORY) {
+		undo->register_document_object(this, history);
+	}
 	Transition tr;
 	tr.from = p_from;
 	tr.to = p_to;

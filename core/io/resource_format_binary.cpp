@@ -1196,7 +1196,9 @@ void ResourceFormatLoaderBinary::get_recognized_extensions_for_type(const String
 
 	for (const String &E : extensions) {
 		String ext = E.to_lower();
-		p_extensions->push_back(ext);
+		if (ext != "anim") {
+			p_extensions->push_back(ext);
+		}
 	}
 }
 
@@ -1207,7 +1209,9 @@ void ResourceFormatLoaderBinary::get_recognized_extensions(List<String> *p_exten
 
 	for (const String &E : extensions) {
 		String ext = E.to_lower();
-		p_extensions->push_back(ext);
+		if (ext != "anim") {
+			p_extensions->push_back(ext);
+		}
 	}
 }
 
@@ -2462,6 +2466,9 @@ bool ResourceFormatSaverBinary::recognize(const Ref<Resource> &p_resource) const
 
 void ResourceFormatSaverBinary::get_recognized_extensions(const Ref<Resource> &p_resource, List<String> *p_extensions) const {
 	String base = p_resource->get_base_extension().to_lower();
+	if (base == "anim") {
+		base = "res";
+	}
 	p_extensions->push_back(base);
 	if (base != "res") {
 		p_extensions->push_back("res");

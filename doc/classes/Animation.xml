@@ -685,6 +685,15 @@
 		</method>
 	</methods>
 	<members>
+		<member name="skeleton_path" type="String" setter="set_skeleton_path" getter="get_skeleton_path" default="&quot;&quot;">
+			Soft path to the skeleton definition. Resolved through its UID after resource moves. This association is not an export dependency; generated SKMesh scenes reference the skeleton directly.
+		</member>
+		<member name="skeleton_node_path" type="NodePath" setter="set_skeleton_node_path" getter="get_skeleton_node_path" default="NodePath(&quot;&quot;)">
+			Skeleton track prefix relative to the animation playback root. Skeletal asset import normalizes this to [code]Skeleton3D[/code], matching generated [code].skmesh[/code] scenes.
+		</member>
+		<member name="skeleton" type="SkeletonDefinition" setter="set_skeleton" getter="get_skeleton">
+			The optional skeleton definition associated with this animation asset. The saved association uses a resource UID and fallback path, not a strong resource dependency, to avoid cycles through the skeleton's shared animation library. The getter resolves the skeleton on demand. Playback still resolves the existing track paths through [AnimationMixer]. Assigning a definition does not retarget tracks or validate their compatibility. Legacy and non-skeletal animations may leave this unset.
+		</member>
 		<member name="capture_included" type="bool" setter="" getter="is_capture_included" default="false">
 			Returns [code]true[/code] if the capture track is included. This is a cached readonly value for performance.
 		</member>

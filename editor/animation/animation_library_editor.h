@@ -39,8 +39,6 @@
 class AnimationMixer;
 class EditorFileDialog;
 
-class UndoRedo;
-
 class AnimationLibraryEditor : public AcceptDialog {
 	GDCLASS(AnimationLibraryEditor, AcceptDialog)
 
@@ -97,8 +95,6 @@ class AnimationLibraryEditor : public AcceptDialog {
 
 	AnimationMixer *mixer = nullptr;
 
-	bool _commit_management(UndoRedo *p_action);
-	void _set_action_dialog_parent(Node *p_parent);
 	void _add_library();
 	void _add_library_validate(const String &p_name);
 	void _add_library_confirm();
@@ -126,7 +122,6 @@ protected:
 public:
 	void set_animation_mixer(Object *p_mixer);
 	void show_dialog();
-	void open_action(int p_action, const StringName &p_library);
 	void update_tree();
 	AnimationLibraryEditor();
 };

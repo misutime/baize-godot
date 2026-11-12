@@ -63,6 +63,7 @@
 #include "editor/gui/window_wrapper.h"
 #include "editor/inspector/editor_context_menu_plugin.h"
 #include "editor/run/editor_run_bar.h"
+#include "editor/scene/3d/node_3d_editor_plugin.h"
 #include "editor/scene/editor_scene_tabs.h"
 #include "editor/script/find_in_files.h"
 #include "editor/script/script_editor_base.h"
@@ -3195,6 +3196,9 @@ void DocumentEditorContainer::_update_filenames() {
 
 	document_list->update_list();
 	_update_document_name_button();
+	if (is_main_editor) {
+		ScriptEditor::get_singleton()->emit_signal(SNAME("documents_changed"));
+	}
 }
 
 void DocumentEditorContainer::_files_moved(const String &p_old_file, const String &p_new_file) {
@@ -4333,7 +4337,15 @@ bool ScriptEditor::should_use_external_editor(const Ref<Script> &p_for_script) {
 }
 
 void ScriptEditor::focus_editor() {
-	EditorDockManager::get_singleton()->force_focus_dock(this);
+	ScriptEditorPlugin::get_singleton()->open_workspace();
+}
+
+bool ScriptEditor::edit(const Ref<Resource> &p_resource, int p_line, int p_col, bool p_grab_focus) {
+	const bool edited = script_container->edit(p_resource, p_line, p_col, p_grab_focus);
+	if (edited && p_grab_focus) {
+		focus_editor();
+	}
+	return edited;
 }
 
 void ScriptEditor::focus_script_editor(const Ref<Resource> &p_for_resource) {
@@ -4500,7 +4512,8 @@ void ScriptEditor::set_scene_root_script(const Ref<Script> &p_script) {
 
 	bool open_dominant = EDITOR_GET("text_editor/behavior/files/open_dominant_script_on_scene_change");
 	if (open_dominant) {
-		edit(p_script);
+		// Scene changes preload the root script in the background.
+		edit(p_script, false);
 	}
 }
 
@@ -4541,6 +4554,7 @@ void ScriptEditor::_bind_methods() {
 
 	ADD_SIGNAL(MethodInfo("editor_script_changed", PropertyInfo(Variant::OBJECT, "script", PROPERTY_HINT_RESOURCE_TYPE, Script::get_class_static())));
 	ADD_SIGNAL(MethodInfo("script_close", PropertyInfo(Variant::OBJECT, "script", PROPERTY_HINT_RESOURCE_TYPE, Script::get_class_static())));
+	ADD_SIGNAL(MethodInfo("documents_changed"));
 }
 
 ScriptEditor::ScriptEditor() {
@@ -4571,8 +4585,66 @@ void ScriptEditorPlugin::shortcut_input(const Ref<InputEvent> &p_event) {
 		return;
 	}
 
-	if (make_floating_shortcut.is_valid() && make_floating_shortcut->matches_event(p_event)) {
-		script_editor->make_floating();
+	if (ED_IS_SHORTCUT("editor/editor_script", p_event)) {
+		open_workspace();
+		get_viewport()->set_input_as_handled();
+	}
+}
+
+static constexpr const char *SCRIPT_WORKSPACE_PATH = "editor://scripts";
+
+void ScriptEditorPlugin::open_workspace(bool p_activate) {
+	if (!workspace_enabled) {
+		return;
+	}
+	EditorSceneTabs::get_singleton()->open_document(SCRIPT_WORKSPACE_PATH, TTR("Script"), script_editor->get_theme_icon(SNAME("Script"), EditorStringName(EditorIcons)), callable_mp(this, &ScriptEditorPlugin::_activate_workspace), callable_mp(this, &ScriptEditorPlugin::_save_workspace), callable_mp(this, &ScriptEditorPlugin::_close_workspace), Callable(), Callable(), p_activate);
+	update_workspace_modified();
+}
+
+void ScriptEditorPlugin::_activate_workspace() {
+	Node3DEditor::get_singleton()->show_document_workspace(script_editor);
+	EditorDockManager::get_singleton()->force_focus_dock(Node3DEditor::get_singleton());
+	script_editor->get_script_container()->focus_active_editor();
+}
+
+void ScriptEditorPlugin::_close_workspace() {
+	if (script_editor->is_visible()) {
+		Node3DEditor::get_singleton()->show_document_workspace(nullptr);
+	}
+	script_editor->hide();
+}
+
+void ScriptEditorPlugin::_save_workspace() {
+	script_editor->save_all_scripts();
+	update_workspace_modified();
+}
+
+void ScriptEditorPlugin::update_workspace_modified() {
+	EditorSceneTabs::get_singleton()->set_document_modified(SCRIPT_WORKSPACE_PATH, !script_editor->get_unsaved_files().is_empty());
+}
+
+void ScriptEditorPlugin::_restore_workspace(const String &p_path) {
+	if (p_path == SCRIPT_WORKSPACE_PATH) {
+		open_workspace(false);
+	}
+}
+
+void ScriptEditorPlugin::set_workspace_enabled(bool p_enabled) {
+	workspace_enabled = p_enabled;
+	if (!p_enabled) {
+		_close_workspace();
+		EditorSceneTabs::get_singleton()->remove_document(SCRIPT_WORKSPACE_PATH);
+	}
+}
+
+void ScriptEditorPlugin::_workspace_visibility_changed() {
+	EditorNode::get_singleton()->update_distraction_free_mode();
+}
+
+void ScriptEditorPlugin::_notification(int p_what) {
+	if (p_what == NOTIFICATION_EXIT_TREE) {
+		_close_workspace();
+		EditorSceneTabs::get_singleton()->remove_document(SCRIPT_WORKSPACE_PATH);
 	}
 }
 
@@ -4757,7 +4829,6 @@ ScriptEditorPlugin::ScriptEditorPlugin() {
 	ED_SHORTCUT("script_text_editor/convert_to_lowercase", TTRC("Lowercase"), KeyModifierMask::SHIFT | Key::F5);
 	ED_SHORTCUT("script_text_editor/capitalize", TTRC("Capitalize"), KeyModifierMask::SHIFT | Key::F6);
 
-	make_floating_shortcut = ED_SHORTCUT_AND_COMMAND("script_editor/make_floating", TTRC("Make Floating"));
 	set_process_shortcut_input(true);
 
 	memnew(FindInFiles);
@@ -4765,15 +4836,17 @@ ScriptEditorPlugin::ScriptEditorPlugin() {
 	script_editor = memnew(ScriptEditor);
 	script_editor->set_name(TTRC("Script"));
 	script_editor->set_icon_name("Script");
-	script_editor->set_available_layouts(EditorDock::DOCK_LAYOUT_MAIN_SCREEN | EditorDock::DOCK_LAYOUT_FLOATING);
-	script_editor->set_default_slot(EditorDock::DOCK_SLOT_MAIN_SCREEN);
-	script_editor->set_dock_shortcut(ED_GET_SHORTCUT("editor/editor_script"));
-
-	EditorDockManager::get_singleton()->add_dock(script_editor);
+	// The document host owns the editor for its entire lifetime, including while its tab is closed.
+	Node3DEditor::get_singleton()->show_document_workspace(script_editor);
+	Node3DEditor::get_singleton()->show_document_workspace(nullptr);
+	script_editor->connect(SceneStringName(visibility_changed), callable_mp(this, &ScriptEditorPlugin::_workspace_visibility_changed));
+	script_editor->connect("documents_changed", callable_mp(this, &ScriptEditorPlugin::update_workspace_modified));
+	EditorInterface::get_singleton()->connect("editor_document_restore_requested", callable_mp(this, &ScriptEditorPlugin::_restore_workspace));
 
 	ScriptServer::set_reload_scripts_on_save(EDITOR_GET("text_editor/behavior/files/auto_reload_and_parse_scripts_on_save"));
 }
 
 ScriptEditorPlugin::~ScriptEditorPlugin() {
+	script_editor_plugin = nullptr;
 	memdelete(FindInFiles::get_singleton());
 }

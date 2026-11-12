@@ -1013,7 +1013,7 @@ public:
 		}
 	}
 
-	Error save_scene_resources(const String &p_file, bool p_save_plugin_data = true) { return _save_scene(p_file, -1, p_save_plugin_data); }
+	Error save_scene_resources(const String &p_file, bool p_save_plugin_data = true, int p_scene_idx = -1) { return _save_scene(p_file, p_scene_idx, p_save_plugin_data); }
 
 	bool close_scene();
 

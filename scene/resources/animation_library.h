@@ -34,8 +34,6 @@
 #include "core/variant/typed_array.h"
 #include "scene/resources/animation.h"
 
-class Node;
-
 class AnimationLibrary : public Resource {
 	GDCLASS(AnimationLibrary, Resource)
 
@@ -64,8 +62,6 @@ public:
 	Ref<Animation> get_animation(const StringName &p_name) const;
 	void get_animation_list(LocalVector<StringName> *p_animations) const;
 	int get_animation_list_size() const;
-	Error save_external_animations(const String &p_library_path);
-	static Error save_scene_libraries(Node *p_scene, const String &p_source, bool p_import = false, double p_sample_rate = 0.0);
 
 #ifdef TOOLS_ENABLED
 	virtual void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;

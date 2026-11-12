@@ -2692,6 +2692,48 @@ void Node3DEditor::clear_subgizmo_selection(Object *p_obj) {
 	_clear_subgizmo_selection(p_obj);
 }
 
+void Node3DEditor::set_asset_workspace(Control *p_workspace) {
+	show_asset_workspace(false);
+	if (asset_workspace) {
+		workspace_root->remove_child(asset_workspace);
+	}
+	asset_workspace = p_workspace;
+	if (asset_workspace) {
+		workspace_root->add_child(asset_workspace);
+		asset_workspace->set_v_size_flags(SIZE_EXPAND_FILL);
+		asset_workspace->hide();
+	}
+}
+
+void Node3DEditor::show_asset_workspace(bool p_show) {
+	if (document_workspace) {
+		document_workspace->hide();
+	}
+	const bool show_asset = p_show && asset_workspace;
+	scene_workspace->set_visible(!show_asset);
+	if (asset_workspace) {
+		asset_workspace->set_visible(show_asset);
+	}
+}
+
+void Node3DEditor::show_document_workspace(Control *p_workspace) {
+	if (document_workspace && document_workspace != p_workspace) {
+		document_workspace->hide();
+	}
+	document_workspace = p_workspace;
+	scene_workspace->set_visible(!p_workspace);
+	if (asset_workspace) {
+		asset_workspace->hide();
+	}
+	if (p_workspace) {
+		if (!p_workspace->get_parent()) {
+			workspace_root->add_child(p_workspace);
+		}
+		p_workspace->set_v_size_flags(SIZE_EXPAND_FILL);
+		p_workspace->show();
+	}
+}
+
 void Node3DEditor::add_control_to_menu_panel(Control *p_control) {
 	ERR_FAIL_NULL(p_control);
 	ERR_FAIL_COND(p_control->get_parent());
@@ -3385,8 +3427,12 @@ Node3DEditor::Node3DEditor() {
 	gizmo_view_rotation_scale = GIZMO_CIRCLE_SIZE * (float)EDITOR_GET("editors/3d/view_plane_rotation_gizmo_scale");
 
 	viewport_environment.instantiate();
+	workspace_root = memnew(VBoxContainer);
+	add_child(workspace_root);
 	VBoxContainer *vbc = memnew(VBoxContainer);
-	add_child(vbc);
+	scene_workspace = vbc;
+	vbc->set_v_size_flags(SIZE_EXPAND_FILL);
+	workspace_root->add_child(vbc);
 
 	ERR_FAIL_COND_MSG(singleton != nullptr, "A Node3DEditor singleton already exists.");
 	singleton = this;
@@ -4261,6 +4307,15 @@ Node3DEditor::~Node3DEditor() {
 }
 
 void Node3DEditorPlugin::edited_scene_changed() {
+	EditorData &scene_data = EditorNode::get_editor_data();
+	Node3D *root = Object::cast_to<Node3D>(scene_data.get_edited_scene_root());
+	if (root && root->get_scene_file_path().has_extension("skmesh")) {
+		const Dictionary states = scene_data.get_scene_editor_states_with_selection(scene_data.get_edited_scene());
+		const Dictionary spatial_state = states.get("3D", Dictionary());
+		if (!spatial_state.has("viewports")) {
+			spatial_editor->get_editor_viewport(0)->frame_model(root);
+		}
+	}
 	for (uint32_t i = 0; i < Node3DEditor::VIEWPORTS_COUNT; i++) {
 		Node3DEditorViewport *viewport = Node3DEditor::get_singleton()->get_editor_viewport(i);
 		if (viewport->is_visible()) {

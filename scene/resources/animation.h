@@ -34,6 +34,7 @@
 #include "core/templates/fixed_vector.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/pair.h"
+#include "scene/resources/skeleton_definition.h"
 
 #define ANIM_MIN_LENGTH 0.001
 
@@ -331,6 +332,10 @@ private:
 
 	double length = 1.0;
 	real_t step = DEFAULT_STEP;
+	String skeleton_path;
+	int64_t skeleton_uid = -1;
+	ObjectID skeleton_id;
+	NodePath skeleton_node_path;
 	LoopMode loop_mode = LOOP_NONE;
 	bool capture_included = false;
 	void _check_capture_included();
@@ -582,6 +587,14 @@ public:
 
 	void set_step(real_t p_step);
 	real_t get_step() const;
+	void set_skeleton_path(const String &p_path);
+	String get_skeleton_path() const;
+	void _set_skeleton_uid(int64_t p_uid);
+	int64_t _get_skeleton_uid() const;
+	void set_skeleton(const Ref<SkeletonDefinition> &p_skeleton);
+	Ref<SkeletonDefinition> get_skeleton() const;
+	void set_skeleton_node_path(const NodePath &p_path);
+	NodePath get_skeleton_node_path() const;
 
 	void clear();
 

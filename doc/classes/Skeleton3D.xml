@@ -12,6 +12,12 @@
 		<link title="Third Person Shooter (TPS) Demo">https://godotengine.org/asset-library/asset/2710</link>
 	</tutorials>
 	<methods>
+		<method name="create_skeleton_definition" qualifiers="const">
+			<return type="SkeletonDefinition" />
+			<description>
+				Creates an independent resource from the current bone names, parent indices, and local rest transforms. Animated bone poses and skin scales are excluded. Save the result as a [code].skeleton[/code] file before assigning it to [member Animation.skeleton].
+			</description>
+		</method>
 		<method name="add_bone">
 			<return type="int" />
 			<param index="0" name="name" type="String" />

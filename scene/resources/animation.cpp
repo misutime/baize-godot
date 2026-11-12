@@ -32,6 +32,8 @@
 #include "animation.compat.inc"
 
 #include "core/io/marshalls.h"
+#include "core/io/resource_loader.h"
+#include "core/io/resource_uid.h"
 #include "core/object/class_db.h"
 
 bool Animation::_set(const StringName &p_name, const Variant &p_value) {
@@ -4059,9 +4061,55 @@ void Animation::track_swap(int p_track, int p_with_track) {
 	emit_changed();
 }
 
+void Animation::set_skeleton(const Ref<SkeletonDefinition> &p_skeleton) {
+	set_skeleton_path(p_skeleton.is_valid() ? p_skeleton->get_path() : String());
+	skeleton_id = p_skeleton.is_valid() ? p_skeleton->get_instance_id() : ObjectID();
+}
+
+void Animation::set_skeleton_path(const String &p_path) {
+	skeleton_path = p_path;
+	skeleton_id = ObjectID();
+	skeleton_uid = p_path.is_empty() ? ResourceUID::INVALID_ID : ResourceLoader::get_resource_uid(p_path);
+	emit_changed();
+}
+
+String Animation::get_skeleton_path() const {
+	if (skeleton_uid != ResourceUID::INVALID_ID && ResourceUID::get_singleton()->has_id(skeleton_uid)) {
+		return ResourceUID::get_singleton()->get_id_path(skeleton_uid);
+	}
+	return skeleton_path;
+}
+
+void Animation::_set_skeleton_uid(int64_t p_uid) {
+	skeleton_uid = p_uid;
+}
+int64_t Animation::_get_skeleton_uid() const {
+	return skeleton_uid;
+}
+
+Ref<SkeletonDefinition> Animation::get_skeleton() const {
+	if (skeleton_id.is_valid()) {
+		SkeletonDefinition *existing = Object::cast_to<SkeletonDefinition>(ObjectDB::get_instance(skeleton_id));
+		if (existing) {
+			return Ref<SkeletonDefinition>(existing);
+		}
+	}
+	const String path = get_skeleton_path();
+	return path.is_empty() ? Ref<SkeletonDefinition>() : Ref<SkeletonDefinition>(ResourceLoader::load(path));
+}
+
 void Animation::set_step(real_t p_step) {
 	step = p_step;
 	emit_changed();
+}
+
+void Animation::set_skeleton_node_path(const NodePath &p_path) {
+	skeleton_node_path = p_path;
+	emit_changed();
+}
+
+NodePath Animation::get_skeleton_node_path() const {
+	return skeleton_node_path;
 }
 
 real_t Animation::get_step() const {
@@ -4195,6 +4243,14 @@ void Animation::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_step", "size_sec"), &Animation::set_step);
 	ClassDB::bind_method(D_METHOD("get_step"), &Animation::get_step);
+	ClassDB::bind_method(D_METHOD("set_skeleton", "skeleton"), &Animation::set_skeleton);
+	ClassDB::bind_method(D_METHOD("set_skeleton_path", "path"), &Animation::set_skeleton_path);
+	ClassDB::bind_method(D_METHOD("get_skeleton_path"), &Animation::get_skeleton_path);
+	ClassDB::bind_method(D_METHOD("_set_skeleton_uid", "uid"), &Animation::_set_skeleton_uid);
+	ClassDB::bind_method(D_METHOD("_get_skeleton_uid"), &Animation::_get_skeleton_uid);
+	ClassDB::bind_method(D_METHOD("get_skeleton"), &Animation::get_skeleton);
+	ClassDB::bind_method(D_METHOD("set_skeleton_node_path", "path"), &Animation::set_skeleton_node_path);
+	ClassDB::bind_method(D_METHOD("get_skeleton_node_path"), &Animation::get_skeleton_node_path);
 
 	ClassDB::bind_method(D_METHOD("clear"), &Animation::clear);
 	ClassDB::bind_method(D_METHOD("copy_track", "track_idx", "to_animation"), &Animation::copy_track);
@@ -4207,6 +4263,10 @@ void Animation::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "length", PROPERTY_HINT_RANGE, "0.001,99999,0.001,suffix:s"), "set_length", "get_length");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "loop_mode", PROPERTY_HINT_ENUM, "None,Linear,Ping-Pong"), "set_loop_mode", "get_loop_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "step", PROPERTY_HINT_RANGE, "0,4096,0.001,suffix:s"), "set_step", "get_step");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "skeleton", PROPERTY_HINT_RESOURCE_TYPE, "SkeletonDefinition", PROPERTY_USAGE_EDITOR), "set_skeleton", "get_skeleton");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "skeleton_path", PROPERTY_HINT_FILE, "*.sk", PROPERTY_USAGE_STORAGE), "set_skeleton_path", "get_skeleton_path");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "_skeleton_uid", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "_set_skeleton_uid", "_get_skeleton_uid");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "skeleton_node_path", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_skeleton_node_path", "get_skeleton_node_path");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "capture_included", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR), "", "is_capture_included");
 
 	BIND_ENUM_CONSTANT(TYPE_VALUE);

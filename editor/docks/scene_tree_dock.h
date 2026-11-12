@@ -354,6 +354,8 @@ public:
 	void save_branch_to_file(const String &p_directory);
 
 	void _focus_node();
+	void _node_activated();
+	bool _open_animation_node(Node *p_node);
 
 	void add_root_node(Node *p_node);
 	void set_edited_scene(Node *p_scene);

@@ -271,7 +271,6 @@ public:
 	Node *get_cached_root_node() const;
 
 	static AnimationPlayerEditor *get_singleton() { return singleton; }
-	void edit_animation_libraries(AnimationMixer *p_mixer, int p_action, const StringName &p_library);
 
 	bool is_pinned() const { return pin->is_pressed(); }
 	void unpin() {
@@ -313,8 +312,8 @@ protected:
 	void _update_keying();
 
 public:
-	virtual Dictionary get_state() const override { return anim_editor->get_state(); }
-	virtual void set_state(const Dictionary &p_state) override { anim_editor->set_state(p_state); }
+	virtual Dictionary get_state() const override { return Dictionary(); }
+	virtual void set_state(const Dictionary &p_state) override {}
 	virtual void clear() override { anim_editor->clear(); }
 
 	virtual String get_plugin_name() const override { return "Anim"; }

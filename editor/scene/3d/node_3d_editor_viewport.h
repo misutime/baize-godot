@@ -489,6 +489,7 @@ private:
 	void _preview_camera_property_changed();
 	void _sync_cursor_from_transform(const Transform3D &p_transform);
 	void _update_centered_labels();
+	void _focus_aabb(Node3D *p_root);
 	void _disable_follow_mode();
 	void _reset_follow_mode_count();
 	void _toggle_camera_preview(bool);
@@ -569,6 +570,7 @@ public:
 
 	void focus_selection();
 	void focus_aabb();
+	void frame_model(Node3D *p_root);
 
 	void assign_pending_data_pointers(
 			Node3D *p_preview_node,

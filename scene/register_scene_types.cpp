@@ -155,6 +155,7 @@
 #include "scene/resources/shader_include.h"
 #include "scene/resources/shader_include_resource_format.h"
 #include "scene/resources/shader_resource_format.h"
+#include "scene/resources/skeleton_definition.h"
 #include "scene/resources/skeleton_profile.h"
 #include "scene/resources/sky.h"
 #include "scene/resources/streamed_texture.h"
@@ -1031,6 +1032,7 @@ void register_scene_types() {
 	GDREGISTER_CLASS(BitMap);
 	GDREGISTER_CLASS(Gradient);
 
+	GDREGISTER_CLASS(SkeletonDefinition);
 	GDREGISTER_CLASS(SkeletonProfile);
 	GDREGISTER_CLASS(SkeletonProfileHumanoid);
 	GDREGISTER_CLASS(BoneMap);

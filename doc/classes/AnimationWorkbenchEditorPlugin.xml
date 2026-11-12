@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="AnimationWorkbenchEditorPlugin" inherits="EditorPlugin" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>Built-in editor for skeletal animation assets and clip editing.</brief_description>
+	<description>Provides the central skeleton and animation workspace, independent model preview, timeline, clip drafts and GLB asset import. The editor creates this plugin automatically for every project.</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="delete_range">
+			<return type="int" enum="Error" />
+			<param index="0" name="first" type="float" />
+			<param index="1" name="last" type="float" />
+			<description>Deletes the half-open interval in seconds from the current draft. Supports uncompressed 3D transform and blend shape tracks. Save separately to write the result to disk.</description>
+		</method>
+		<method name="get_current_animation" qualifiers="const">
+			<return type="Animation" />
+			<description>Returns the current in-memory clip result.</description>
+		</method>
+		<method name="open_player">
+			<return type="void" />
+			<param index="0" name="player" type="AnimationPlayer" />
+			<description>Opens a central document for this player's actual libraries and previews a copy of its 3D animation root.</description>
+		</method>
+		<method name="open_resource">
+			<return type="void" />
+			<param index="0" name="resource" type="Resource" />
+			<description>Opens a SkeletonDefinition or Animation asset in a central document.</description>
+		</method>
+		<method name="redo_edit">
+			<return type="void" />
+			<description>Redoes one clip edit.</description>
+		</method>
+		<method name="save_animation">
+			<return type="int" enum="Error" />
+			<description>Saves the current clip while retaining existing resource references.</description>
+		</method>
+		<method name="select_animation">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<description>Selects an animation by its full player animation name.</description>
+		</method>
+		<method name="undo_edit">
+			<return type="void" />
+			<description>Undoes one clip edit. Saving after undo writes that result to disk.</description>
+		</method>
+	</methods>
+</class>

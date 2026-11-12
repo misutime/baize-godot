@@ -70,6 +70,9 @@ private:
 
 	bool forced_history = false;
 	bool is_committing = false;
+	int next_document_history = -100;
+	int active_document_history = INVALID_HISTORY;
+	HashMap<ObjectID, int> document_objects;
 
 	History *_get_newest_undo();
 
@@ -83,6 +86,10 @@ protected:
 
 public:
 	History &get_or_create_history(int p_idx);
+	int create_document_history();
+	void register_document_object(Object *p_object, int p_history);
+	void remove_document_history(int p_history);
+	void set_active_document_history(int p_history);
 	UndoRedo *get_history_undo_redo(int p_idx) const;
 	int get_history_id_for_object(Object *p_object) const;
 	History &get_history_for_object(Object *p_object);
