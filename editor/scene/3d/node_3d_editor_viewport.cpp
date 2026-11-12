@@ -5434,6 +5434,22 @@ void Node3DEditorViewport::focus_selection() {
 }
 
 void Node3DEditorViewport::focus_aabb() {
+	_focus_aabb(nullptr);
+}
+
+void Node3DEditorViewport::frame_model(Node3D *p_root) {
+	reset();
+	_disable_follow_mode();
+	view_3d_controller->cursor.x_rot = 0.15;
+	view_3d_controller->cursor.y_rot = 0;
+	view_3d_controller->cursor.unsnapped_x_rot = view_3d_controller->cursor.x_rot;
+	view_3d_controller->cursor.unsnapped_y_rot = view_3d_controller->cursor.y_rot;
+	_focus_aabb(p_root);
+	focused_node_id = p_root->get_instance_id();
+	view_3d_controller->update_camera(0);
+}
+
+void Node3DEditorViewport::_focus_aabb(Node3D *p_root) {
 	Vector3 center;
 	AABB combined_aabb;
 	bool aabb_valid = false;
@@ -5446,8 +5462,12 @@ void Node3DEditorViewport::focus_aabb() {
 
 	LocalVector<Node *> stack;
 	stack.reserve(selection.size());
-	for (Node *node : selection) {
-		stack.push_back(node);
+	if (p_root) {
+		stack.push_back(p_root);
+	} else {
+		for (Node *node : selection) {
+			stack.push_back(node);
+		}
 	}
 
 	while (!stack.is_empty()) {

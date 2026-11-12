@@ -36,8 +36,11 @@
 #include "core/io/missing_resource.h"
 #include "core/object/class_db.h"
 #include "core/object/script_language.h"
+#include "scene/animation/animation_tree.h"
 #include "scene/property_utils.h"
+#include "scene/resources/animation_library.h"
 #include "scene/resources/packed_scene.h"
+#include "scene/resources/skeleton_definition.h"
 
 String ResourceLoaderText::_get_error_string() {
 	return vformat("%s:%d - Parse Error: %s.", res_path, lines, error_text);
@@ -1435,7 +1438,32 @@ Ref<Resource> ResourceFormatLoaderText::load(const String &p_path, const String 
 		*r_error = err;
 	}
 	if (err == OK) {
-		return loader.get_resource();
+		Ref<Resource> resource = loader.get_resource();
+		if (path.has_extension("anim") && Ref<Animation>(resource).is_null()) {
+			if (r_error) {
+				*r_error = ERR_FILE_UNRECOGNIZED;
+			}
+			return Ref<Resource>();
+		}
+		if (path.has_extension("animtree") && Ref<AnimationRootNode>(resource).is_null()) {
+			if (r_error) {
+				*r_error = ERR_FILE_UNRECOGNIZED;
+			}
+			return Ref<Resource>();
+		}
+		if (path.get_extension().to_lower() == "skmesh" && Ref<PackedScene>(resource).is_null()) {
+			if (r_error) {
+				*r_error = ERR_FILE_UNRECOGNIZED;
+			}
+			return Ref<Resource>();
+		}
+		if (path.has_extension("sk") && Ref<SkeletonDefinition>(resource).is_null()) {
+			if (r_error) {
+				*r_error = ERR_FILE_UNRECOGNIZED;
+			}
+			return Ref<Resource>();
+		}
+		return resource;
 	} else {
 		return Ref<Resource>();
 	}
@@ -1451,6 +1479,19 @@ void ResourceFormatLoaderText::get_recognized_extensions_for_type(const String &
 		p_extensions->push_back("tscn");
 	}
 
+	if (ClassDB::is_parent_class("Animation", p_type)) {
+		p_extensions->push_back("anim");
+	}
+	if (ClassDB::is_parent_class("PackedScene", p_type)) {
+		p_extensions->push_back("skmesh");
+	}
+	if (ClassDB::is_parent_class("AnimationRootNode", p_type) || ClassDB::is_parent_class(p_type, "AnimationRootNode")) {
+		p_extensions->push_back("animtree");
+	}
+	if (ClassDB::is_parent_class("SkeletonDefinition", p_type)) {
+		p_extensions->push_back("sk");
+	}
+
 	// Don't allow .tres for PackedScenes or GDExtension.
 	if (p_type != "PackedScene" && p_type != "GDExtension") {
 		p_extensions->push_back("tres");
@@ -1458,7 +1499,11 @@ void ResourceFormatLoaderText::get_recognized_extensions_for_type(const String &
 }
 
 void ResourceFormatLoaderText::get_recognized_extensions(List<String> *p_extensions) const {
+	p_extensions->push_back("anim");
 	p_extensions->push_back("tscn");
+	p_extensions->push_back("sk");
+	p_extensions->push_back("skmesh");
+	p_extensions->push_back("animtree");
 	p_extensions->push_back("tres");
 }
 
@@ -1488,9 +1533,9 @@ void ResourceFormatLoaderText::get_classes_used(const String &p_path, HashSet<St
 
 String ResourceFormatLoaderText::get_resource_type(const String &p_path) const {
 	const String ext = p_path.get_extension().to_lower();
-	if (ext == "tscn") {
+	if (ext == "tscn" || ext == "skmesh") {
 		return "PackedScene";
-	} else if (ext != "tres") {
+	} else if (ext != "tres" && ext != "anim" && ext != "sk" && ext != "skmesh" && ext != "animtree") {
 		return String();
 	}
 
@@ -1505,11 +1550,21 @@ String ResourceFormatLoaderText::get_resource_type(const String &p_path) const {
 	loader.local_path = ProjectSettings::get_singleton()->localize_path(p_path);
 	loader.res_path = loader.local_path;
 	String r = loader.recognize(f);
-	return ClassDB::get_compatibility_remapped_class(r);
+	r = ClassDB::get_compatibility_remapped_class(r);
+	if (ext == "anim" && !ClassDB::is_parent_class(r, "Animation")) {
+		return String();
+	}
+	if (ext == "animtree" && !ClassDB::is_parent_class(r, "AnimationRootNode")) {
+		return String();
+	}
+	if ((ext == "sk") && !ClassDB::is_parent_class(r, "SkeletonDefinition")) {
+		return String();
+	}
+	return r;
 }
 
 String ResourceFormatLoaderText::get_resource_script_class(const String &p_path) const {
-	if (!p_path.has_extension("tres")) {
+	if (!p_path.has_extension("tres") && !p_path.has_extension("anim") && !p_path.has_extension("sk") && !p_path.has_extension("skmesh") && !p_path.has_extension("animtree")) {
 		return String();
 	}
 
@@ -1528,7 +1583,7 @@ String ResourceFormatLoaderText::get_resource_script_class(const String &p_path)
 
 ResourceUID::ID ResourceFormatLoaderText::get_resource_uid(const String &p_path) const {
 	const String ext = p_path.get_extension().to_lower();
-	if (ext != "tscn" && ext != "tres") {
+	if (ext != "tscn" && ext != "tres" && ext != "anim" && ext != "sk" && ext != "skmesh" && ext != "animtree") {
 		return ResourceUID::INVALID_ID;
 	}
 
@@ -1872,7 +1927,7 @@ void ResourceFormatSaverTextInstance::_parse_nodes(const Ref<PackedScene> &curr_
 Error ResourceFormatSaverTextInstance::save(const String &p_path, const Ref<Resource> &p_resource, uint32_t p_flags) {
 	Resource::seed_scene_unique_id(p_path.hash()); // Seeding for save path should make it deterministic for importers.
 
-	if (p_path.ends_with(".tscn")) {
+	if (p_path.ends_with(".tscn") || p_path.ends_with(".skmesh")) {
 		packed_scene = p_resource;
 	}
 
@@ -2188,17 +2243,35 @@ Error ResourceLoaderText::set_uid(Ref<FileAccess> p_f, ResourceUID::ID p_uid) {
 }
 
 Error ResourceFormatSaverText::save(const Ref<Resource> &p_resource, const String &p_path, uint32_t p_flags) {
+	if (p_path.has_extension("anim") && Ref<Animation>(p_resource).is_null()) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
+	if (p_path.has_extension("animtree") && Ref<AnimationRootNode>(p_resource).is_null()) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
+	if (p_path.get_extension().to_lower() == "skmesh" && Ref<PackedScene>(p_resource).is_null()) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
+	if (p_path.has_extension("sk") && Ref<SkeletonDefinition>(p_resource).is_null()) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
 	if (p_path.ends_with(".tscn") && Ref<PackedScene>(p_resource).is_null()) {
 		return ERR_FILE_UNRECOGNIZED;
 	}
 
+	if (Ref<SkeletonDefinition>(p_resource).is_valid()) {
+		Ref<SkeletonDefinition> definition = p_resource;
+		Error err = definition->prepare_for_save(p_path);
+		ERR_FAIL_COND_V(err != OK, err);
+		p_flags &= ~ResourceSaver::FLAG_BUNDLE_RESOURCES;
+	}
 	ResourceFormatSaverTextInstance saver;
 	return saver.save(p_path, p_resource, p_flags);
 }
 
 Error ResourceFormatSaverText::set_uid(const String &p_path, ResourceUID::ID p_uid) {
 	String lc = p_path.to_lower();
-	if (!lc.ends_with(".tscn") && !lc.ends_with(".tres")) {
+	if (!lc.ends_with(".tscn") && !lc.ends_with(".anim") && !lc.ends_with(".tres") && !lc.ends_with(".sk") && !lc.ends_with(".skmesh") && !lc.ends_with(".animtree")) {
 		return ERR_FILE_UNRECOGNIZED;
 	}
 
@@ -2232,7 +2305,17 @@ bool ResourceFormatSaverText::recognize(const Ref<Resource> &p_resource) const {
 void ResourceFormatSaverText::get_recognized_extensions(const Ref<Resource> &p_resource, List<String> *p_extensions) const {
 	if (Ref<PackedScene>(p_resource).is_valid()) {
 		p_extensions->push_back("tscn"); // Text scene.
+		p_extensions->push_back("skmesh");
 	} else {
+		if (Ref<Animation>(p_resource).is_valid()) {
+			p_extensions->push_back("anim");
+		}
+		if (Ref<AnimationRootNode>(p_resource).is_valid()) {
+			p_extensions->push_back("animtree");
+		}
+		if (Ref<SkeletonDefinition>(p_resource).is_valid()) {
+			p_extensions->push_back("sk");
+		}
 		p_extensions->push_back("tres"); // Text resource.
 	}
 }

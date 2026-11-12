@@ -2606,20 +2606,17 @@ void AnimationPlayerEditorPlugin::_update_dummy_player(AnimationMixer *p_mixer) 
 }
 
 bool AnimationPlayerEditorPlugin::handles(Object *p_object) const {
-	return p_object->is_class("AnimationPlayer") || p_object->is_class("AnimationTree") || p_object->is_class("AnimationMixer");
+	return false;
 }
 
 void AnimationPlayerEditorPlugin::make_visible(bool p_visible) {
-	if (p_visible) {
-		anim_editor->make_visible();
-		anim_editor->set_process(true);
-		anim_editor->ensure_visibility();
-	}
+	anim_editor->hide();
 }
 
 AnimationPlayerEditorPlugin::AnimationPlayerEditorPlugin() {
 	anim_editor = memnew(AnimationPlayerEditor(this));
-	EditorDockManager::get_singleton()->add_dock(anim_editor);
+	add_child(anim_editor);
+	anim_editor->hide();
 }
 
 AnimationPlayerEditorPlugin::~AnimationPlayerEditorPlugin() {

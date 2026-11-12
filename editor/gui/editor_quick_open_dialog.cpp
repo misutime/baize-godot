@@ -146,6 +146,9 @@ String EditorQuickOpenDialog::get_dialog_title(const Vector<StringName> &p_base_
 	if (p_base_types[0] == SNAME("PackedScene")) {
 		return TTR("Select Scene");
 	}
+	if (p_base_types[0] == SNAME("SkeletonDefinition")) {
+		return TTR("Select Skeleton");
+	}
 
 	return vformat(TTR("Select %s"), p_base_types[0]);
 }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="AnimationTreeEditorPlugin" inherits="EditorPlugin" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>Built-in central animation graph editor and storage operations.</brief_description>
+	<description>Edits scene-owned and shared animation graphs using native graph controls. Shared files retain a skeleton association for editor context. Each AnimationTree maintains its own playback parameters.</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="make_graph_embedded">
+			<return type="int" enum="Error" />
+			<param index="0" name="tree" type="AnimationTree" />
+			<description>Creates an embedded graph copy for this node and saves its owning scene.</description>
+		</method>
+		<method name="open_node_document">
+			<return type="void" />
+			<param index="0" name="tree" type="AnimationTree" />
+			<param index="1" name="activate" type="bool" default="true" />
+			<description>Opens the node's embedded graph or shared graph file in the central tab bar.</description>
+		</method>
+		<method name="save_shared_graph">
+			<return type="int" enum="Error" />
+			<param index="0" name="tree" type="AnimationTree" />
+			<param index="1" name="path" type="String" />
+			<description>Saves the current graph to a text .animtree file, records its skeleton association, and binds the node to the file. Saves the owning scene.</description>
+		</method>
+		<method name="use_shared_graph">
+			<return type="int" enum="Error" />
+			<param index="0" name="tree" type="AnimationTree" />
+			<param index="1" name="path" type="String" />
+			<description>Loads a shared graph, checks its skeleton association, and saves the new node binding in the owning scene.</description>
+		</method>
+	</methods>
+</class>

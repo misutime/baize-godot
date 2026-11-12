@@ -42,6 +42,27 @@
 
 EditorUndoRedoManager *EditorUndoRedoManager::singleton = nullptr;
 
+int EditorUndoRedoManager::create_document_history() {
+	const int history = next_document_history--;
+	get_or_create_history(history);
+	return history;
+}
+
+void EditorUndoRedoManager::register_document_object(Object *p_object, int p_history) {
+	document_objects[p_object->get_instance_id()] = p_history;
+}
+
+void EditorUndoRedoManager::remove_document_history(int p_history) {
+	discard_history(p_history);
+}
+
+void EditorUndoRedoManager::set_active_document_history(int p_history) {
+	if (active_document_history != p_history) {
+		active_document_history = p_history;
+		emit_signal(SNAME("history_changed"));
+	}
+}
+
 EditorUndoRedoManager::History &EditorUndoRedoManager::get_or_create_history(int p_idx) {
 	if (!history_map.has(p_idx)) {
 		History history;
@@ -61,6 +82,12 @@ UndoRedo *EditorUndoRedoManager::get_history_undo_redo(int p_idx) const {
 }
 
 int EditorUndoRedoManager::get_history_id_for_object(Object *p_object) const {
+	if (p_object) {
+		const int *document = document_objects.getptr(p_object->get_instance_id());
+		if (document) {
+			return *document;
+		}
+	}
 	int history_id = INVALID_HISTORY;
 
 	if (Object::cast_to<EditorDebuggerRemoteObjects>(p_object)) {
@@ -333,6 +360,9 @@ bool EditorUndoRedoManager::redo() {
 	if (!has_redo()) {
 		return false;
 	}
+	if (active_document_history != INVALID_HISTORY) {
+		return redo_history(active_document_history);
+	}
 
 	int selected_history = INVALID_HISTORY;
 	double global_timestamp = Math::INF;
@@ -423,6 +453,9 @@ bool EditorUndoRedoManager::is_history_unsaved(int p_id) {
 }
 
 bool EditorUndoRedoManager::has_undo() {
+	if (active_document_history != INVALID_HISTORY) {
+		return !get_or_create_history(active_document_history).undo_stack.is_empty();
+	}
 	for (const KeyValue<int, History> &E : history_map) {
 		if ((E.key == GLOBAL_HISTORY || E.key == REMOTE_HISTORY || E.key == EditorNode::get_editor_data().get_current_edited_scene_history_id()) && !E.value.undo_stack.is_empty()) {
 			return true;
@@ -432,6 +465,9 @@ bool EditorUndoRedoManager::has_undo() {
 }
 
 bool EditorUndoRedoManager::has_redo() {
+	if (active_document_history != INVALID_HISTORY) {
+		return !get_or_create_history(active_document_history).redo_stack.is_empty();
+	}
 	for (const KeyValue<int, History> &E : history_map) {
 		if ((E.key == GLOBAL_HISTORY || E.key == REMOTE_HISTORY || E.key == EditorNode::get_editor_data().get_current_edited_scene_history_id()) && !E.value.redo_stack.is_empty()) {
 			return true;
@@ -494,6 +530,18 @@ int EditorUndoRedoManager::get_current_action_history_id() {
 
 void EditorUndoRedoManager::discard_history(int p_idx, bool p_erase_from_map) {
 	ERR_FAIL_COND(!history_map.has(p_idx));
+	Vector<ObjectID> objects;
+	for (const KeyValue<ObjectID, int> &entry : document_objects) {
+		if (entry.value == p_idx) {
+			objects.push_back(entry.key);
+		}
+	}
+	for (ObjectID object : objects) {
+		document_objects.erase(object);
+	}
+	if (active_document_history == p_idx) {
+		active_document_history = INVALID_HISTORY;
+	}
 	History &history = history_map[p_idx];
 
 	if (history.undo_redo) {
@@ -507,6 +555,9 @@ void EditorUndoRedoManager::discard_history(int p_idx, bool p_erase_from_map) {
 }
 
 EditorUndoRedoManager::History *EditorUndoRedoManager::_get_newest_undo() {
+	if (active_document_history != INVALID_HISTORY) {
+		return &get_or_create_history(active_document_history);
+	}
 	History *selected_history = nullptr;
 	double global_timestamp = 0;
 

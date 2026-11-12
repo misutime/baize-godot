@@ -574,6 +574,7 @@ public:
 
 #ifdef TOOLS_ENABLED
 	String get_editor_error_message() const;
+	void clear_editor_validation_errors() { process_state.invalid_instances.clear(); }
 #endif
 
 	AnimationTree();

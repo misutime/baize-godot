@@ -22334,3 +22334,190 @@ msgstr "需要大于 0 的 FPS 才能换算为帧；当前显示秒。"
 
 msgid "Display times in seconds or frames. Frames use the animation's FPS; preview speed does not change frame numbers."
 msgstr "按秒或帧显示时间。帧数使用动画的编辑 FPS 换算，不受预览速度影响。"
+
+msgid "Update SKMesh from File..."
+msgstr "从文件更新 SKMesh…"
+
+msgid "Enable the Animation Workbench plugin to import external GLB assets. No GLB files were copied."
+msgstr "请启用动画工作区插件以导入外部 GLB 资产。未复制任何 GLB 文件。"
+
+msgid "Enable the Animation Workbench plugin to update a SKMesh."
+msgstr "请启用动画工作区插件以更新 SKMesh。"
+
+msgid "An animation tree has unsaved changes."
+msgstr "动画树有未保存的修改。"
+
+msgid "Save the current animation tree before continuing?"
+msgstr "保存当前动画树后继续？"
+
+msgid "Cannot save '%s': %s"
+msgstr "无法保存“%s”：%s"
+
+msgid "Skeleton"
+msgstr "骨骼"
+
+#: editor/gui/editor_quick_open_dialog.cpp
+msgid "Select Skeleton"
+msgstr "选择骨骼"
+
+msgid "Enable the animation workbench plugin to edit animation clips."
+msgstr "请启用动画工作区插件以编辑动画片段。"
+
+msgid "Save the owning scene before saving its animation tree."
+msgstr "请先为所属场景指定保存路径，再保存动画树。"
+
+msgid "Import GLB..."
+msgstr "导入 GLB…"
+
+msgid "Focus Model"
+msgstr "聚焦模型"
+
+msgid "Refresh Animations"
+msgstr "刷新动画"
+
+msgid "Clip Editing"
+msgstr "剪辑"
+
+msgid "Reset Pose"
+msgstr "重置 Pose"
+
+msgid "Reset Timeline"
+msgstr "重置时间轴"
+
+msgid "Selection Start"
+msgstr "选区起点"
+
+msgid "Selection End"
+msgstr "选区终点"
+
+msgid "Save Current Clip"
+msgstr "保存当前片段"
+
+msgid "Save Clip As..."
+msgstr "另存新片段…"
+
+msgid "Preview Model"
+msgstr "预览模型"
+
+msgid "Search skeleton animations"
+msgstr "搜索该骨骼的动画"
+
+msgid "Unsaved Animation"
+msgstr "动画有未保存的修改"
+
+msgid "Save the current animation before continuing?"
+msgstr "保存当前动画后继续？"
+
+msgid "Loop Preview"
+msgstr "循环播放"
+
+msgid "Skeleton Animations"
+msgstr "骨骼动画"
+
+msgid "Choose a preview model that uses this skeleton."
+msgstr "选择一个使用该骨骼的预览模型。"
+
+msgid "The preview model must use the current skeleton."
+msgstr "预览模型必须使用当前骨骼。"
+
+msgid "Clip editing requires uncompressed 3D pose or blend shape tracks."
+msgstr "剪辑支持未压缩的骨骼变换和 Blend Shape 轨道。"
+
+msgid "Animation save failed: %s"
+msgstr "动画保存失败 %s"
+
+msgid "Current clip saved."
+msgstr "已保存当前片段"
+
+msgid "Animation workbench has unsaved clip edits."
+msgstr "动画工作区有未保存的片段修改。"
+
+msgid "Choose a new clip filename and a skeleton."
+msgstr "请选择新的片段文件名和所属骨骼。"
+
+msgid "Import Model / Animation"
+msgstr "导入模型／动画"
+
+msgid "Import Model / Animation..."
+msgstr "导入模型／动画…"
+
+msgid "Import Assets"
+msgstr "导入新资产"
+
+msgid "External GLB"
+msgstr "外部 GLB"
+
+msgid "Project Destination"
+msgstr "项目目标目录"
+
+msgid "Update SKMesh"
+msgstr "从文件更新 SKMesh"
+
+msgid "Import Model"
+msgstr "导入模型"
+
+msgid "Import Animations"
+msgstr "导入动画"
+
+msgid "Create Skeleton"
+msgstr "创建新骨骼"
+
+msgid "Use Existing Skeleton"
+msgstr "使用已有骨骼"
+
+msgid "Import Sampling FPS"
+msgstr "导入采样 FPS"
+
+msgid "Choose an existing skeleton or create a new skeleton."
+msgstr "请选择已有骨骼或创建新骨骼。"
+
+msgid "Embedded in Scene"
+msgstr "场景内嵌"
+
+msgid "Shared Animation Graph"
+msgstr "共享动画图"
+
+msgid "Choose Shared Graph..."
+msgstr "选择共享动画图…"
+
+msgid "Save as Shared Graph..."
+msgstr "保存为共享动画图…"
+
+msgid "Make Embedded Copy"
+msgstr "转为内嵌副本"
+
+msgid "Animation Graph"
+msgstr "动画图"
+
+msgid "Edit Animation Graph"
+msgstr "编辑动画图"
+
+msgid "Change Animation Graph Binding"
+msgstr "更改动画图引用"
+
+msgid "Set Animation Graph Skeleton"
+msgstr "设置动画图骨骼"
+
+msgid "Open the graph from an AnimationTree node to change its binding."
+msgstr "请从 AnimationTree 节点打开动画图后更改引用。"
+
+msgid "The shared graph must use the same skeleton, and the owning scene must be saved."
+msgstr "共享动画图需要使用相同骨骼，请先保存所属场景。"
+
+msgid "Could not save the shared animation graph."
+msgstr "共享动画图保存失败。"
+
+msgid "Could not save the embedded animation graph."
+msgstr "内嵌动画图保存失败。"
+
+msgid "Pin Tab"
+msgstr "固定标签"
+
+msgid "Unpin Tab"
+msgstr "取消固定标签"
+
+msgid "Node Properties"
+msgstr "节点属性"
+
+msgid "Graph Properties"
+msgstr "图属性"

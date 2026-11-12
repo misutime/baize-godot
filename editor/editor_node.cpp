@@ -175,6 +175,7 @@
 #include "scene/main/window.h"
 #include "scene/property_utils.h"
 #include "scene/resources/3d/mesh_library.h"
+#include "scene/resources/animation_library.h"
 #include "scene/resources/dpi_texture.h"
 #include "scene/resources/image_texture.h"
 #include "scene/resources/packed_scene.h"
@@ -1936,6 +1937,14 @@ void EditorNode::save_resource_as(const Ref<Resource> &p_resource, const String 
 		preferred.move_to_back(res_element);
 	}
 
+	const String animation_extension = Ref<AnimationLibrary>(p_resource).is_valid() ? "animlib" : (Ref<Animation>(p_resource).is_valid() ? "anim" : "");
+	if (!animation_extension.is_empty()) {
+		List<String>::Element *animation_element = preferred.find(animation_extension);
+		if (animation_element) {
+			preferred.move_to_front(animation_element);
+		}
+	}
+
 	String resource_name_snake_case = p_resource->get_class().to_snake_case();
 	String new_resource_name_snake_case;
 	if (!preferred.is_empty()) {
@@ -2537,19 +2546,19 @@ static void _reset_animation_mixers(Node *p_node, List<Pair<AnimationMixer *, Re
 	}
 }
 
-void EditorNode::_save_scene(String p_file, int idx) {
-	ERR_FAIL_COND_MSG(!saving_scene.is_empty() && saving_scene == p_file, "Scene saved while already being saved!");
+Error EditorNode::_save_scene(String p_file, int idx, bool p_save_plugin_data) {
+	ERR_FAIL_COND_V_MSG(!saving_scene.is_empty() && saving_scene == p_file, ERR_BUSY, "Scene saved while already being saved!");
 
 	Node *scene = editor_data.get_edited_scene_root(idx);
 
 	if (!scene) {
 		show_warning(TTR("This operation can't be done without a tree root."));
-		return;
+		return ERR_CANT_CREATE;
 	}
 
 	if (!scene->get_scene_file_path().is_empty() && _validate_scene_recursive(scene->get_scene_file_path(), scene)) {
 		show_warning(TTR("This scene can't be saved because there is a cyclic instance inclusion.\nPlease resolve it and then attempt to save again."));
-		return;
+		return ERR_CANT_CREATE;
 	}
 
 	scene->propagate_notification(NOTIFICATION_EDITOR_PRE_SAVE);
@@ -2580,7 +2589,11 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	if (err != OK) {
 		show_warning(TTR("Couldn't save scene. Likely dependencies (instances or inheritance) couldn't be satisfied."));
-		return;
+		for (Pair<AnimationMixer *, Ref<AnimatedValuesBackup>> &E : anim_backups) {
+			E.first->restore(E.second);
+		}
+		scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
+		return err;
 	}
 
 	int flg = 0;
@@ -2597,7 +2610,9 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	_save_external_resources();
 	saving_scene = p_file; // Some editors may save scenes of built-in resources as external data, so avoid saving this scene again.
-	editor_data.save_editor_external_data();
+	if (p_save_plugin_data) {
+		editor_data.save_editor_external_data();
+	}
 	saving_scene = "";
 
 	for (Pair<AnimationMixer *, Ref<AnimatedValuesBackup>> &E : anim_backups) {
@@ -2631,6 +2646,7 @@ void EditorNode::_save_scene(String p_file, int idx) {
 
 	scene->propagate_notification(NOTIFICATION_EDITOR_POST_SAVE);
 	_update_unsaved_cache();
+	return err;
 }
 
 void EditorNode::save_all_scenes() {
@@ -2682,6 +2698,7 @@ void EditorNode::restart_editor(bool p_goto_project_manager) {
 }
 
 void EditorNode::_save_all_scenes() {
+	scene_tabs->save_documents();
 	scenes_to_save_as.clear(); // In case saving was canceled before.
 	for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
 		if (!is_scene_unsaved(i)) {
@@ -3482,6 +3499,9 @@ static String _get_unsaved_scene_dialog_text(String p_scene_filename, uint64_t p
 }
 
 void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
+	if (!p_confirmed && scene_tabs->handle_document_menu(p_option)) {
+		return;
+	}
 	if (!p_confirmed) { // FIXME: this may be a hack.
 		current_menu_option = (MenuOptions)p_option;
 	}
@@ -3531,21 +3551,11 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				}
 			}
 		} break;
-		case EditorSceneTabs::SCENE_CLOSE_OTHERS: {
-			tab_closing_menu_option = -1;
-			int option_tab = scene_tabs->get_option_tab();
-			for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
-				if (i == option_tab) {
-					continue;
-				}
-				tabs_to_close.push_back(editor_data.get_scene_path(i));
-			}
-			_proceed_closing_scene_tabs();
-		} break;
+		case EditorSceneTabs::SCENE_CLOSE_OTHERS:
 		case EditorSceneTabs::SCENE_CLOSE_RIGHT: {
 			tab_closing_menu_option = -1;
-			for (int i = scene_tabs->get_option_tab() + 1; i < editor_data.get_edited_scene_count(); i++) {
-				tabs_to_close.push_back(editor_data.get_scene_path(i));
+			for (int scene : scene_tabs->get_scene_tabs_to_close(p_option)) {
+				tabs_to_close.push_back(editor_data.get_scene_path(scene));
 			}
 			_proceed_closing_scene_tabs();
 		} break;
@@ -4387,7 +4397,12 @@ void EditorNode::_discard_changes(const String &p_str) {
 }
 
 void EditorNode::_update_file_menu_opened() {
-	bool has_unsaved = false;
+	const bool resource_document = !scene_tabs->get_active_document().is_empty();
+	file_menu->set_item_disabled(file_menu->get_item_index(SCENE_SAVE_AS_SCENE), !scene_tabs->can_save_document_as());
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_SAVE_SCENE), resource_document ? TTR("Save") : TTR("Save Scene"));
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_SAVE_AS_SCENE), resource_document ? TTR("Save As...") : TTR("Save Scene As..."));
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_CLOSE), resource_document ? TTR("Close Tab") : TTR("Close Scene"));
+	bool has_unsaved = scene_tabs->has_modified_documents();
 	for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
 		if (is_scene_unsaved(i)) {
 			has_unsaved = true;
@@ -5101,6 +5116,10 @@ Error EditorNode::load_scene(const String &p_scene, bool p_ignore_broken_deps, b
 Error EditorNode::open_scene(const String &p_scene, bool p_ignore_broken_deps, bool p_set_inherited, bool p_force_open_imported) {
 	if (!is_inside_tree()) {
 		defer_load_scene = p_scene;
+		return OK;
+	}
+
+	if (scene_tabs->request_scene_action(callable_mp(this, &EditorNode::open_scene).bind(p_scene, p_ignore_broken_deps, p_set_inherited, p_force_open_imported))) {
 		return OK;
 	}
 
@@ -6478,6 +6497,7 @@ void EditorNode::_save_open_scenes_to_config(Ref<ConfigFile> p_layout) {
 
 	String currently_edited_scene_path = editor_data.get_scene_path(editor_data.get_edited_scene());
 	p_layout->set_value(EDITOR_NODE_CONFIG_SECTION, "current_scene", currently_edited_scene_path);
+	scene_tabs->save_layout_to_config(p_layout);
 }
 
 void EditorNode::save_editor_layout_delayed() {
@@ -6521,6 +6541,7 @@ void EditorNode::_load_editor_layout() {
 
 		ep.step(TTR("Loading plugin window layout..."), 4, true);
 		editor_data.set_plugin_window_layout(config);
+		scene_tabs->restore_layout_from_config(config);
 
 		ep.step(TTR("Editor layout ready."), 5, true);
 	}
@@ -6864,6 +6885,7 @@ void EditorNode::_layout_menu_option(int p_id) {
 void EditorNode::_proceed_closing_scene_tabs() {
 	List<String>::Element *E = tabs_to_close.front();
 	if (!E) {
+		scene_tabs->finish_closing_tabs();
 		if (_is_closing_editor()) {
 			current_menu_option = tab_closing_menu_option;
 			_menu_option_confirm(tab_closing_menu_option, true);
@@ -6995,6 +7017,7 @@ void EditorNode::_scene_tab_closed(int p_tab) {
 }
 
 void EditorNode::_cancel_close_scene_tab() {
+	scene_tabs->cancel_closing_tabs();
 	if (_is_closing_editor()) {
 		tab_closing_menu_option = -1;
 	}
@@ -7015,8 +7038,7 @@ void EditorNode::_prepare_save_confirmation_popup() {
 
 void EditorNode::_toggle_distraction_free_mode() {
 	if (EDITOR_GET("interface/editor/behavior/separate_distraction_mode")) {
-		Control *screen = editor_main_screen->get_current_tab_control();
-		if (screen == ScriptEditor::get_singleton()) {
+		if (ScriptEditor::get_singleton()->is_visible_in_tree()) {
 			script_distraction_free = !script_distraction_free;
 			set_distraction_free_mode(script_distraction_free);
 		} else {
@@ -7032,8 +7054,7 @@ void EditorNode::update_distraction_free_mode() {
 	if (!EDITOR_GET("interface/editor/behavior/separate_distraction_mode")) {
 		return;
 	}
-	Control *screen = editor_main_screen->get_current_tab_control();
-	if (screen == ScriptEditor::get_singleton()) {
+	if (ScriptEditor::get_singleton()->is_visible_in_tree()) {
 		set_distraction_free_mode(script_distraction_free);
 	} else {
 		set_distraction_free_mode(scene_distraction_free);
@@ -7210,9 +7231,25 @@ void EditorNode::_dropped_files(const Vector<String> &p_files) {
 	if (to_path.is_empty()) {
 		to_path = FileSystemDock::get_singleton()->get_current_directory();
 	}
+	Vector<String> glb_files;
+	Vector<String> other_files;
+	for (const String &path : p_files) {
+		if (path.get_extension().to_lower() == "glb" && FileAccess::exists(path)) {
+			glb_files.push_back(path);
+		} else {
+			other_files.push_back(path);
+		}
+	}
+	if (!glb_files.is_empty()) {
+		EditorInterface *editor_interface = EditorInterface::get_singleton();
+		editor_interface->emit_signal(SNAME("animation_asset_files_dropped"), glb_files, ProjectSettings::get_singleton()->localize_path(to_path));
+	}
+	if (other_files.is_empty()) {
+		return;
+	}
 	to_path = ProjectSettings::get_singleton()->globalize_path(to_path);
 
-	_add_dropped_files_recursive(p_files, to_path);
+	_add_dropped_files_recursive(other_files, to_path);
 
 	EditorFileSystem::get_singleton()->scan_changes();
 }
@@ -8022,7 +8059,7 @@ void EditorNode::_feature_profile_changed() {
 		editor_dock_manager->set_dock_enabled(history_dock, !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_HISTORY_DOCK));
 
 		editor_dock_manager->set_dock_enabled(Node3DEditor::get_singleton(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_3D));
-		editor_dock_manager->set_dock_enabled(ScriptEditor::get_singleton(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_SCRIPT));
+		ScriptEditorPlugin::get_singleton()->set_workspace_enabled(!profile->is_feature_disabled(EditorFeatureProfile::FEATURE_SCRIPT));
 		if (!Engine::get_singleton()->is_recovery_mode_hint()) {
 			editor_dock_manager->set_dock_enabled(GameView::get_dock(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_GAME));
 		}
@@ -8036,7 +8073,7 @@ void EditorNode::_feature_profile_changed() {
 		editor_dock_manager->set_dock_enabled(FileSystemDock::get_singleton(), true);
 		editor_dock_manager->set_dock_enabled(history_dock, true);
 		editor_dock_manager->set_dock_enabled(Node3DEditor::get_singleton(), true);
-		editor_dock_manager->set_dock_enabled(ScriptEditor::get_singleton(), true);
+		ScriptEditorPlugin::get_singleton()->set_workspace_enabled(true);
 		if (!Engine::get_singleton()->is_recovery_mode_hint() && GameView::get_dock()) {
 			editor_dock_manager->set_dock_enabled(GameView::get_dock(), true);
 		}
@@ -9850,7 +9887,6 @@ EditorNode::EditorNode() {
 	{
 		const String _2d_key = CanvasItemEditor::get_singleton()->get_effective_layout_key();
 		const String _3d_key = Node3DEditor::get_singleton()->get_effective_layout_key();
-		const String script_key = ScriptEditor::get_singleton()->get_effective_layout_key();
 		String game_key;
 		if (GameView::get_dock()) {
 			game_key = GameView::get_dock()->get_effective_layout_key();
@@ -9859,7 +9895,7 @@ EditorNode::EditorNode() {
 		if (AssetLibraryEditorPlugin::get_library()) {
 			asset_lib_key = AssetLibraryEditorPlugin::get_library()->get_effective_layout_key();
 		}
-		default_layout->set_value(docks_section, DockTabContainer::get_config_key(EditorDock::DOCK_SLOT_MAIN_SCREEN), vformat("%s,%s,%s,%s,%s", _2d_key, _3d_key, script_key, game_key, asset_lib_key));
+		default_layout->set_value(docks_section, DockTabContainer::get_config_key(EditorDock::DOCK_SLOT_MAIN_SCREEN), vformat("%s,%s,%s,%s", _2d_key, _3d_key, game_key, asset_lib_key));
 	}
 
 	int hsplits[] = { 0, dock_hsize, -dock_hsize, 0 };

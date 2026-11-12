@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SkeletonDefinition" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A named bone hierarchy and reference pose shared by 3D animation assets.
+	</brief_description>
+	<description>
+		Stores bone names, parent indices, local rest transforms, and an embedded shared [AnimationLibrary] in a text [code].sk[/code] resource. Create one from [method Skeleton3D.create_skeleton_definition] or export it from the Skeleton3D editor menu. [member Animation.skeleton] associates an animation with this definition.
+		Preview scene references are soft references resolved through the scene UID when available. Loading a skeleton definition does not load its preview model. Compatibility reports do not change bones or perform retargeting.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_animation_library" qualifiers="const">
+			<return type="AnimationLibrary" />
+			<description>Returns the embedded shared animation library, creating it if necessary. Save this skeleton after changing the collection.</description>
+		</method>
+		<method name="compare" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="other" type="SkeletonDefinition" />
+			<param index="1" name="tolerance" type="float" default="0.0001" />
+			<description>
+				Compares bones by name, independently of their stored index order. Returns [code]compatible[/code], [code]hierarchy_matches[/code], [code]missing_bones[/code], [code]extra_bones[/code], [code]parent_mismatches[/code], and [code]rest_mismatches[/code]. Bone lists are [PackedStringArray] values relative to this definition. Empty definitions are incompatible.
+				Compatibility requires identical names, parent relationships, and rest transforms within [param tolerance]. The tolerance is an absolute per-component difference for local position and Basis values. Scene root transforms and animation track paths are outside this comparison.
+			</description>
+		</method>
+		<method name="find_bone" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>Returns the named bone's index, or [code]-1[/code] if absent.</description>
+		</method>
+		<method name="get_bone_count" qualifiers="const">
+			<return type="int" />
+			<description>Returns the number of bones.</description>
+		</method>
+		<method name="get_bone_name" qualifiers="const">
+			<return type="StringName" />
+			<param index="0" name="index" type="int" />
+			<description>Returns the bone name at [param index].</description>
+		</method>
+		<method name="get_bone_parent" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>Returns the parent index, or [code]-1[/code] for a root bone.</description>
+		</method>
+		<method name="get_bone_rest" qualifiers="const">
+			<return type="Transform3D" />
+			<param index="0" name="index" type="int" />
+			<description>Returns the parent-relative rest transform.</description>
+		</method>
+		<method name="set_bones">
+			<return type="int" enum="Error" />
+			<param index="0" name="bones" type="Dictionary[]" />
+			<description>
+				Replaces all bones atomically. Every dictionary must contain [code]name[/code] ([String] or [StringName]), [code]parent[/code] ([int]), and [code]rest[/code] ([Transform3D]). Returns [constant OK] on success or [constant ERR_INVALID_DATA] for duplicate or empty names, names containing [code]:[/code] or [code]/[/code], invalid parents, cycles, or non-finite transforms. The input dictionaries are copied. Parent indices may appear after their children.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="animation_library" type="AnimationLibrary" setter="set_animation_library" getter="_get_stored_animation_library">
+			The embedded shared animation collection. Use [method get_animation_library] to obtain or initialize it. Clips remain standalone resources. Generated AnimationPlayers derive their default library from this skeleton instead of serializing a copy.
+		</member>
+		<member name="bones" type="Dictionary[]" setter="_set_bones" getter="get_bones" default="[]">
+			A read-only snapshot of the bone hierarchy and rest transforms. Use [method set_bones] to replace the complete definition.
+		</member>
+		<member name="preview_mesh" type="String" setter="set_preview_mesh" getter="get_preview_mesh" default="&quot;&quot;">
+			Soft reference to the default [PackedScene] ([code].skmesh[/code]) used to preview animations. Resolved by UID when available. The preview model is loaded when opening the animation asset workspace.
+		</member>
+	</members>
+</class>

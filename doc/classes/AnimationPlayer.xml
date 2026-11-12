@@ -292,6 +292,9 @@
 		</method>
 	</methods>
 	<members>
+		<member name="skeleton_definition" type="SkeletonDefinition" setter="set_skeleton_definition" getter="get_skeleton_definition">
+			When assigned, the player's default animation library comes from this skeleton's embedded library. The shared library is not duplicated into the scene. Ordinary players may leave this unset and continue using standalone animation libraries.
+		</member>
 		<member name="assigned_animation" type="StringName" setter="set_assigned_animation" getter="get_assigned_animation">
 			If playing, the current animation's key, otherwise, the animation last played. When set, this changes the animation, but will not play it unless already playing. See also [member current_animation].
 		</member>

@@ -51,6 +51,8 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/2d/node_2d.h"
+#include "scene/animation/animation_player.h"
+#include "scene/animation/animation_tree.h"
 #include "scene/gui/check_box.h"
 #include "scene/gui/check_button.h"
 #include "scene/gui/flow_container.h"
@@ -504,9 +506,9 @@ void SceneTreeEditor::_update_node(Node *p_node, TreeItem *p_item, bool p_part_o
 
 	p_item->set_text(0, p_node->get_name());
 	p_item->set_text_overrun_behavior(0, TextServer::OVERRUN_NO_TRIMMING);
-	if (can_rename && !p_part_of_subscene) {
-		p_item->set_editable(0, true);
-	}
+	// Animation nodes reserve mouse activation for their document editors.
+	const bool animation_node = Object::cast_to<AnimationPlayer>(p_node) || Object::cast_to<AnimationTree>(p_node);
+	p_item->set_editable(0, can_rename && !p_part_of_subscene && !animation_node);
 
 	if (can_rename) {
 		bool collapsed = p_node->is_displayed_folded();

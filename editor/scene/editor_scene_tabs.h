@@ -33,6 +33,7 @@
 #include "scene/gui/margin_container.h"
 
 class Button;
+class ConfigFile;
 class HBoxContainer;
 class MenuButton;
 class Panel;
@@ -56,6 +57,7 @@ public:
 		SCENE_CLOSE,
 		SCENE_CLOSE_OTHERS,
 		SCENE_CLOSE_RIGHT,
+		DOCUMENT_TOGGLE_PIN,
 	};
 
 private:
@@ -71,12 +73,49 @@ private:
 	Panel *tab_preview_panel = nullptr;
 	TextureRect *tab_preview = nullptr;
 
-	int last_hovered_tab = -1;
+	String context_tab;
+	String tab_to_keep_after_close;
+	Vector<String> tab_order;
+	HashSet<String> pinned_tabs;
+	bool restoring_documents = false;
+	int _scene_index(int p_tab) const;
+	int _scene_tab(int p_scene) const;
+	int _current_tab() const;
+	int _context_tab() const;
+	String _scene_key(int p_scene) const;
+	void _sync_tab_order();
+	void _save_layout_delayed();
+	struct ResourceDocument {
+		String path;
+		String title;
+		Ref<Texture2D> icon;
+		Callable activate;
+		Callable save;
+		Callable save_as;
+		Callable close;
+		Callable navigate;
+		bool modified = false;
+	};
+	Vector<ResourceDocument> documents;
+	String active_document;
+	int _find_document(const String &p_path) const;
+	int _document_index(int p_tab) const;
+	void _activate_document(const String &p_path);
+	void _activate_scene(int p_scene);
+	void _request_navigation(const Callable &p_action);
+	void _remove_document(const String &p_path);
+	void _request_document_close(const String &p_path, const Callable &p_action);
+	void _menu_option(int p_option);
+	void _run_scene_action(const Callable &p_action);
+	void _close_documents(const PackedStringArray &p_paths, const Callable &p_after_close);
+	void _close_document_and_continue(const String &p_path, const PackedStringArray &p_remaining, const Callable &p_after_close);
+	void _close_scene_documents(int p_option);
 
 	void _update_visibility();
 	void _scene_tab_changed(int p_tab);
 	void _scene_tab_script_edited(int p_tab);
 	void _scene_tab_closed(int p_tab);
+	void _close_scene_tab(int p_scene);
 	void _scene_tab_hovered(int p_tab);
 	void _scene_tab_exit();
 	void _scene_tab_input(const Ref<InputEvent> &p_input);
@@ -113,6 +152,22 @@ public:
 	int get_option_tab() const;
 
 	void update_scene_tabs();
+	void open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document);
+	void remove_document(const String &p_path);
+	void set_document_modified(const String &p_path, bool p_modified);
+	String get_active_document() const { return active_document; }
+	bool handle_document_menu(int p_option);
+	bool request_scene_action(const Callable &p_action);
+	bool has_modified_documents() const;
+	bool can_save_document_as() const;
+	void save_documents();
+	Vector<int> get_scene_tabs_to_close(int p_option) const;
+	void finish_closing_tabs();
+	void cancel_closing_tabs() { tab_to_keep_after_close = String(); }
+	void save_layout_to_config(const Ref<ConfigFile> &p_config);
+	void restore_layout_from_config(const Ref<ConfigFile> &p_config);
+	void set_tab_pinned(int p_tab, bool p_pinned);
+	bool is_tab_pinned(int p_tab) const;
 
 	EditorSceneTabs();
 };

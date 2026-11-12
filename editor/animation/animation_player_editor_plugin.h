@@ -312,8 +312,8 @@ protected:
 	void _update_keying();
 
 public:
-	virtual Dictionary get_state() const override { return anim_editor->get_state(); }
-	virtual void set_state(const Dictionary &p_state) override { anim_editor->set_state(p_state); }
+	virtual Dictionary get_state() const override { return Dictionary(); }
+	virtual void set_state(const Dictionary &p_state) override {}
 	virtual void clear() override { anim_editor->clear(); }
 
 	virtual String get_plugin_name() const override { return "Anim"; }

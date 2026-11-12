@@ -2715,6 +2715,11 @@ void FileSystemDock::_file_option(int p_option, const Vector<String> &p_selected
 		case FILE_MENU_REIMPORT: {
 			ImportDock::get_singleton()->reimport_resources(p_selected);
 		} break;
+		case FILE_MENU_UPDATE_SKMESH: {
+			ERR_FAIL_COND(p_selected.size() != 1 || !p_selected[0].has_extension("skmesh"));
+			EditorInterface *editor_interface = EditorInterface::get_singleton();
+			editor_interface->emit_signal(SNAME("skeletal_mesh_update_requested"), p_selected[0]);
+		} break;
 
 		case FILE_MENU_NEW_FOLDER: {
 			String directory = current_path;
@@ -3069,12 +3074,22 @@ void FileSystemDock::remove_resource_tooltip_plugin(const Ref<EditorResourceTool
 }
 
 String FileSystemDock::get_folder_path_at_mouse_position() const {
-	TreeItem *item = tree->get_item_at_position(tree->get_local_mouse_position());
-	if (!item) {
+	String path;
+	if (tree->is_visible_in_tree() && Rect2(Vector2(), tree->get_size()).has_point(tree->get_local_mouse_position())) {
+		TreeItem *item = tree->get_item_at_position(tree->get_local_mouse_position());
+		if (item) {
+			path = item->get_metadata(0);
+		}
+	} else if (files->is_visible_in_tree() && Rect2(Vector2(), files->get_size()).has_point(files->get_local_mouse_position())) {
+		const int index = files->get_item_at_position(files->get_local_mouse_position(), true);
+		if (index >= 0) {
+			path = files->get_item_metadata(index);
+		}
+	}
+	if (!path.begins_with("res://")) {
 		return String();
 	}
-	String fpath = item->get_metadata(0);
-	return fpath.get_base_dir();
+	return DirAccess::dir_exists_absolute(path) ? path : path.get_base_dir();
 }
 
 Control *FileSystemDock::create_tooltip_for_path(const String &p_path) const {
@@ -3699,6 +3714,9 @@ void FileSystemDock::_file_and_folders_fill_popup(PopupMenu *p_popup, const Vect
 
 	if (single_path) {
 		const String &fpath = p_paths[0];
+		if (fpath.has_extension("skmesh")) {
+			p_popup->add_icon_item(get_editor_theme_icon(SNAME("Load")), TTR("Update SKMesh from File..."), FILE_MENU_UPDATE_SKMESH);
+		}
 
 		[[maybe_unused]] bool added_separator = false;
 

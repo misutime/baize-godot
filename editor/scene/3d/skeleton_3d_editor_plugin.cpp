@@ -451,6 +451,9 @@ void Skeleton3DEditor::_on_click_skeleton_option(int p_skeleton_option) {
 		case SKELETON_OPTION_EXPORT_SKELETON_PROFILE: {
 			export_skeleton_profile();
 		} break;
+		case SKELETON_OPTION_EXPORT_SKELETON_DEFINITION: {
+			export_skeleton_definition();
+		} break;
 	}
 }
 
@@ -689,6 +692,7 @@ PhysicalBone3D *Skeleton3DEditor::create_physical_bone(int bone_id, int bone_chi
 }
 
 void Skeleton3DEditor::export_skeleton_profile() {
+	exporting_skeleton_definition = false;
 	if (!skeleton->get_bone_count()) {
 		EditorNode::get_singleton()->show_warning(vformat(TTR("Cannot export a SkeletonProfile for a Skeleton3D node with no bones.")));
 		return;
@@ -696,6 +700,7 @@ void Skeleton3DEditor::export_skeleton_profile() {
 
 	file_dialog->set_file_mode(EditorFileDialog::FILE_MODE_SAVE_FILE);
 	file_dialog->set_title(TTR("Export Skeleton Profile As..."));
+	file_dialog->set_current_file(String(skeleton->get_name()).validate_filename() + ".tres");
 
 	List<String> exts;
 	ResourceLoader::get_recognized_extensions_for_type("SkeletonProfile", &exts);
@@ -707,7 +712,39 @@ void Skeleton3DEditor::export_skeleton_profile() {
 	file_dialog->popup_file_dialog();
 }
 
+void Skeleton3DEditor::export_skeleton_definition() {
+	if (!skeleton->get_bone_count()) {
+		EditorNode::get_singleton()->show_warning(TTR("Cannot export a skeleton definition with no bones."));
+		return;
+	}
+	exporting_skeleton_definition = true;
+	file_dialog->set_file_mode(EditorFileDialog::FILE_MODE_SAVE_FILE);
+	file_dialog->set_title(TTR("Export Skeleton Resource"));
+	file_dialog->clear_filters();
+	file_dialog->add_filter("*.sk", "SkeletonDefinition");
+	file_dialog->set_current_file(String(skeleton->get_name()).validate_filename() + ".sk");
+	file_dialog->popup_file_dialog();
+}
+
 void Skeleton3DEditor::_file_selected(const String &p_file) {
+	if (exporting_skeleton_definition) {
+		Ref<SkeletonDefinition> definition = skeleton->create_skeleton_definition();
+		ERR_FAIL_COND(definition.is_null());
+		// Use the nearest saved model scene. Keep this a soft reference to avoid cycles.
+		for (Node *root = skeleton; root; root = root->get_parent()) {
+			if (!root->get_scene_file_path().is_empty()) {
+				if (root->get_scene_file_path().has_extension("skmesh")) {
+					definition->set_preview_mesh(root->get_scene_file_path());
+				}
+				break;
+			}
+		}
+		Error err = ResourceSaver::save(definition, p_file);
+		if (err != OK) {
+			EditorNode::get_singleton()->show_warning(vformat(TTR("Failed to save skeleton resource. Error %s."), error_names[err]));
+		}
+		return;
+	}
 	// Export SkeletonProfile.
 	Ref<SkeletonProfile> sp(memnew(SkeletonProfile));
 
@@ -1135,6 +1172,7 @@ void Skeleton3DEditor::create_editors() {
 	p->add_shortcut(ED_SHORTCUT("skeleton_3d_editor/selected_poses_to_rests", TTRC("Apply Selected Poses to Rests")), SKELETON_OPTION_SELECTED_POSES_TO_RESTS);
 	p->add_item(TTR("Create Physical Skeleton"), SKELETON_OPTION_CREATE_PHYSICAL_SKELETON);
 	p->add_item(TTR("Export Skeleton Profile"), SKELETON_OPTION_EXPORT_SKELETON_PROFILE);
+	p->add_item(TTR("Export Skeleton Resource"), SKELETON_OPTION_EXPORT_SKELETON_DEFINITION);
 
 	p->connect(SceneStringName(id_pressed), callable_mp(this, &Skeleton3DEditor::_on_click_skeleton_option));
 	set_bone_options_enabled(false);

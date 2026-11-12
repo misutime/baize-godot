@@ -152,6 +152,9 @@ protected:
 	virtual void _validate_property(PropertyInfo &p_property) const override;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
 	void _notification(int p_what);
+	Ref<SkeletonDefinition> skeleton_definition;
+	void _sync_skeleton_library();
+	bool _is_library_derived(const StringName &p_name) const override;
 
 	static void _bind_methods();
 
@@ -260,6 +263,8 @@ public:
 	virtual void advance(double p_time) override;
 
 	AnimationPlayer();
+	void set_skeleton_definition(const Ref<SkeletonDefinition> &p_definition);
+	Ref<SkeletonDefinition> get_skeleton_definition() const;
 	~AnimationPlayer();
 };
 

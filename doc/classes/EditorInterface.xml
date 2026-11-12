@@ -19,6 +19,70 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="open_editor_document">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="title" type="String" />
+			<param index="2" name="icon" type="Texture2D" />
+			<param index="3" name="activate" type="Callable" />
+			<param index="4" name="save" type="Callable" />
+			<param index="5" name="close" type="Callable" />
+			<param index="6" name="navigate" type="Callable" />
+			<param index="7" name="save_as" type="Callable" default="Callable()" />
+			<param index="8" name="activate_document" type="bool" default="true" />
+			<description>
+				Opens or activates a resource document in the native scene tab row, deduplicated by [param path]. The provider supplies activation, save, close, and optional save-as callbacks. The [param navigate] callback receives a continuation [Callable]. Call it after accepting navigation, or leave it uncalled to cancel. The provider remains responsible for reporting unsaved data and saving it on editor exit through [EditorPlugin].
+				Scene and resource tabs can be freely reordered together. Their order and active document are restored with the editor layout when scene restoration is enabled. Pass [code]false[/code] for [param activate_document] to register a background document, including in response to [signal editor_document_restore_requested].
+			</description>
+		</method>
+		<method name="remove_editor_document">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<description>Unregisters a document during provider cleanup, bypassing navigation and close callbacks. Use the tab's close action for ordinary user-requested closure.</description>
+		</method>
+		<method name="set_editor_document_modified">
+			<return type="void" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="modified" type="bool" />
+			<description>Updates the document tab's unsaved marker and Save All availability.</description>
+		</method>
+		<method name="get_active_editor_document" qualifiers="const">
+			<return type="String" />
+			<description>Returns the active resource document path, or an empty string when a scene document is active.</description>
+		</method>
+		<method name="activate_scene_document">
+			<return type="void" />
+			<description>Requests activation of the current scene document. The active resource provider can save, discard, or cancel before navigation continues.</description>
+		</method>
+
+		<method name="set_3d_asset_workspace">
+			<return type="void" />
+			<param index="0" name="workspace" type="Control" />
+			<description>Installs a complete resource workspace in the central 3D editor. Pass [code]null[/code] to detach it during plugin cleanup. Register resource tabs with [method open_editor_document].</description>
+		</method>
+		<method name="show_3d_asset_workspace">
+			<return type="void" />
+			<param index="0" name="show" type="bool" />
+			<description>Switches the central 3D editor between its installed asset workspace and normal scene controls.</description>
+		</method>
+
+		<method name="update_skeletal_mesh">
+			<return type="Dictionary" />
+			<param index="0" name="source" type="String" />
+			<param index="1" name="target" type="String" />
+			<description>
+				Updates the Meshes subtree of a specified existing SKMesh from an external GLB. Requires matching skeleton names, hierarchy and rest transforms. Preserves the skeleton, scene root settings, AnimationPlayer libraries and AnimationTree configuration. Does not import animation clips or store the source path. Returns the same result structure as [method import_animation_assets]. Save scene edits before updating the model file.
+			</description>
+		</method>
+		<method name="import_animation_assets">
+			<return type="Dictionary" />
+			<param index="0" name="source" type="String" />
+			<param index="1" name="destination" type="String" />
+			<param index="2" name="settings" type="Dictionary" default="{}" />
+			<description>
+				Imports an external GLB into standalone assets in a project directory without copying the source. Settings support [code]animation_only[/code], [code]import_animations[/code], [code]skeleton[/code], and [code]fps[/code]. Returns [code]error[/code], [code]message[/code], and generated asset paths in [code]metadata[/code]. Each invocation creates new assets with numbered names when necessary. No source association is stored and existing clips are never overwritten. Animation-only import requires a skeleton. Non-skeletal models become ordinary [PackedScene] resources.
+			</description>
+		</method>
 		<method name="add_root_node">
 			<return type="void" />
 			<param index="0" name="node" type="Node" />
@@ -498,6 +562,13 @@
 				Saves the currently active scene as a file at [param path].
 			</description>
 		</method>
+		<method name="save_scene_root">
+			<return type="int" enum="Error" />
+			<param index="0" name="root" type="Node" />
+			<description>
+				Saves the open scene identified by [param root], including an inactive scene that owns an animation document. The scene must already have a file path. Returns the actual save result and leaves the active document unchanged. Plugin external-data callbacks are skipped to avoid recursively saving the same document.
+			</description>
+		</method>
 		<method name="select_file">
 			<return type="void" />
 			<param index="0" name="file" type="String" />
@@ -554,4 +625,31 @@
 			If [code]true[/code], the Movie Maker mode is enabled in the editor. See [MovieWriter] for more information.
 		</member>
 	</members>
+	<signals>
+		<signal name="animation_player_editor_requested">
+			<param index="0" name="player" type="AnimationPlayer" />
+			<description>Emitted when an AnimationPlayer is activated in the scene tree. The animation workbench opens its central document using this player and its owning scene.</description>
+		</signal>
+		<signal name="editor_document_selected">
+			<param index="0" name="path" type="String" />
+			<description>Emitted after resource document navigation is accepted and before its provider activates the workspace. Other providers can suspend their scene editing controls in response.</description>
+		</signal>
+		<signal name="editor_document_restore_requested">
+			<param index="0" name="path" type="String" />
+			<description>Requests registration of a saved resource document during editor layout restoration. Providers should register supported files through [method open_editor_document] with [code]activate_document = false[/code]. The editor restores the mixed order and then activates the saved document. Missing files and documents without an enabled provider are skipped.</description>
+		</signal>
+		<signal name="scene_document_selected">
+			<description>Emitted when scene document activation is accepted, including returning from a resource document to the current scene. Resource workspaces should restore scene controls in response.</description>
+		</signal>
+
+		<signal name="animation_asset_files_dropped">
+			<param index="0" name="files" type="PackedStringArray" />
+			<param index="1" name="destination" type="String" />
+			<description>Requests an independent asset import for external GLB files dropped into the editor. Files are not copied. Destination is the filesystem folder under the pointer, or the current directory.</description>
+		</signal>
+		<signal name="skeletal_mesh_update_requested">
+			<param index="0" name="path" type="String" />
+			<description>Requests an explicit SKMesh update from the filesystem context menu. The selected asset is the target; the user must choose an external input file.</description>
+		</signal>
+	</signals>
 </class>

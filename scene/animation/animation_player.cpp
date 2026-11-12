@@ -109,6 +109,46 @@ bool AnimationPlayer::_get(const StringName &p_name, Variant &r_ret) const {
 	return true;
 }
 
+void AnimationPlayer::_sync_skeleton_library() {
+	if (skeleton_definition.is_null()) {
+		return;
+	}
+	Ref<AnimationLibrary> library = skeleton_definition->get_animation_library();
+	if (library.is_null()) {
+		return;
+	}
+	if (has_animation_library(StringName())) {
+		if (get_animation_library(StringName()) == library) {
+			return;
+		}
+		remove_animation_library(StringName());
+	}
+	add_animation_library(StringName(), library);
+}
+
+void AnimationPlayer::set_skeleton_definition(const Ref<SkeletonDefinition> &p_definition) {
+	if (skeleton_definition == p_definition) {
+		return;
+	}
+	if (skeleton_definition.is_valid()) {
+		skeleton_definition->disconnect_changed(callable_mp(this, &AnimationPlayer::_sync_skeleton_library));
+	}
+	skeleton_definition = p_definition;
+	if (skeleton_definition.is_valid()) {
+		skeleton_definition->connect_changed(callable_mp(this, &AnimationPlayer::_sync_skeleton_library));
+	}
+	_sync_skeleton_library();
+	notify_property_list_changed();
+}
+
+Ref<SkeletonDefinition> AnimationPlayer::get_skeleton_definition() const {
+	return skeleton_definition;
+}
+
+bool AnimationPlayer::_is_library_derived(const StringName &p_name) const {
+	return p_name == StringName() && skeleton_definition.is_valid() && has_animation_library(p_name) && get_animation_library(p_name) == skeleton_definition->get_animation_library();
+}
+
 void AnimationPlayer::_validate_property(PropertyInfo &p_property) const {
 	if (Engine::get_singleton()->is_editor_hint() && p_property.name == "current_animation") {
 		List<String> names;
@@ -1011,6 +1051,9 @@ void AnimationPlayer::_rename_animation(const StringName &p_from_name, const Str
 }
 
 void AnimationPlayer::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_skeleton_definition", "skeleton"), &AnimationPlayer::set_skeleton_definition);
+	ClassDB::bind_method(D_METHOD("get_skeleton_definition"), &AnimationPlayer::get_skeleton_definition);
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "skeleton_definition", PROPERTY_HINT_RESOURCE_TYPE, "SkeletonDefinition"), "set_skeleton_definition", "get_skeleton_definition");
 	ClassDB::bind_method(D_METHOD("animation_set_next", "animation_from", "animation_to"), &AnimationPlayer::animation_set_next);
 	ClassDB::bind_method(D_METHOD("animation_get_next", "animation_from"), &AnimationPlayer::animation_get_next);
 
@@ -1100,4 +1143,7 @@ AnimationPlayer::AnimationPlayer() {
 }
 
 AnimationPlayer::~AnimationPlayer() {
+	if (skeleton_definition.is_valid()) {
+		skeleton_definition->disconnect_changed(callable_mp(this, &AnimationPlayer::_sync_skeleton_library));
+	}
 }
