@@ -34,6 +34,7 @@
 #include "core/os/process_id.h"
 #include "core/templates/safe_refcount.h"
 #include "editor/editor_data.h"
+#include "editor/editor_undo_redo_manager.h"
 #include "editor/plugins/editor_plugin.h"
 #include "editor/settings/editor_folding.h"
 #include "servers/display/display_server_enums.h"
@@ -253,6 +254,31 @@ private:
 		MAX_BUILD_CALLBACKS = 128,
 	};
 
+	enum DocumentContextType {
+		DOCUMENT_CONTEXT_NONE,
+		DOCUMENT_CONTEXT_SCENE,
+		DOCUMENT_CONTEXT_NODE,
+		DOCUMENT_CONTEXT_RESOURCE,
+	};
+
+	struct DocumentContext {
+		DocumentContextType type = DOCUMENT_CONTEXT_NONE;
+		int scene_index = -1;
+		ObjectID scene_root;
+		ObjectID object;
+		String property;
+		bool inspector_only = false;
+	};
+
+	struct SavedDocumentState {
+		DocumentContext context;
+		EditorSelectionHistory history;
+		Vector<ObjectID> selection;
+		int inspector_scroll = 0;
+		float scene_tree_scroll = 0.0f;
+		bool valid = false;
+	};
+
 	struct ExportDefer {
 		String preset;
 		String path;
@@ -323,6 +349,19 @@ private:
 
 	// Main tabs.
 	EditorSceneTabs *scene_tabs = nullptr;
+	DocumentContext active_document_context;
+	DocumentContext locked_document_context;
+	ObjectID locked_scene_root;
+	int history_before_lock = EditorUndoRedoManager::INVALID_HISTORY;
+	HashMap<String, SavedDocumentState> document_states;
+	String pending_document_path;
+	bool pending_document_context = false;
+	bool document_context_locked = false;
+	bool scene_context_active = true;
+	bool applying_document_context = false;
+	bool restoring_document_state = false;
+	bool scene_state_saved_for_document_activation = false;
+	uint64_t document_activation_serial = 0;
 
 	int tab_closing_idx = 0;
 	List<String> tabs_to_close;
@@ -611,6 +650,27 @@ private:
 
 	void _set_current_scene(int p_idx);
 	void _set_current_scene_nocheck(int p_idx, bool p_ignore_state = false);
+	void _set_document_context_from_object(Object *p_object, const String &p_property, bool p_inspector_only);
+	bool _request_document_for_object(Object *p_object);
+	int _find_scene_index(ObjectID p_root) const;
+	void _resolve_context_scene(DocumentContext &r_context) const;
+	void _apply_document_context(const DocumentContext &p_context);
+	void _restore_scene_document_context(int p_scene);
+	void _inspect_locked_object(Object *p_object, const String &p_property, bool p_inspector_only);
+	bool _object_belongs_to_locked_scene(const Object *p_object) const;
+	void _apply_locked_history();
+	void _save_document_state(const String &p_path);
+	bool _restore_document_state(const String &p_path);
+	void _forget_document_state(const String &p_path);
+	void _refresh_document_context_title();
+	void _reapply_locked_context();
+	void _update_document_context_lock();
+	void _begin_document_activation(const String &p_path);
+	void _finish_document_activation(const String &p_path);
+	void _begin_scene_document_activation();
+	void _finish_scene_document_activation(int p_scene);
+	void _set_document_context_locked(bool p_locked);
+	String _get_document_context_description() const;
 	void _nav_to_selected_scene();
 	bool _validate_scene_recursive(const String &p_filename, Node *p_node);
 	void _save_scene(String p_file, int idx = -1);
@@ -1014,6 +1074,7 @@ public:
 			_save_scene(p_file);
 		}
 	}
+
 
 	bool close_scene();
 

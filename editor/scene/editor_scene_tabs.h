@@ -33,11 +33,13 @@
 #include "scene/gui/margin_container.h"
 
 class Button;
+class ConfigFile;
 class HBoxContainer;
 class MenuButton;
 class Panel;
 class PanelContainer;
 class PopupMenu;
+class ScrollContainer;
 class TabBar;
 class TextureRect;
 
@@ -56,31 +58,81 @@ public:
 		SCENE_CLOSE,
 		SCENE_CLOSE_OTHERS,
 		SCENE_CLOSE_RIGHT,
+		DOCUMENT_TOGGLE_PIN,
 	};
 
 private:
 	PanelContainer *tabbar_panel = nullptr;
 	HBoxContainer *tabbar_container = nullptr;
+	ScrollContainer *tab_scroll = nullptr;
 
 	TabBar *scene_tabs = nullptr;
 	PopupMenu *scene_tabs_context_menu = nullptr;
 	MenuButton *scene_list = nullptr;
 	Button *scene_tab_add = nullptr;
-	Control *scene_tab_add_ph = nullptr;
+	Button *context_lock = nullptr;
 
 	Panel *tab_preview_panel = nullptr;
 	TextureRect *tab_preview = nullptr;
 
-	int last_hovered_tab = -1;
+	String context_tab;
+	String tab_to_keep_after_close;
+	Vector<String> tab_order;
+	HashSet<String> pinned_tabs;
+	bool restoring_documents = false;
+	bool closing_document = false;
+	ObjectID previous_main_screen;
+	int pending_scroll_tab = -1;
+	void _restore_main_screen();
+	int _scene_index(int p_tab) const;
+	int _scene_tab(int p_scene) const;
+	int _current_tab() const;
+	int _context_tab() const;
+	String _scene_key(int p_scene) const;
+	void _sync_tab_order();
+	void _save_layout_delayed();
+	struct ResourceDocument {
+		String path;
+		String restore_path;
+		String title;
+		String tooltip;
+		Ref<Texture2D> icon;
+		Callable activate;
+		Callable save;
+		Callable save_as;
+		Callable close;
+		Callable navigate;
+		bool modified = false;
+	};
+	Vector<ResourceDocument> documents;
+	String active_document;
+	int _find_document(const String &p_path) const;
+	int _document_index(int p_tab) const;
+	void _activate_document(const String &p_path);
+	void _activate_scene(int p_scene);
+	void _request_navigation(const Callable &p_action);
+	void _remove_document(const String &p_path);
+	void _request_document_close(const String &p_path, const Callable &p_action);
+	void _menu_option(int p_option);
+	void _run_scene_action(const Callable &p_action);
+	void _close_documents(const PackedStringArray &p_paths, const Callable &p_after_close);
+	void _close_document_and_continue(const String &p_path, const PackedStringArray &p_remaining, const Callable &p_after_close);
+	void _close_scene_documents(int p_option);
 
 	void _update_visibility();
+	void _update_context_lock_button();
+	void _toggle_context_lock();
 	void _scene_tab_changed(int p_tab);
 	void _scene_tab_script_edited(int p_tab);
 	void _scene_tab_closed(int p_tab);
+	void _close_scene_tab(int p_scene);
 	void _scene_tab_hovered(int p_tab);
 	void _scene_tab_exit();
 	void _scene_tab_input(const Ref<InputEvent> &p_input);
-	void _scene_tabs_resized();
+	void _queue_scroll_to_tab(int p_tab);
+	void _apply_pending_scroll();
+	void _scroll_to_tab(int p_tab);
+	void _scroll_to_current_tab();
 
 	void _update_tab_titles();
 	void _reposition_active_tab(int p_to_index);
@@ -113,6 +165,31 @@ public:
 	int get_option_tab() const;
 
 	void update_scene_tabs();
+	void open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path = String());
+	void set_document_title(const String &p_path, const String &p_title);
+	void set_document_tooltip(const String &p_path, const String &p_tooltip);
+	void set_document_restore_path(const String &p_path, const String &p_restore_path);
+	// Providers pass false while they are being destroyed, when nothing may be activated anymore.
+	void remove_document(const String &p_path, bool p_activate_next = true);
+	void set_document_modified(const String &p_path, bool p_modified);
+	String get_active_document() const { return active_document; }
+	String get_active_document_title() const;
+	bool is_active_document_modified() const;
+	// True while a provider is asked whether its document may close, as opposed to losing focus.
+	bool is_closing_document() const { return closing_document; }
+	bool handle_document_menu(int p_option);
+	bool request_scene_action(const Callable &p_action);
+	bool has_modified_documents() const;
+	bool can_save_document_as() const;
+	void save_documents();
+	Vector<int> get_scene_tabs_to_close(int p_option) const;
+	void finish_closing_tabs();
+	void cancel_closing_tabs() { tab_to_keep_after_close = String(); }
+	void save_layout_to_config(const Ref<ConfigFile> &p_config);
+	void restore_layout_from_config(const Ref<ConfigFile> &p_config);
+	void set_tab_pinned(int p_tab, bool p_pinned);
+	bool is_tab_pinned(int p_tab) const;
+	void update_context_lock_button();
 
 	EditorSceneTabs();
 };

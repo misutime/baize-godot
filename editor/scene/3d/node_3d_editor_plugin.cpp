@@ -2692,6 +2692,22 @@ void Node3DEditor::clear_subgizmo_selection(Object *p_obj) {
 	_clear_subgizmo_selection(p_obj);
 }
 
+void Node3DEditor::show_document_workspace(Control *p_workspace, bool p_keep_scene) {
+	if (document_workspace && document_workspace != p_workspace) {
+		document_workspace->hide();
+	}
+	document_workspace = p_workspace;
+	// Editors that work on the scene itself share the tab with the viewport.
+	scene_workspace->set_visible(!p_workspace || p_keep_scene);
+	if (p_workspace) {
+		if (!p_workspace->get_parent()) {
+			workspace_root->add_child(p_workspace);
+		}
+		p_workspace->set_v_size_flags(p_keep_scene ? SIZE_FILL : SIZE_EXPAND_FILL);
+		p_workspace->show();
+	}
+}
+
 void Node3DEditor::add_control_to_menu_panel(Control *p_control) {
 	ERR_FAIL_NULL(p_control);
 	ERR_FAIL_COND(p_control->get_parent());
@@ -3385,8 +3401,13 @@ Node3DEditor::Node3DEditor() {
 	gizmo_view_rotation_scale = GIZMO_CIRCLE_SIZE * (float)EDITOR_GET("editors/3d/view_plane_rotation_gizmo_scale");
 
 	viewport_environment.instantiate();
+	// One child fills the area. A document that keeps the scene visible shares it through the dragger.
+	workspace_root = memnew(VSplitContainer);
+	add_child(workspace_root);
 	VBoxContainer *vbc = memnew(VBoxContainer);
-	add_child(vbc);
+	scene_workspace = vbc;
+	vbc->set_v_size_flags(SIZE_EXPAND_FILL);
+	workspace_root->add_child(vbc);
 
 	ERR_FAIL_COND_MSG(singleton != nullptr, "A Node3DEditor singleton already exists.");
 	singleton = this;

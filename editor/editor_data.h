@@ -77,6 +77,7 @@ public:
 	// If the object should not change the main screen plugin, it can be set as inspector only.
 	void add_object(ObjectID p_object, const String &p_property = String(), bool p_inspector_only = false);
 	void replace_object(ObjectID p_old_object, ObjectID p_new_object);
+	void copy_from(const EditorSelectionHistory &p_other);
 
 	int get_history_len();
 	int get_history_pos();

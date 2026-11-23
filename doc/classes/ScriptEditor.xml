@@ -5,6 +5,7 @@
 	</brief_description>
 	<description>
 		Godot editor's script editor.
+		The editor is hosted in a shared Script document tab alongside scenes and animation documents. Opening another script reuses this tab. Closing the document tab hides the editor and preserves its open files and unsaved buffers.
 		[b]Note:[/b] This class shouldn't be instantiated directly. Instead, access the singleton using [method EditorInterface.get_script_editor].
 	</description>
 	<tutorials>
@@ -143,6 +144,11 @@
 		</method>
 	</methods>
 	<signals>
+		<signal name="documents_changed">
+			<description>
+				Emitted when the list of open documents or their modified state changes.
+			</description>
+		</signal>
 		<signal name="editor_script_changed">
 			<param index="0" name="script" type="Script" />
 			<description>

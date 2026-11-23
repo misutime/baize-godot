@@ -123,6 +123,11 @@ public:
 	Ref<Theme> get_editor_theme() const;
 
 	Control *get_base_control() const;
+	void open_editor_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as = Callable(), bool p_activate_document = true);
+	void remove_editor_document(const String &p_path);
+	void set_editor_document_modified(const String &p_path, bool p_modified);
+	String get_active_editor_document() const;
+	void activate_scene_document();
 #ifndef DISABLE_DEPRECATED
 	VBoxContainer *get_editor_main_screen() const;
 #endif

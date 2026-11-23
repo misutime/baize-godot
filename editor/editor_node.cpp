@@ -390,12 +390,13 @@ void EditorNode::_version_control_menu_option(int p_idx) {
 void EditorNode::_update_title() {
 	const String appname = GLOBAL_GET("application/config/name");
 	String title = (appname.is_empty() ? TTR("Unnamed Project") : appname);
-	const String edited = editor_data.get_edited_scene_root() ? editor_data.get_edited_scene_root()->get_scene_file_path() : String();
+	const bool has_document = scene_tabs && !scene_tabs->get_active_document().is_empty();
+	const String edited = has_document ? scene_tabs->get_active_document_title() : (editor_data.get_edited_scene_root() ? editor_data.get_edited_scene_root()->get_scene_file_path() : String());
 	if (!edited.is_empty()) {
 		// Display the edited scene name before the program name so that it can be seen in the OS task bar.
-		title = vformat("%s - %s", edited.get_file(), title);
+		title = vformat("%s - %s", has_document ? edited : edited.get_file(), title);
 	}
-	if (unsaved_cache) {
+	if (has_document ? scene_tabs->is_active_document_modified() : unsaved_cache) {
 		// Display the "modified" mark before anything else so that it can always be seen in the OS task bar.
 		title = vformat("(*) %s", title);
 	}
@@ -2682,6 +2683,7 @@ void EditorNode::restart_editor(bool p_goto_project_manager) {
 }
 
 void EditorNode::_save_all_scenes() {
+	scene_tabs->save_documents();
 	scenes_to_save_as.clear(); // In case saving was canceled before.
 	for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
 		if (!is_scene_unsaved(i)) {
@@ -3090,6 +3092,32 @@ void EditorNode::push_node_item(Node *p_node) {
 }
 
 void EditorNode::push_item(Object *p_object, const String &p_property, bool p_inspector_only) {
+	if (restoring_document_state) {
+		return;
+	}
+	if (!applying_document_context) {
+		if (document_context_locked) {
+			if (!pending_document_path.is_empty()) {
+				_set_document_context_from_object(p_object, p_property, p_inspector_only);
+			} else if (_object_belongs_to_locked_scene(p_object)) {
+				_inspect_locked_object(p_object, p_property, p_inspector_only);
+			} else {
+				// The lock freezes the scene docks. Documents still open in the central area.
+				_request_document_for_object(p_object);
+			}
+			return;
+		}
+		if (scene_tabs && !scene_tabs->get_active_document().is_empty() && pending_document_path.is_empty() && _request_document_for_object(p_object)) {
+			// The object's provider activated a document, which set the context itself.
+			return;
+		}
+		_set_document_context_from_object(p_object, p_property, p_inspector_only);
+		_update_document_context_lock();
+		if (scene_tabs && !scene_tabs->get_active_document().is_empty()) {
+			_apply_document_context(active_document_context);
+			return;
+		}
+	}
 	if (!p_object) {
 		InspectorDock::get_inspector_singleton()->edit(nullptr);
 		SignalsDock::get_singleton()->set_object(nullptr);
@@ -3100,8 +3128,15 @@ void EditorNode::push_item(Object *p_object, const String &p_property, bool p_in
 		hide_unused_editors();
 		return;
 	}
+	if (!applying_document_context && scene_context_active && scene_tabs && scene_tabs->get_active_document().is_empty() && Object::cast_to<Resource>(p_object)) {
+		// Resource selection happens before a provider opens its document. Capture the
+		// scene first so closing that document does not restore the resource as context.
+		editor_data.save_edited_scene_state(editor_selection, &editor_history, _get_main_scene_state());
+		scene_state_saved_for_document_activation = true;
+	}
 	_add_to_history(p_object, p_property, p_inspector_only);
 	_edit_current();
+	scene_state_saved_for_document_activation = false;
 }
 
 void EditorNode::edit_previous_item() {
@@ -3111,8 +3146,25 @@ void EditorNode::edit_previous_item() {
 }
 
 void EditorNode::push_item_no_inspector(Object *p_object) {
+	if (restoring_document_state) {
+		return;
+	}
+	if (!applying_document_context) {
+		if (document_context_locked) {
+			if (!pending_document_path.is_empty()) {
+				_set_document_context_from_object(p_object, "", false);
+			}
+			return;
+		}
+		_set_document_context_from_object(p_object, "", false);
+	}
+	if (!applying_document_context && p_object && scene_context_active && scene_tabs && scene_tabs->get_active_document().is_empty() && Object::cast_to<Resource>(p_object)) {
+		editor_data.save_edited_scene_state(editor_selection, &editor_history, _get_main_scene_state());
+		scene_state_saved_for_document_activation = true;
+	}
 	_add_to_history(p_object, "", false);
 	_edit_current(false, true);
+	scene_state_saved_for_document_activation = false;
 }
 
 void EditorNode::save_default_environment() {
@@ -3482,6 +3534,9 @@ static String _get_unsaved_scene_dialog_text(String p_scene_filename, uint64_t p
 }
 
 void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
+	if (!p_confirmed && scene_tabs->handle_document_menu(p_option)) {
+		return;
+	}
 	if (!p_confirmed) { // FIXME: this may be a hack.
 		current_menu_option = (MenuOptions)p_option;
 	}
@@ -3531,21 +3586,11 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				}
 			}
 		} break;
-		case EditorSceneTabs::SCENE_CLOSE_OTHERS: {
-			tab_closing_menu_option = -1;
-			int option_tab = scene_tabs->get_option_tab();
-			for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
-				if (i == option_tab) {
-					continue;
-				}
-				tabs_to_close.push_back(editor_data.get_scene_path(i));
-			}
-			_proceed_closing_scene_tabs();
-		} break;
+		case EditorSceneTabs::SCENE_CLOSE_OTHERS:
 		case EditorSceneTabs::SCENE_CLOSE_RIGHT: {
 			tab_closing_menu_option = -1;
-			for (int i = scene_tabs->get_option_tab() + 1; i < editor_data.get_edited_scene_count(); i++) {
-				tabs_to_close.push_back(editor_data.get_scene_path(i));
+			for (int scene : scene_tabs->get_scene_tabs_to_close(p_option)) {
+				tabs_to_close.push_back(editor_data.get_scene_path(scene));
 			}
 			_proceed_closing_scene_tabs();
 		} break;
@@ -4387,7 +4432,12 @@ void EditorNode::_discard_changes(const String &p_str) {
 }
 
 void EditorNode::_update_file_menu_opened() {
-	bool has_unsaved = false;
+	const bool resource_document = !scene_tabs->get_active_document().is_empty();
+	file_menu->set_item_disabled(file_menu->get_item_index(SCENE_SAVE_AS_SCENE), !scene_tabs->can_save_document_as());
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_SAVE_SCENE), resource_document ? TTR("Save") : TTR("Save Scene"));
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_SAVE_AS_SCENE), resource_document ? TTR("Save As...") : TTR("Save Scene As..."));
+	file_menu->set_item_text(file_menu->get_item_index(SCENE_CLOSE), resource_document ? TTR("Close Tab") : TTR("Close Scene"));
+	bool has_unsaved = scene_tabs->has_modified_documents();
 	for (int i = 0; i < editor_data.get_edited_scene_count(); i++) {
 		if (is_scene_unsaved(i)) {
 			has_unsaved = true;
@@ -4837,12 +4887,502 @@ bool EditorNode::is_changing_scene() const {
 	return changing_scene;
 }
 
+bool EditorNode::_request_document_for_object(Object *p_object) {
+	// Only saved resources have document providers. Nodes and built-in resources stay inspector context.
+	Resource *resource = Object::cast_to<Resource>(p_object);
+	if (!resource || resource->is_built_in() || resource->get_path().is_empty()) {
+		return false;
+	}
+	const uint64_t serial = document_activation_serial;
+	for (EditorPlugin *plugin : editor_data.get_handling_sub_editors(p_object)) {
+		plugin->edit(p_object);
+		if (document_activation_serial != serial) {
+			return true;
+		}
+	}
+	return false;
+}
+
+int EditorNode::_find_scene_index(ObjectID p_root) const {
+	if (p_root.is_null()) {
+		return -1;
+	}
+	for (int scene = 0; scene < editor_data.get_edited_scene_count(); scene++) {
+		Node *root = const_cast<EditorData &>(editor_data).get_edited_scene_root(scene);
+		if (root && root->get_instance_id() == p_root) {
+			return scene;
+		}
+	}
+	return -1;
+}
+
+void EditorNode::_resolve_context_scene(DocumentContext &r_context) const {
+	// Scene indices shift when scenes close. The root object is the stable identity.
+	if (r_context.scene_root.is_valid()) {
+		r_context.scene_index = _find_scene_index(r_context.scene_root);
+		if (r_context.scene_index < 0) {
+			r_context.scene_root = ObjectID();
+			if (r_context.type == DOCUMENT_CONTEXT_SCENE) {
+				r_context.type = DOCUMENT_CONTEXT_NONE;
+			}
+		}
+	} else if (r_context.scene_index >= 0 && r_context.scene_index < editor_data.get_edited_scene_count()) {
+		Node *root = const_cast<EditorData &>(editor_data).get_edited_scene_root(r_context.scene_index);
+		r_context.scene_root = root ? root->get_instance_id() : ObjectID();
+	}
+}
+
+void EditorNode::_set_document_context_from_object(Object *p_object, const String &p_property, bool p_inspector_only) {
+	if (!pending_document_path.is_empty()) {
+		pending_document_context = true;
+	}
+
+	DocumentContext context;
+	context.property = p_property;
+	context.inspector_only = p_inspector_only;
+	if (!p_object) {
+		active_document_context = context;
+		return;
+	}
+
+	if (Node *node = Object::cast_to<Node>(p_object)) {
+		context.type = DOCUMENT_CONTEXT_NODE;
+		context.object = node->get_instance_id();
+		for (int scene = 0; scene < editor_data.get_edited_scene_count(); scene++) {
+			Node *root = editor_data.get_edited_scene_root(scene);
+			if (root && (root == node || root->is_ancestor_of(node))) {
+				context.scene_index = scene;
+				context.scene_root = root->get_instance_id();
+				break;
+			}
+		}
+	} else {
+		context.type = DOCUMENT_CONTEXT_RESOURCE;
+		context.object = p_object->get_instance_id();
+	}
+	active_document_context = context;
+}
+
+void EditorNode::_restore_scene_document_context(int p_scene) {
+	ERR_FAIL_INDEX(p_scene, editor_data.get_edited_scene_count());
+	Node *scene = editor_data.get_edited_scene_root(p_scene);
+	SceneTreeDock::get_singleton()->set_external_document_context(false);
+	SceneTreeDock::get_singleton()->set_edited_scene(scene);
+	if (get_tree()) {
+		get_tree()->set_edited_scene_root(scene);
+	}
+	SceneTreeDock::get_singleton()->get_tree_editor()->update_tree();
+
+	const Dictionary state = editor_data.restore_edited_scene_state(editor_selection, &editor_history);
+	_set_main_scene_state(state);
+	_edit_current();
+}
+
+bool EditorNode::_object_belongs_to_locked_scene(const Object *p_object) const {
+	Node *locked_root = ObjectDB::get_instance<Node>(locked_scene_root);
+	if (!locked_root || !p_object) {
+		return false;
+	}
+	if (const Node *node = Object::cast_to<Node>(p_object)) {
+		return node == locked_root || locked_root->is_ancestor_of(node);
+	}
+	if (const Resource *resource = Object::cast_to<Resource>(p_object)) {
+		if (resource->is_built_in()) {
+			return resource->get_path().get_slice("::", 0) == locked_root->get_scene_file_path();
+		}
+	}
+	return false;
+}
+
+void EditorNode::_inspect_locked_object(Object *p_object, const String &p_property, bool p_inspector_only) {
+	DocumentContext context;
+	context.property = p_property;
+	context.inspector_only = p_inspector_only;
+	if (Node *node = Object::cast_to<Node>(p_object)) {
+		context.type = DOCUMENT_CONTEXT_NODE;
+		context.object = node->get_instance_id();
+		for (int scene = 0; scene < editor_data.get_edited_scene_count(); scene++) {
+			Node *root = editor_data.get_edited_scene_root(scene);
+			if (root && (root == node || root->is_ancestor_of(node))) {
+				context.scene_index = scene;
+				context.scene_root = root->get_instance_id();
+				break;
+			}
+		}
+	} else if (p_object) {
+		context.type = DOCUMENT_CONTEXT_RESOURCE;
+		context.object = p_object->get_instance_id();
+	}
+	locked_document_context = context;
+
+	if (!p_object) {
+		InspectorDock::get_inspector_singleton()->edit(nullptr);
+		SignalsDock::get_singleton()->set_object(nullptr);
+		GroupsDock::get_singleton()->set_selection(Vector<Node *>());
+		SceneTreeDock::get_singleton()->set_selected(nullptr);
+		InspectorDock::get_singleton()->update(nullptr);
+		EditorDebuggerNode::get_singleton()->clear_remote_tree_selection();
+		hide_unused_editors();
+		return;
+	}
+
+	_add_to_history(p_object, p_property, p_inspector_only);
+	InspectorDock::get_inspector_singleton()->edit(p_object);
+	SignalsDock::get_singleton()->set_object(p_object);
+	if (Node *node = Object::cast_to<Node>(p_object)) {
+		GroupsDock::get_singleton()->set_selection(Vector<Node *>{ node });
+		// The editor selection only holds nodes of the edited scene. A locked scene that is
+		// not current is highlighted in its tree without joining the selection.
+		if (node->is_inside_tree()) {
+			SceneTreeDock::get_singleton()->set_selection(Vector<Node *>{ node });
+		}
+		SceneTreeDock::get_singleton()->set_selected(node);
+	} else {
+		GroupsDock::get_singleton()->set_selection(Vector<Node *>());
+		SceneTreeDock::get_singleton()->set_selected(nullptr);
+	}
+	InspectorDock::get_singleton()->update(p_object);
+	EditorDebuggerNode::get_singleton()->clear_remote_tree_selection();
+	_update_document_context_lock();
+}
+
+void EditorNode::_apply_locked_history() {
+	if (!document_context_locked) {
+		return;
+	}
+	Node *locked_root = ObjectDB::get_instance<Node>(locked_scene_root);
+	if (!locked_root) {
+		return;
+	}
+	for (int scene = 0; scene < editor_data.get_edited_scene_count(); scene++) {
+		if (editor_data.get_edited_scene_root(scene) == locked_root) {
+			const int locked_history = editor_data.get_scene_history_id(scene);
+			EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+			// A document activated during the lock already set its own history. Keep it for unlocking.
+			if (undo_redo->get_active_document_history() != locked_history) {
+				history_before_lock = undo_redo->get_active_document_history();
+			}
+			undo_redo->set_active_document_history(locked_history);
+			return;
+		}
+	}
+}
+
+void EditorNode::_save_document_state(const String &p_path) {
+	if (p_path.is_empty()) {
+		return;
+	}
+	SavedDocumentState state;
+	state.context = active_document_context;
+	state.history.copy_from(editor_history);
+	for (const Node *node : editor_selection->get_full_selected_node_list()) {
+		state.selection.push_back(node->get_instance_id());
+	}
+	state.inspector_scroll = InspectorDock::get_inspector_singleton()->get_scroll_offset();
+	state.scene_tree_scroll = SceneTreeDock::get_singleton()->get_tree_editor()->get_scene_tree()->get_vscroll_bar()->get_value();
+	state.valid = true;
+	document_states[p_path] = state;
+}
+
+bool EditorNode::_restore_document_state(const String &p_path) {
+	const SavedDocumentState *saved = document_states.getptr(p_path);
+	if (!saved || !saved->valid) {
+		return false;
+	}
+	if (saved->context.type != DOCUMENT_CONTEXT_NONE && saved->context.object.is_valid() && !ObjectDB::get_instance(saved->context.object)) {
+		document_states.erase(p_path);
+		return false;
+	}
+
+	SavedDocumentState state = *saved;
+	_resolve_context_scene(state.context);
+	active_document_context = state.context;
+	_apply_document_context(active_document_context);
+
+	restoring_document_state = true;
+	SceneTreeDock::get_singleton()->set_selection(Vector<Node *>());
+	if (state.context.scene_index >= 0) {
+		Node *scene = editor_data.get_edited_scene_root(state.context.scene_index);
+		Vector<Node *> restored_selection;
+		for (const ObjectID &id : state.selection) {
+			Node *node = ObjectDB::get_instance<Node>(id);
+			if (node && scene && (node == scene || scene->is_ancestor_of(node))) {
+				restored_selection.push_back(node);
+			}
+		}
+		SceneTreeDock::get_singleton()->set_selection(restored_selection);
+	}
+	editor_selection->update(false);
+	editor_history.copy_from(state.history);
+	restoring_document_state = false;
+
+	InspectorDock::get_inspector_singleton()->set_scroll_offset(state.inspector_scroll);
+	SceneTreeDock::get_singleton()->get_tree_editor()->get_scene_tree()->get_vscroll_bar()->set_value(state.scene_tree_scroll);
+	return true;
+}
+
+void EditorNode::_forget_document_state(const String &p_path) {
+	document_states.erase(p_path);
+}
+
+void EditorNode::_refresh_document_context_title() {
+	if (scene_tabs && !scene_tabs->get_active_document().is_empty()) {
+		SceneTreeDock::get_singleton()->update_external_document_context_title(scene_tabs->get_active_document_title());
+	}
+}
+
+void EditorNode::_apply_document_context(const DocumentContext &p_context) {
+	if (applying_document_context) {
+		return;
+	}
+	DocumentContext context = p_context;
+	_resolve_context_scene(context);
+	if (context.type == DOCUMENT_CONTEXT_SCENE && (context.scene_index < 0 || context.scene_index >= editor_data.get_edited_scene_count())) {
+		context = DocumentContext();
+	} else if (context.type == DOCUMENT_CONTEXT_NODE && context.scene_index >= editor_data.get_edited_scene_count()) {
+		context.scene_index = -1;
+	}
+	applying_document_context = true;
+
+	switch (context.type) {
+		case DOCUMENT_CONTEXT_SCENE: {
+			if (context.scene_index != editor_data.get_edited_scene()) {
+				_set_current_scene_nocheck(context.scene_index, true);
+			} else if (!scene_context_active) {
+				_restore_scene_document_context(context.scene_index);
+			} else {
+				Node *scene = editor_data.get_edited_scene_root(context.scene_index);
+				SceneTreeDock::get_singleton()->set_external_document_context(false);
+				SceneTreeDock::get_singleton()->set_edited_scene(scene);
+			}
+			scene_context_active = true;
+		} break;
+		case DOCUMENT_CONTEXT_NODE: {
+			Node *node = ObjectDB::get_instance<Node>(context.object);
+			if (!node) {
+				DocumentContext empty;
+				applying_document_context = false;
+				_apply_document_context(empty);
+				return;
+			}
+			if (context.scene_index >= 0) {
+				Node *scene = editor_data.get_edited_scene_root(context.scene_index);
+				if (context.scene_index != editor_data.get_edited_scene()) {
+					_set_current_scene_nocheck(context.scene_index, true);
+				}
+				SceneTreeDock::get_singleton()->set_external_document_context(false);
+				SceneTreeDock::get_singleton()->set_edited_scene(scene);
+				SceneTreeDock::get_singleton()->get_tree_editor()->update_tree();
+			} else {
+				const String title = scene_tabs && !scene_tabs->get_active_document().is_empty() ? scene_tabs->get_active_document_title() : String(node->get_name());
+				SceneTreeDock::get_singleton()->set_external_document_context(true, title);
+			}
+			push_item(node, context.property, context.inspector_only);
+		} break;
+		case DOCUMENT_CONTEXT_RESOURCE: {
+			const String title = scene_tabs && !scene_tabs->get_active_document().is_empty() ? scene_tabs->get_active_document_title() : TTR("Resource");
+			editor_selection->clear();
+			SceneTreeDock::get_singleton()->set_external_document_context(true, title);
+			Object *object = ObjectDB::get_instance(context.object);
+			if (object) {
+				push_item(object, context.property, true);
+			} else {
+				push_item(nullptr);
+			}
+		} break;
+		case DOCUMENT_CONTEXT_NONE: {
+			const String title = scene_tabs && !scene_tabs->get_active_document().is_empty() ? scene_tabs->get_active_document_title() : TTR("No scene");
+			editor_selection->clear();
+			SceneTreeDock::get_singleton()->set_external_document_context(true, title);
+			push_item(nullptr);
+		} break;
+	}
+
+	_update_title();
+	_update_undo_redo_allowed();
+	_update_document_context_lock();
+	applying_document_context = false;
+}
+
+void EditorNode::_begin_document_activation(const String &p_path) {
+	const String current_document = scene_tabs ? scene_tabs->get_active_document() : String();
+	if (!current_document.is_empty()) {
+		_save_document_state(current_document);
+	}
+	if (scene_context_active && scene_tabs && scene_tabs->get_active_document().is_empty() && !scene_state_saved_for_document_activation) {
+		editor_data.save_edited_scene_state(editor_selection, &editor_history, _get_main_scene_state());
+	}
+	scene_state_saved_for_document_activation = false;
+	scene_context_active = false;
+	pending_document_path = p_path;
+	pending_document_context = false;
+	active_document_context = DocumentContext();
+	document_activation_serial++;
+}
+
+void EditorNode::_finish_document_activation(const String &p_path) {
+	if (pending_document_path != p_path) {
+		return;
+	}
+	if (!pending_document_context) {
+		active_document_context = DocumentContext();
+	}
+	pending_document_path = String();
+	pending_document_context = false;
+
+	if (document_context_locked) {
+		if (const SavedDocumentState *saved = document_states.getptr(p_path); saved && saved->valid) {
+			active_document_context = saved->context;
+		}
+		Object *locked_root = ObjectDB::get_instance(locked_scene_root);
+		if (!locked_root) {
+			_set_document_context_locked(false);
+		} else {
+			_apply_locked_history();
+			callable_mp(this, &EditorNode::_reapply_locked_context).call_deferred();
+		}
+	} else {
+		if (!_restore_document_state(p_path)) {
+			_apply_document_context(active_document_context);
+		}
+	}
+	_update_document_context_lock();
+	_update_title();
+}
+
+void EditorNode::_begin_scene_document_activation() {
+	const bool leaving_document = scene_tabs && !scene_tabs->get_active_document().is_empty();
+	if (leaving_document) {
+		_save_document_state(scene_tabs->get_active_document());
+		scene_context_active = false;
+		active_document_context = DocumentContext();
+	}
+	pending_document_path = String();
+	pending_document_context = false;
+}
+
+void EditorNode::_finish_scene_document_activation(int p_scene) {
+	if (!scene_tabs || !scene_tabs->get_active_document().is_empty() || p_scene < 0) {
+		return;
+	}
+	if (active_document_context.type == DOCUMENT_CONTEXT_NONE || active_document_context.scene_index != p_scene) {
+		active_document_context = DocumentContext();
+		active_document_context.type = DOCUMENT_CONTEXT_SCENE;
+		active_document_context.scene_index = p_scene;
+	}
+	if (!document_context_locked) {
+		_apply_document_context(active_document_context);
+	} else {
+		_apply_locked_history();
+		callable_mp(this, &EditorNode::_reapply_locked_context).call_deferred();
+	}
+	scene_context_active = true;
+	_update_document_context_lock();
+	_update_title();
+}
+
+void EditorNode::_set_document_context_locked(bool p_locked) {
+	if (document_context_locked == p_locked) {
+		_update_document_context_lock();
+		return;
+	}
+	document_context_locked = p_locked;
+	if (p_locked) {
+		Node *locked_root = editor_data.get_edited_scene_root();
+		if (!locked_root) {
+			document_context_locked = false;
+			_update_document_context_lock();
+			return;
+		}
+		locked_scene_root = locked_root->get_instance_id();
+		history_before_lock = EditorUndoRedoManager::get_singleton()->get_active_document_history();
+		SceneTreeDock::get_singleton()->set_scene_tree_lock_root(locked_root);
+		_apply_locked_history();
+		Object *current = InspectorDock::get_inspector_singleton()->get_edited_object();
+		if (current && _object_belongs_to_locked_scene(current)) {
+			_inspect_locked_object(current, String(), false);
+		} else {
+			locked_document_context = DocumentContext();
+			locked_document_context.type = DOCUMENT_CONTEXT_SCENE;
+			locked_document_context.scene_index = editor_data.get_edited_scene();
+		}
+	} else {
+		locked_document_context = DocumentContext();
+		locked_scene_root = ObjectID();
+		SceneTreeDock::get_singleton()->clear_scene_tree_lock_root();
+		EditorUndoRedoManager::get_singleton()->set_active_document_history(history_before_lock);
+		history_before_lock = EditorUndoRedoManager::INVALID_HISTORY;
+		_apply_document_context(active_document_context);
+		if (!scene_tabs || scene_tabs->get_active_document().is_empty()) {
+			Node *scene = editor_data.get_edited_scene_root();
+			const List<Node *> selection = editor_selection->get_full_selected_node_list();
+			Node *selected = selection.is_empty() ? nullptr : selection.front()->get();
+			if (selected && scene && (selected == scene || scene->is_ancestor_of(selected))) {
+				push_item(selected);
+			} else {
+				push_item(nullptr);
+			}
+		}
+	}
+	_update_document_context_lock();
+	_update_title();
+}
+
+void EditorNode::_reapply_locked_context() {
+	if (!document_context_locked) {
+		return;
+	}
+	Node *locked_root = ObjectDB::get_instance<Node>(locked_scene_root);
+	if (!locked_root) {
+		_set_document_context_locked(false);
+		return;
+	}
+	SceneTreeDock::get_singleton()->set_scene_tree_lock_root(locked_root);
+	Object *object = ObjectDB::get_instance(locked_document_context.object);
+	if (object && _object_belongs_to_locked_scene(object)) {
+		_inspect_locked_object(object, locked_document_context.property, locked_document_context.inspector_only);
+	} else {
+		locked_document_context = DocumentContext();
+		locked_document_context.type = DOCUMENT_CONTEXT_SCENE;
+	}
+	_update_document_context_lock();
+}
+
+String EditorNode::_get_document_context_description() const {
+	const DocumentContext &context = document_context_locked ? locked_document_context : active_document_context;
+	switch (context.type) {
+		case DOCUMENT_CONTEXT_SCENE:
+			return TTR("Scene context");
+		case DOCUMENT_CONTEXT_NODE: {
+			Node *node = ObjectDB::get_instance<Node>(context.object);
+			return node ? vformat(TTR("Node context: %s"), String(node->get_name())) : TTR("Node context");
+		}
+		case DOCUMENT_CONTEXT_RESOURCE:
+			return TTR("Resource context");
+		case DOCUMENT_CONTEXT_NONE:
+		default:
+			return TTR("No scene context");
+	}
+}
+
+void EditorNode::_update_document_context_lock() {
+	// The locked scene can be edited only while it is the edited scene. Otherwise its
+	// nodes are outside the scene tree and the docks show it for reference.
+	Node *locked_root = document_context_locked ? ObjectDB::get_instance<Node>(locked_scene_root) : nullptr;
+	const bool read_only = locked_root && locked_root != editor_data.get_edited_scene_root();
+	SceneTreeDock::get_singleton()->set_locked_read_only(read_only);
+	InspectorDock::get_inspector_singleton()->set_read_only(read_only);
+	if (scene_tabs) {
+		scene_tabs->update_context_lock_button();
+	}
+}
+
 void EditorNode::_set_current_scene(int p_idx) {
 	if (p_idx == editor_data.get_edited_scene()) {
 		return; // Pointless.
 	}
 
-	_set_current_scene_nocheck(p_idx);
+	_set_current_scene_nocheck(p_idx, !scene_context_active);
 }
 
 void EditorNode::_set_current_scene_nocheck(int p_idx, bool p_ignore_state) {
@@ -4899,8 +5439,17 @@ void EditorNode::_set_current_scene_nocheck(int p_idx, bool p_ignore_state) {
 	_set_main_scene_state(state);
 	_update_undo_redo_allowed();
 	_update_unsaved_cache();
+	if (!applying_document_context && scene_tabs && scene_tabs->get_active_document().is_empty()) {
+		active_document_context = DocumentContext();
+		active_document_context.type = DOCUMENT_CONTEXT_SCENE;
+		active_document_context.scene_index = p_idx;
+	}
 
 	changing_scene = false;
+	if (document_context_locked) {
+		_apply_locked_history();
+		callable_mp(this, &EditorNode::_reapply_locked_context).call_deferred();
+	}
 
 	if (EDITOR_GET("interface/scene_tabs/auto_select_current_scene_file")) {
 		FileSystemDock::get_singleton()->navigate_to_path(scene_path);
@@ -5129,6 +5678,10 @@ Error EditorNode::load_scene(const String &p_scene, bool p_ignore_broken_deps, b
 Error EditorNode::open_scene(const String &p_scene, bool p_ignore_broken_deps, bool p_set_inherited, bool p_force_open_imported) {
 	if (!is_inside_tree()) {
 		defer_load_scene = p_scene;
+		return OK;
+	}
+
+	if (scene_tabs->request_scene_action(callable_mp(this, &EditorNode::open_scene).bind(p_scene, p_ignore_broken_deps, p_set_inherited, p_force_open_imported))) {
 		return OK;
 	}
 
@@ -6506,6 +7059,7 @@ void EditorNode::_save_open_scenes_to_config(Ref<ConfigFile> p_layout) {
 
 	String currently_edited_scene_path = editor_data.get_scene_path(editor_data.get_edited_scene());
 	p_layout->set_value(EDITOR_NODE_CONFIG_SECTION, "current_scene", currently_edited_scene_path);
+	scene_tabs->save_layout_to_config(p_layout);
 }
 
 void EditorNode::save_editor_layout_delayed() {
@@ -6549,6 +7103,7 @@ void EditorNode::_load_editor_layout() {
 
 		ep.step(TTR("Loading plugin window layout..."), 4, true);
 		editor_data.set_plugin_window_layout(config);
+		scene_tabs->restore_layout_from_config(config);
 
 		ep.step(TTR("Editor layout ready."), 5, true);
 	}
@@ -6892,6 +7447,7 @@ void EditorNode::_layout_menu_option(int p_id) {
 void EditorNode::_proceed_closing_scene_tabs() {
 	List<String>::Element *E = tabs_to_close.front();
 	if (!E) {
+		scene_tabs->finish_closing_tabs();
 		if (_is_closing_editor()) {
 			current_menu_option = tab_closing_menu_option;
 			_menu_option_confirm(tab_closing_menu_option, true);
@@ -7023,6 +7579,7 @@ void EditorNode::_scene_tab_closed(int p_tab) {
 }
 
 void EditorNode::_cancel_close_scene_tab() {
+	scene_tabs->cancel_closing_tabs();
 	if (_is_closing_editor()) {
 		tab_closing_menu_option = -1;
 	}
@@ -7043,8 +7600,7 @@ void EditorNode::_prepare_save_confirmation_popup() {
 
 void EditorNode::_toggle_distraction_free_mode() {
 	if (EDITOR_GET("interface/editor/behavior/separate_distraction_mode")) {
-		Control *screen = editor_main_screen->get_current_tab_control();
-		if (screen == ScriptEditor::get_singleton()) {
+		if (ScriptEditor::get_singleton()->is_visible_in_tree()) {
 			script_distraction_free = !script_distraction_free;
 			set_distraction_free_mode(script_distraction_free);
 		} else {
@@ -7060,8 +7616,7 @@ void EditorNode::update_distraction_free_mode() {
 	if (!EDITOR_GET("interface/editor/behavior/separate_distraction_mode")) {
 		return;
 	}
-	Control *screen = editor_main_screen->get_current_tab_control();
-	if (screen == ScriptEditor::get_singleton()) {
+	if (ScriptEditor::get_singleton()->is_visible_in_tree()) {
 		set_distraction_free_mode(script_distraction_free);
 	} else {
 		set_distraction_free_mode(scene_distraction_free);
@@ -8050,7 +8605,7 @@ void EditorNode::_feature_profile_changed() {
 		editor_dock_manager->set_dock_enabled(history_dock, !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_HISTORY_DOCK));
 
 		editor_dock_manager->set_dock_enabled(Node3DEditor::get_singleton(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_3D));
-		editor_dock_manager->set_dock_enabled(ScriptEditor::get_singleton(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_SCRIPT));
+		ScriptEditorPlugin::get_singleton()->set_workspace_enabled(!profile->is_feature_disabled(EditorFeatureProfile::FEATURE_SCRIPT));
 		if (!Engine::get_singleton()->is_recovery_mode_hint()) {
 			editor_dock_manager->set_dock_enabled(GameView::get_dock(), !profile->is_feature_disabled(EditorFeatureProfile::FEATURE_GAME));
 		}
@@ -8064,7 +8619,7 @@ void EditorNode::_feature_profile_changed() {
 		editor_dock_manager->set_dock_enabled(FileSystemDock::get_singleton(), true);
 		editor_dock_manager->set_dock_enabled(history_dock, true);
 		editor_dock_manager->set_dock_enabled(Node3DEditor::get_singleton(), true);
-		editor_dock_manager->set_dock_enabled(ScriptEditor::get_singleton(), true);
+		ScriptEditorPlugin::get_singleton()->set_workspace_enabled(true);
 		if (!Engine::get_singleton()->is_recovery_mode_hint() && GameView::get_dock()) {
 			editor_dock_manager->set_dock_enabled(GameView::get_dock(), true);
 		}
@@ -9878,7 +10433,6 @@ EditorNode::EditorNode() {
 	{
 		const String _2d_key = CanvasItemEditor::get_singleton()->get_effective_layout_key();
 		const String _3d_key = Node3DEditor::get_singleton()->get_effective_layout_key();
-		const String script_key = ScriptEditor::get_singleton()->get_effective_layout_key();
 		String game_key;
 		if (GameView::get_dock()) {
 			game_key = GameView::get_dock()->get_effective_layout_key();
@@ -9887,7 +10441,7 @@ EditorNode::EditorNode() {
 		if (AssetLibraryEditorPlugin::get_library()) {
 			asset_lib_key = AssetLibraryEditorPlugin::get_library()->get_effective_layout_key();
 		}
-		default_layout->set_value(docks_section, DockTabContainer::get_config_key(EditorDock::DOCK_SLOT_MAIN_SCREEN), vformat("%s,%s,%s,%s,%s", _2d_key, _3d_key, script_key, game_key, asset_lib_key));
+		default_layout->set_value(docks_section, DockTabContainer::get_config_key(EditorDock::DOCK_SLOT_MAIN_SCREEN), vformat("%s,%s,%s,%s", _2d_key, _3d_key, game_key, asset_lib_key));
 	}
 
 	int hsplits[] = { 0, dock_hsize, -dock_hsize, 0 };

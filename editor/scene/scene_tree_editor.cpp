@@ -62,7 +62,10 @@
 #include "scene/resources/packed_scene.h"
 
 Node *SceneTreeEditor::get_scene_node() const {
-	ERR_FAIL_COND_V(!is_inside_tree(), nullptr);
+	Node *display_root = ObjectDB::get_instance<Node>(display_scene_root);
+	if (display_root) {
+		return display_root;
+	}
 
 	return get_tree()->get_edited_scene_root();
 }
@@ -504,9 +507,7 @@ void SceneTreeEditor::_update_node(Node *p_node, TreeItem *p_item, bool p_part_o
 
 	p_item->set_text(0, p_node->get_name());
 	p_item->set_text_overrun_behavior(0, TextServer::OVERRUN_NO_TRIMMING);
-	if (can_rename && !p_part_of_subscene) {
-		p_item->set_editable(0, true);
-	}
+	p_item->set_editable(0, can_rename && !p_part_of_subscene);
 
 	if (can_rename) {
 		bool collapsed = p_node->is_displayed_folded();
@@ -622,7 +623,7 @@ void SceneTreeEditor::_update_node(Node *p_node, TreeItem *p_item, bool p_part_o
 		}
 
 		if (p_node->is_unique_name_in_owner()) {
-			const bool disabled = p_node->get_owner() != EditorNode::get_singleton()->get_edited_scene();
+			const bool disabled = p_node->get_owner() != get_scene_node();
 			String button_text = vformat(TTR("This node can be accessed from anywhere within the scene it belongs to by using the '%s' prefix in the node path."), UNIQUE_NODE_PREFIX);
 			if (!disabled) {
 				button_text += "\n" + TTR("Click to disable this.");
@@ -1639,7 +1640,7 @@ void SceneTreeEditor::rename_node(Node *p_node, const String &p_name, TreeItem *
 		if (p_node->is_unique_name_in_owner()) {
 			check_for_unique_name_token = false;
 			// Do not set scene root as unique.
-		} else if (get_tree()->get_edited_scene_root() == p_node) {
+		} else if (get_scene_node() == p_node) {
 			check_for_unique_name_token = false;
 			String text = TTR("Root nodes cannot be accessed as unique names in their own scene. Instantiate in another scene and set as unique name there.");
 			if (error->is_visible()) {
@@ -1703,7 +1704,7 @@ void SceneTreeEditor::rename_node(Node *p_node, const String &p_name, TreeItem *
 
 	// We previously made sure name is not the same as current name
 	// so that it won't complain about already used unique name when not changing name.
-	if ((check_for_unique_name_token || p_node->is_unique_name_in_owner()) && get_tree()->get_edited_scene_root()->get_node_or_null("%" + new_name)) {
+	if ((check_for_unique_name_token || p_node->is_unique_name_in_owner()) && get_scene_node()->get_node_or_null("%" + new_name)) {
 		check_for_unique_name_token = false;
 		String text = vformat(TTR("A node with the unique name %s already exists in this scene."), new_name);
 		if (error->is_visible()) {
@@ -1863,6 +1864,18 @@ void SceneTreeEditor::set_as_scene_tree_dock() {
 	is_scene_tree_dock = true;
 }
 
+void SceneTreeEditor::set_display_scene_root(Node *p_root) {
+	const ObjectID root_id = p_root ? p_root->get_instance_id() : ObjectID();
+	if (display_scene_root == root_id) {
+		return;
+	}
+	display_scene_root = root_id;
+	_reset();
+	node_cache.current_scene_id = ObjectID();
+	node_cache.force_update = true;
+	_update_tree();
+}
+
 void SceneTreeEditor::set_display_foreign_nodes(bool p_display) {
 	display_foreign = p_display;
 	_update_tree();
@@ -1934,6 +1947,20 @@ void SceneTreeEditor::_update_selection(TreeItem *item) {
 void SceneTreeEditor::_selection_changed() {
 	if (!editor_selection) {
 		return;
+	}
+	if (display_scene_root.is_valid()) {
+		Node *scene = get_scene_node();
+		bool has_locked_selection = false;
+		for (const KeyValue<ObjectID, Object *> &selection : editor_selection->get_selection()) {
+			Node *node = ObjectDB::get_instance<Node>(selection.key);
+			if (node && scene && (node == scene || scene->is_ancestor_of(node))) {
+				has_locked_selection = true;
+				break;
+			}
+		}
+		if (!has_locked_selection) {
+			return;
+		}
 	}
 
 	TreeItem *root = tree->get_root();
@@ -2024,7 +2051,7 @@ Variant SceneTreeEditor::get_drag_data_fw(const Point2 &p_point, Control *p_from
 	Dictionary drag_data;
 	drag_data["type"] = "nodes";
 	drag_data["nodes"] = objs;
-	drag_data["scene_root"] = get_tree()->get_edited_scene_root();
+	drag_data["scene_root"] = get_scene_node();
 
 	tree->set_drop_mode_flags(Tree::DROP_MODE_INBETWEEN | Tree::DROP_MODE_ON_ITEM);
 	emit_signal(SNAME("nodes_dragged"));
@@ -2066,7 +2093,7 @@ bool SceneTreeEditor::can_drop_data_fw(const Point2 &p_point, const Variant &p_d
 	}
 
 	Object *data_root = d.get("scene_root", (Object *)nullptr);
-	if (data_root && get_tree()->get_edited_scene_root() != data_root) {
+	if (data_root && get_scene_node() != data_root) {
 		return false;
 	}
 
@@ -2194,7 +2221,7 @@ void SceneTreeEditor::drop_data_fw(const Point2 &p_point, const Variant &p_data,
 				// Check if we are setting a built-in script from another scene.
 				if (sr->is_built_in()) {
 					String src_scene = sr->get_path().get_slice("::", 0);
-					Node *edited_scene = EditorNode::get_singleton()->get_edited_scene();
+					Node *edited_scene = get_scene_node();
 					String current_scene_path = edited_scene ? edited_scene->get_scene_file_path() : "";
 					if (src_scene != current_scene_path) {
 						sr = sr->duplicate();

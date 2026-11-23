@@ -1512,17 +1512,13 @@ void CodeTextEditor::set_preview_navigation_change(bool p_preview) {
 
 void CodeTextEditor::set_edit_state(const Dictionary &p_state) {
 	Dictionary state = p_state;
+	const bool ensure_caret_visible = state.get("ensure_caret_visible", false);
 
-	/* update the row first as it sets the column to 0 */
-	if (state.get("ensure_caret_visible", false)) {
-		text_editor->set_caret_line(state["row"], false);
-		text_editor->set_caret_column(state["column"], false);
+	// Restore the caret without scrolling against a viewport that may still be resizing.
+	text_editor->set_caret_line(state["row"], false);
+	text_editor->set_caret_column(state["column"], false);
+	if (ensure_caret_visible) {
 		center_viewport_to_caret_if_line_invisible(state["row"]);
-	} else {
-		text_editor->set_caret_line(state["row"]);
-		text_editor->set_caret_column(state["column"]);
-		text_editor->set_v_scroll(state["scroll_position"]);
-		text_editor->set_h_scroll(state["h_scroll_position"]);
 	}
 
 	if (state.get("selection", false)) {
@@ -1561,6 +1557,11 @@ void CodeTextEditor::set_edit_state(const Dictionary &p_state) {
 				text_editor->set_line_as_bookmarked(line, true);
 			}
 		}
+	}
+
+	if (!ensure_caret_visible) {
+		text_editor->call_on_all_layout_pending_finished(callable_mp((TextEdit *)text_editor, &TextEdit::set_v_scroll).bind(double(state["scroll_position"])));
+		text_editor->call_on_all_layout_pending_finished(callable_mp((TextEdit *)text_editor, &TextEdit::set_h_scroll).bind(int(state["h_scroll_position"])));
 	}
 
 	if (previous_state.is_empty()) {

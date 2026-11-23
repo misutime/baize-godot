@@ -69,17 +69,8 @@ Size2 TabBar::get_minimum_size() const {
 
 		int ofs = ms.width;
 
-		Ref<StyleBox> style;
-		if (tabs[i].disabled) {
-			style = theme_cache.tab_disabled_style;
-		} else if (current == i) {
-			style = theme_cache.tab_selected_style;
-		} else if (hover == i) {
-			style = theme_cache.tab_hovered_style;
-		} else {
-			style = theme_cache.tab_unselected_style;
-		}
-		ms.width += style->get_minimum_size().width;
+		const real_t style_width = _get_tab_style_width(i, true);
+		ms.width += style_width;
 
 		if (tabs[i].icon.is_valid()) {
 			const Size2 icon_size = _get_tab_icon_size(i);
@@ -92,12 +83,12 @@ Size2 TabBar::get_minimum_size() const {
 		}
 		ms.height = MAX(ms.height, tabs[i].text_buf->get_size().y + y_margin);
 
-		bool close_visible = cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && i == current);
+		const bool has_close_space = _has_close_button_space(i);
 
 		if (tabs[i].right_button.is_valid()) {
 			Ref<Texture2D> rb = tabs[i].right_button;
 
-			if (close_visible) {
+			if (has_close_space) {
 				ms.width += theme_cache.button_hl_style->get_minimum_size().width + rb->get_width();
 			} else {
 				ms.width += theme_cache.button_hl_style->get_margin(SIDE_LEFT) + rb->get_width() + theme_cache.h_separation;
@@ -106,13 +97,13 @@ Size2 TabBar::get_minimum_size() const {
 			ms.height = MAX(ms.height, rb->get_height() + y_margin);
 		}
 
-		if (close_visible) {
+		if (has_close_space) {
 			ms.width += theme_cache.button_hl_style->get_margin(SIDE_LEFT) + theme_cache.close_icon->get_width() + theme_cache.h_separation;
 
 			ms.height = MAX(ms.height, theme_cache.close_icon->get_height() + y_margin);
 		}
 
-		if (ms.width - ofs > style->get_minimum_size().width) {
+		if (ms.width - ofs > style_width) {
 			ms.width -= theme_cache.h_separation;
 		}
 
@@ -295,7 +286,7 @@ void TabBar::gui_input(const Ref<InputEvent> &p_event) {
 		}
 
 		if (cb_pressing && !mb->is_pressed() && mb->get_button_index() == MouseButton::LEFT) {
-			if (cb_hover != -1) {
+			if (_is_close_button_visible(cb_hover)) {
 				play_theme_sound(theme_cache.pressed_sound);
 				emit_signal(SNAME("tab_close_pressed"), cb_hover);
 			}
@@ -305,7 +296,7 @@ void TabBar::gui_input(const Ref<InputEvent> &p_event) {
 		}
 
 		if (close_with_middle_mouse && mb->is_pressed() && mb->get_button_index() == MouseButton::MIDDLE) {
-			if (hover != -1) {
+			if (hover >= 0 && hover < tabs.size() && tabs[hover].close_enabled) {
 				emit_signal(SNAME("tab_close_pressed"), hover);
 			}
 		}
@@ -342,7 +333,7 @@ void TabBar::gui_input(const Ref<InputEvent> &p_event) {
 				}
 
 				// Clicking close button.
-				if (tabs[found].cb_rect.has_point(pos) && (cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && found == current))) {
+				if (_is_close_button_visible(found) && tabs[found].cb_rect.has_point(pos)) {
 					if (selecting) {
 						cb_pressing = true;
 						_update_hover();
@@ -505,7 +496,7 @@ void TabBar::gui_input(const Ref<InputEvent> &p_event) {
 				}
 
 				// Clicking close button.
-				if (tabs[found].cb_rect.has_point(pos) && (cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && found == current))) {
+				if (_is_close_button_visible(found) && tabs[found].cb_rect.has_point(pos)) {
 					cb_pressing = true;
 					_update_hover();
 					queue_redraw();
@@ -522,7 +513,7 @@ void TabBar::gui_input(const Ref<InputEvent> &p_event) {
 						emit_signal(SNAME("tab_button_pressed"), rb_hover);
 					}
 				} else if (cb_pressing) {
-					if (cb_hover != -1) {
+					if (_is_close_button_visible(cb_hover)) {
 						play_theme_sound(theme_cache.pressed_sound);
 						emit_signal(SNAME("tab_close_pressed"), cb_hover);
 					}
@@ -973,7 +964,7 @@ void TabBar::_draw_tab(Ref<StyleBox> &p_tab_style, const Color &p_font_color, co
 	}
 
 	// Draw and calculate rect of the close button.
-	if (cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && p_index == current)) {
+	if (_is_close_button_visible(p_index)) {
 		Ref<StyleBox> style = theme_cache.button_hl_style;
 		Ref<Texture2D> cb = theme_cache.close_icon;
 
@@ -1441,7 +1432,7 @@ void TabBar::_update_hover() {
 			rb_hover = i;
 			cb_hover = -1;
 			hover_buttons = i;
-		} else if (!tabs[i].disabled && tabs[i].cb_rect.has_point(pos)) {
+		} else if (!tabs[i].disabled && _is_close_button_visible(i) && tabs[i].cb_rect.has_point(pos)) {
 			cb_hover = i;
 			rb_hover = -1;
 			hover_buttons = i;
@@ -2241,22 +2232,40 @@ void TabBar::move_tab(int p_from, int p_to) {
 	notify_property_list_changed();
 }
 
+real_t TabBar::_get_tab_style_width(int p_tab, bool p_match_hover) const {
+	if (tabs[p_tab].disabled) {
+		return theme_cache.tab_disabled_style->get_minimum_size().width;
+	}
+
+	const real_t selected_width = theme_cache.tab_selected_style->get_minimum_size().width;
+	const real_t hovered_width = theme_cache.tab_hovered_style->get_minimum_size().width;
+	const real_t unselected_width = theme_cache.tab_unselected_style->get_minimum_size().width;
+	if (keep_tab_width_on_selection) {
+		return MAX(selected_width, MAX(hovered_width, unselected_width));
+	}
+	if (current == p_tab) {
+		return selected_width;
+	}
+	if (p_match_hover) {
+		return hover == p_tab ? hovered_width : unselected_width;
+	}
+	// Avoid changing the hit area when the pointer enters or leaves the tab.
+	return MAX(hovered_width, unselected_width);
+}
+
+bool TabBar::_is_close_button_visible(int p_tab) const {
+	return p_tab >= 0 && p_tab < tabs.size() && tabs[p_tab].close_enabled && (cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && p_tab == current));
+}
+
+bool TabBar::_has_close_button_space(int p_tab) const {
+	return tabs[p_tab].close_enabled && (cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && (keep_tab_width_on_selection || p_tab == current)));
+}
+
 int TabBar::get_tab_width(int p_idx) const {
 	ERR_FAIL_INDEX_V(p_idx, tabs.size(), 0);
 
-	Ref<StyleBox> style;
-
-	if (tabs[p_idx].disabled) {
-		style = theme_cache.tab_disabled_style;
-	} else if (current == p_idx) {
-		style = theme_cache.tab_selected_style;
-		// Always pick the widest style between hovered and unselected, to avoid an infinite loop when switching tabs with the mouse.
-	} else if (theme_cache.tab_hovered_style->get_minimum_size().width > theme_cache.tab_unselected_style->get_minimum_size().width) {
-		style = theme_cache.tab_hovered_style;
-	} else {
-		style = theme_cache.tab_unselected_style;
-	}
-	int x = style->get_minimum_size().width;
+	const real_t style_width = _get_tab_style_width(p_idx, false);
+	int x = style_width;
 
 	if (tabs[p_idx].icon.is_valid()) {
 		const Size2 icon_size = _get_tab_icon_size(p_idx);
@@ -2267,26 +2276,26 @@ int TabBar::get_tab_width(int p_idx) const {
 		x += tabs[p_idx].size_text + theme_cache.h_separation;
 	}
 
-	bool close_visible = cb_displaypolicy == CLOSE_BUTTON_SHOW_ALWAYS || (cb_displaypolicy == CLOSE_BUTTON_SHOW_ACTIVE_ONLY && p_idx == current);
+	const bool has_close_space = _has_close_button_space(p_idx);
 
 	if (tabs[p_idx].right_button.is_valid()) {
 		Ref<StyleBox> btn_style = theme_cache.button_hl_style;
 		Ref<Texture2D> rb = tabs[p_idx].right_button;
 
-		if (close_visible) {
+		if (has_close_space) {
 			x += btn_style->get_minimum_size().width + rb->get_width();
 		} else {
 			x += btn_style->get_margin(SIDE_LEFT) + rb->get_width() + theme_cache.h_separation;
 		}
 	}
 
-	if (close_visible) {
+	if (has_close_space) {
 		Ref<StyleBox> btn_style = theme_cache.button_hl_style;
 		Ref<Texture2D> cb = theme_cache.close_icon;
 		x += btn_style->get_margin(SIDE_LEFT) + cb->get_width() + theme_cache.h_separation;
 	}
 
-	if (x > style->get_minimum_size().width) {
+	if (x > style_width) {
 		x -= theme_cache.h_separation;
 	}
 
@@ -2454,6 +2463,40 @@ void TabBar::set_tab_close_display_policy(CloseButtonDisplayPolicy p_policy) {
 
 TabBar::CloseButtonDisplayPolicy TabBar::get_tab_close_display_policy() const {
 	return cb_displaypolicy;
+}
+
+void TabBar::set_tab_close_enabled(int p_tab, bool p_enabled) {
+	ERR_FAIL_INDEX(p_tab, tabs.size());
+	if (tabs[p_tab].close_enabled == p_enabled) {
+		return;
+	}
+
+	tabs.write[p_tab].close_enabled = p_enabled;
+	tabs.write[p_tab].cb_rect = Rect2();
+	_update_cache();
+	_ensure_no_over_offset();
+	if (scroll_to_selected) {
+		ensure_tab_visible(current);
+	}
+	queue_redraw();
+	update_desired_size();
+	update_minimum_size();
+}
+
+void TabBar::set_keep_tab_width_on_selection(bool p_enabled) {
+	if (keep_tab_width_on_selection == p_enabled) {
+		return;
+	}
+
+	keep_tab_width_on_selection = p_enabled;
+	_update_cache();
+	_ensure_no_over_offset();
+	if (scroll_to_selected) {
+		ensure_tab_visible(current);
+	}
+	queue_redraw();
+	update_desired_size();
+	update_minimum_size();
 }
 
 void TabBar::set_max_tab_width(int p_width) {
