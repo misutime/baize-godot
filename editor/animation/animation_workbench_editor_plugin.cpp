@@ -1704,11 +1704,7 @@ void AnimationWorkbenchEditorPlugin::_frame_model(bool p_show_forward_space) {
 		Vector3 center = combined.get_center();
 		real_t distance = MAX(size.length() * 1.2, 0.5);
 		if (p_show_forward_space && skeleton.is_valid()) {
-			Vector3 forward = model->get_global_basis().xform(Vector3::MODEL_FRONT);
-			forward.y = 0;
-			// Frame the ground ahead of the model at a distance that scales with its height.
-			center += forward.normalized() * (size.y * 0.8f);
-			center.y -= size.y * 0.09f;
+			// Leave room around the character without moving its orbit pivot.
 			distance = MAX(distance, size.y * 2.65);
 		}
 		_stop_preview_freelook();
@@ -1760,6 +1756,10 @@ void AnimationWorkbenchEditorPlugin::_update_camera() {
 }
 
 void AnimationWorkbenchEditorPlugin::_preview_input(const Ref<InputEvent> &p_event) {
+	const Ref<InputEventMouseButton> button = p_event;
+	if (button.is_valid() && button->is_pressed()) {
+		view->grab_focus();
+	}
 	if (_handle_preview_navigation(p_event)) {
 		view->accept_event();
 	}

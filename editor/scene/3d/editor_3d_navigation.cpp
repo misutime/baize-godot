@@ -165,7 +165,7 @@ bool handle_freelook_input(const Ref<View3DController> &p_controller, Control &p
 			p_controller->set_freelook_enabled(false);
 			return true;
 		}
-		if (can_start && ED_IS_SHORTCUT("spatial_editor/freelook_toggle", p_event)) {
+		if (can_start && !key_event->is_echo() && ED_IS_SHORTCUT("spatial_editor/freelook_toggle", p_event)) {
 			p_controller->set_freelook_enabled(!p_controller->is_freelook_enabled());
 			return true;
 		}

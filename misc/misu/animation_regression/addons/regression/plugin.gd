@@ -245,6 +245,27 @@ func run() -> void:
 	begin("the first skeleton preview plays automatically")
 	EditorInterface.edit_resource(definition)
 	await settle(20)
+	var workspace := EditorInterface.get_base_control().find_child("AnimationAssetWorkspace", true, false)
+	var preview_search := workspace.find_child("ClipSearch", true, false) as LineEdit
+	var surface := workspace.find_children("*", "SubViewportContainer", true, false)[0] as SubViewportContainer
+	var preview_camera := (surface.get_child(0) as SubViewport).get_camera_3d()
+	var bounds := AABB()
+	var meshes := 0
+	for visual in preview_camera.get_parent().get_children():
+		if visual.scene_file_path != model_path:
+			continue
+		for mesh: MeshInstance3D in visual.find_children("*", "MeshInstance3D", true, false):
+			var box := mesh.global_transform * mesh.get_aabb()
+			bounds = box if meshes == 0 else bounds.merge(box)
+			meshes += 1
+	var aim := preview_camera.global_position.direction_to(bounds.get_center())
+	check(meshes > 0 and aim.dot(-preview_camera.global_basis.z) > 0.999, "initial orbit looks at the model center")
+	preview_search.grab_focus()
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	surface.gui_input.emit(wheel)
+	check(surface.has_focus(), "navigation moves keyboard focus from clip search to the preview")
 	var first_preview := workbench.get_state()
 	check(first_preview["document"] == skeleton_path, "the skeleton workbench is active")
 	check(first_preview["playing"], "playback starts without input")
