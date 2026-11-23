@@ -77,12 +77,9 @@ Node *EditorSceneFormatImporterGLTF::import_scene(const String &p_path, uint32_t
 		gltf_state->set_create_animations(bool(p_options["animation/import"]));
 	}
 
-#ifndef DISABLE_DEPRECATED
-	bool trimming = p_options.has("animation/trimming") ? (bool)p_options["animation/trimming"] : false;
-	return gltf_doc->generate_scene(gltf_state, gltf_state->get_bake_fps(), trimming, false);
-#else
-	return gltf_doc->generate_scene(gltf_state, gltf_state->get_bake_fps(), (bool)p_options["animation/trimming"], false);
-#endif
+	const bool trimming = p_options.has("animation/trimming") && (bool)p_options["animation/trimming"];
+	const double bake_fps = p_options.has("_asset_auto_animation_fps") ? 0.0 : gltf_state->get_bake_fps();
+	return gltf_doc->generate_scene(gltf_state, bake_fps, trimming, false);
 }
 
 void EditorSceneFormatImporterGLTF::get_import_options(const String &p_path,

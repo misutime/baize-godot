@@ -36,6 +36,7 @@
 #include "core/object/class_db.h"
 #include "core/templates/rb_set.h"
 #include "editor/editor_node.h"
+#include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/inspector/editor_inspector.h"
@@ -109,7 +110,7 @@ void AnimationNodeBlendTreeEditor::_property_changed(const StringName &p_propert
 	}
 	updating = true;
 	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
-	undo_redo->create_action(vformat(TTR("Parameter Changed: %s"), p_property), UndoRedo::MERGE_ENDS);
+	undo_redo->create_action(vformat(TTR("Parameter Changed: %s"), p_property), UndoRedo::MERGE_ENDS, nullptr, false, !AnimationTreeEditor::get_singleton()->is_resource_document());
 	undo_redo->add_do_property(tree, p_property, p_value);
 	undo_redo->add_undo_property(tree, p_property, tree->get(p_property));
 	undo_redo->add_do_method(this, "update_graph");
@@ -284,6 +285,17 @@ void AnimationNodeBlendTreeEditor::update_graph_immediately() {
 			mb->set_button_icon(get_editor_theme_icon(SNAME("Animation")));
 			mb->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 			mb->set_disabled(read_only);
+			if (anim->get_animation() != StringName() && !tree->has_animation(anim->get_animation())) {
+				// A renamed or removed clip leaves its old name here. It never resolves by itself.
+				const Color error_color = get_theme_color(SNAME("error_color"), EditorStringName(Editor));
+				mb->set_text(vformat(TTR("%s (not found)"), anim->get_animation()));
+				mb->set_tooltip_text(vformat(TTR("Animation '%s' not found. It may have been renamed or moved to another library. Choose an existing animation."), anim->get_animation()));
+				mb->add_theme_color_override(SceneStringName(font_color), error_color);
+				mb->add_theme_color_override(SNAME("font_hover_color"), error_color);
+				mb->add_theme_color_override(SNAME("font_focus_color"), error_color);
+				mb->add_theme_color_override(SNAME("font_pressed_color"), error_color);
+				mb->add_theme_color_override(SNAME("icon_normal_color"), error_color);
+			}
 			Array options;
 
 			node->add_child(memnew(HSeparator));

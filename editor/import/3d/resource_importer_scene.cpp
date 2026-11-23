@@ -36,6 +36,8 @@
 #include "core/io/resource_saver.h"
 #include "core/object/class_db.h"
 #include "core/object/script_language.h"
+#include "core/variant/variant_parser.h"
+#include "editor/animation/animation_workbench_editor_plugin.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/import/3d/scene_import_settings.h"
@@ -48,6 +50,7 @@
 #include "scene/3d/physics/collision_shape_3d.h"
 #include "scene/3d/physics/static_body_3d.h"
 #include "scene/3d/physics/vehicle_body_3d.h"
+#include "scene/3d/skeleton_3d.h"
 #include "scene/animation/animation_player.h"
 #include "scene/resources/3d/box_shape_3d.h"
 #include "scene/resources/3d/importer_mesh.h"
@@ -3266,6 +3269,373 @@ Error ResourceImporterScene::_check_resource_save_paths(ResourceUID::ID p_source
 	return OK;
 }
 
+// Each import creates independent assets, with readable suffixes for occupied names.
+static String _animation_asset_path(const String &p_folder, const String &p_name, const String &p_extension) {
+	const String base = p_name.validate_filename();
+	for (int index = 1;; index++) {
+		const String path = p_folder.path_join(base + (index == 1 ? String() : "_" + itos(index)) + "." + p_extension);
+		if (!FileAccess::exists(path)) {
+			return path;
+		}
+	}
+}
+
+Error ResourceImporterScene::_prepare_skeletal_assets(Node *p_scene, const String &p_source, const HashMap<StringName, Variant> &p_options, const Dictionary &p_node_data, Vector<Ref<PackedScene>> &r_assets, Array &r_reports) {
+	// Import nodes are not inside a SceneTree; Node3D's cached parent is unavailable.
+	auto relative_transform = [p_scene](Node3D *p_node) {
+		Transform3D transform;
+		for (Node *node = p_node; node && node != p_scene; node = node->get_parent()) {
+			if (Node3D *spatial = Object::cast_to<Node3D>(node)) {
+				transform = spatial->get_transform() * transform;
+			}
+		}
+		return transform;
+	};
+	LocalVector<Node *> nodes;
+	LocalVector<Skeleton3D *> skeletons;
+	LocalVector<AnimationPlayer *> players;
+	nodes.push_back(p_scene);
+	for (uint32_t i = 0; i < nodes.size(); i++) {
+		Node *node = nodes[i];
+		for (int c = 0; c < node->get_child_count(); c++) {
+			nodes.push_back(node->get_child(c));
+		}
+		if (Skeleton3D *sk = Object::cast_to<Skeleton3D>(node)) {
+			skeletons.push_back(sk);
+		}
+		if (AnimationPlayer *ap = Object::cast_to<AnimationPlayer>(node)) {
+			players.push_back(ap);
+		}
+	}
+	const String folder = p_options.has("_asset_output_dir") ? String(p_options["_asset_output_dir"]) : p_source.get_base_dir();
+	const String update_mesh = p_options.has("_asset_update_mesh") ? String(p_options["_asset_update_mesh"]) : String();
+	const String selected = p_options.has("skeleton/definition") ? String(p_options["skeleton/definition"]) : String();
+	if (!selected.is_empty() && skeletons.size() != 1) {
+		Dictionary failure;
+		failure["compatible"] = false;
+		failure["usable"] = false;
+		failure["message"] = skeletons.is_empty() ? TTR("The file contains no skeleton. A skeleton needs at least one skinned mesh in the file.") : TTR("The file contains several skeletons. Import it without choosing a skeleton, or split the file.");
+		r_reports.push_back(failure);
+		ERR_FAIL_V_MSG(ERR_INVALID_DATA, String(failure["message"]));
+	}
+	for (Skeleton3D *source_skeleton : skeletons) {
+		const String identity = String(p_scene->get_path_to(source_skeleton));
+		Dictionary report;
+		Array saved_files;
+		report["source_skeleton"] = identity;
+		report["saved_files"] = saved_files;
+		report["completed"] = false;
+		r_reports.push_back(report);
+		const Dictionary settings = p_node_data.get(source_skeleton->get_meta("import_id", "PATH:" + identity), Dictionary());
+		String definition_path = settings.get("skeleton/definition", selected);
+		if (definition_path.is_empty()) {
+			definition_path = selected;
+		}
+		Ref<SkeletonDefinition> actual = source_skeleton->create_skeleton_definition();
+		if (definition_path.is_empty() && p_options.has("_asset_skeleton_candidates")) {
+			// Prefer an exact match, then the first skeleton whose clips remain usable.
+			String usable_path;
+			const PackedStringArray candidates = p_options["_asset_skeleton_candidates"];
+			for (const String &candidate_path : candidates) {
+				Ref<SkeletonDefinition> candidate = ResourceLoader::load(candidate_path);
+				if (candidate.is_null()) {
+					continue;
+				}
+				const Dictionary match = candidate->compare(actual);
+				if (bool(match["compatible"])) {
+					definition_path = candidate_path;
+					break;
+				}
+				if (usable_path.is_empty() && bool(match["usable"])) {
+					usable_path = candidate_path;
+				}
+			}
+			if (definition_path.is_empty()) {
+				definition_path = usable_path;
+			}
+		}
+		HashMap<Node *, String> mesh_paths;
+		HashSet<String> mesh_names;
+		for (Node *node : nodes) {
+			MeshInstance3D *mesh = Object::cast_to<MeshInstance3D>(node);
+			if (!mesh) {
+				continue;
+			}
+			Node *bound = mesh->get_skin().is_valid() ? mesh->get_node_or_null(mesh->get_skeleton_path()) : nullptr;
+			// Rigid meshes outside any skeleton stay with the model when the source has a single skeleton.
+			const bool rigid = !bound && skeletons.size() == 1 && !source_skeleton->is_ancestor_of(mesh);
+			if (bound != source_skeleton && !rigid) {
+				continue;
+			}
+			String name = mesh->get_name();
+			const String stem = name;
+			for (int i = 2; mesh_names.has(name); i++) {
+				name = stem + "_" + itos(i);
+			}
+			mesh_names.insert(name);
+			mesh_paths.insert(mesh, "Meshes/" + name);
+		}
+		const bool has_model = _scene_import_type == "PackedScene" && (!mesh_paths.is_empty() || !update_mesh.is_empty());
+		if (definition_path.is_empty() && !has_model) {
+			report["compatible"] = false;
+			report["usable"] = false;
+			report["message"] = TTR("The file has no model for this skeleton and no skeleton in the project matches it. Import the model first, or choose the skeleton.");
+			ERR_FAIL_V_MSG(ERR_INVALID_DATA, String(report["message"]));
+		}
+		const String base = p_source.get_file().get_basename() + (skeletons.size() > 1 ? "_" + identity.validate_filename() : String());
+		const String model_path = update_mesh.is_empty() ? _animation_asset_path(folder, base, "skmesh") : update_mesh;
+		const bool generated_definition = definition_path.is_empty();
+		Ref<SkeletonDefinition> definition;
+		if (definition_path.is_empty()) {
+			definition_path = _animation_asset_path(folder, base, "sk");
+			definition = actual;
+			definition->set_name(p_source.get_file().get_basename());
+		} else {
+			definition = ResourceLoader::load(definition_path);
+			ERR_FAIL_COND_V_MSG(definition.is_null(), ERR_CANT_OPEN, "Cannot load skeleton: " + definition_path);
+		}
+		report.merge(definition->compare(actual));
+		PackedStringArray generated_clips;
+		report["animations"] = generated_clips;
+		report["definition"] = definition_path;
+		PackedStringArray warnings;
+		PackedStringArray skipped_clips;
+		const Pair<String, String> difference_labels[] = {
+			{ "missing_bones", TTR("Bones missing from the file") },
+			{ "extra_bones", TTR("Bones not in the skeleton") },
+			{ "parent_mismatches", TTR("Bones with another parent") },
+			{ "rest_mismatches", TTR("Bones with another rest pose") },
+		};
+		for (const Pair<String, String> &label : difference_labels) {
+			const PackedStringArray names = report[label.first];
+			if (!names.is_empty()) {
+				warnings.push_back(vformat("%s (%d): %s%s", label.second, names.size(), String(", ").join(names.slice(0, 5)), names.size() > 5 ? ", ..." : ""));
+			}
+		}
+		report["warnings"] = warnings;
+		if (!bool(report["usable"])) {
+			report["message"] = vformat(TTR("Skeleton mismatch with %s. %s. Choose a matching skeleton or create a new one."), definition_path, String("; ").join(warnings));
+			ERR_FAIL_V_MSG(ERR_INVALID_DATA, String(report["message"]));
+		}
+		Error err = DirAccess::make_dir_recursive_absolute(definition_path.get_base_dir());
+		ERR_FAIL_COND_V(err != OK, err);
+		if (generated_definition) {
+			err = ResourceSaver::save(definition, definition_path);
+			ERR_FAIL_COND_V(err != OK, err);
+			definition->set_path(definition_path, true);
+			saved_files.push_back(definition_path);
+		}
+		// The clip file name is the animation name and the folder below the animation directory its library.
+		const String library_name = p_options.has("_asset_animation_library") ? String(p_options["_asset_animation_library"]).strip_edges() : String();
+		ERR_FAIL_COND_V_MSG(!library_name.is_empty() && (!AnimationLibrary::is_valid_library_name(library_name) || !library_name.is_valid_filename()), ERR_INVALID_PARAMETER, "Invalid animation library name: " + library_name);
+		const String clip_root = definition->get_animation_directory_path();
+		const String clip_folder = library_name.is_empty() ? clip_root : clip_root.path_join(library_name);
+		ERR_FAIL_COND_V_MSG(!update_mesh.is_empty() && mesh_paths.is_empty(), ERR_INVALID_DATA, "The replacement file contains no skinned mesh for this skeleton.");
+		for (AnimationPlayer *player : players) {
+			if (!update_mesh.is_empty()) {
+				break;
+			}
+			Node *animation_root = player->get_node_or_null(player->get_root_node());
+			if (!animation_root) {
+				continue;
+			}
+			LocalVector<StringName> names;
+			player->get_animation_list(&names);
+			for (const StringName &source_name : names) {
+				if (source_name == SNAME("RESET")) {
+					continue;
+				}
+				Ref<Animation> clip = player->get_animation(source_name)->duplicate();
+				for (int track = clip->get_track_count() - 1; track >= 0; track--) {
+					const NodePath path = clip->track_get_path(track);
+					Node *target = animation_root->get_node_or_null(NodePath(path.get_concatenated_names()));
+					String canonical;
+					if (target == source_skeleton) {
+						canonical = "Skeleton3D";
+					} else if (mesh_paths.has(target)) {
+						canonical = mesh_paths[target];
+					} else if (target && source_skeleton->is_ancestor_of(target)) {
+						// Attachments are copied below the skeleton with their source paths.
+						canonical = "Skeleton3D/" + String(source_skeleton->get_path_to(target));
+					} else {
+						clip->remove_track(track);
+						continue;
+					}
+					if (path.get_subname_count()) {
+						canonical += ":" + String(path.get_concatenated_subnames());
+					}
+					clip->track_set_path(track, NodePath(canonical));
+				}
+				if (clip->get_track_count() == 0) {
+					skipped_clips.push_back(source_name);
+					continue;
+				}
+				if (definition->has_baked_animation_libraries()) {
+					String migration_error;
+					err = AnimationWorkbenchEditorPlugin::migrate_skeleton_animations(definition, migration_error);
+					ERR_FAIL_COND_V_MSG(err != OK, err, migration_error);
+				}
+				clip->set_skeleton(definition);
+				clip->set_skeleton_node_path(NodePath("Skeleton3D"));
+				ERR_FAIL_COND_V_MSG(definition->get_path().is_empty() || clip->get_skeleton_path().is_empty(), ERR_INVALID_DATA, "Imported skeleton animations require a saved .sk skeleton.");
+				clip->set_meta("_animation_sample_rate", 1.0 / clip->get_step());
+				ERR_FAIL_COND_V_MSG(clip_root.is_empty(), ERR_INVALID_DATA, "Imported skeleton animations require a saved .sk skeleton.");
+				err = DirAccess::make_dir_recursive_absolute(clip_folder);
+				ERR_FAIL_COND_V(err != OK, err);
+				// A taken name gets a numbered file, which is then also the numbered animation name.
+				const String path = _animation_asset_path(clip_folder, AnimationLibrary::validate_library_name(String(source_name)), "skanim");
+				err = ResourceSaver::save(clip, path);
+				ERR_FAIL_COND_V(err != OK, err);
+				generated_clips.push_back(path);
+				saved_files.push_back(path);
+				clip->set_path(path, true);
+			}
+		}
+		report["animations"] = generated_clips;
+		report["skipped_animations"] = skipped_clips;
+		if (!skipped_clips.is_empty()) {
+			warnings.push_back(vformat(TTR("skipped clips without tracks for this skeleton (%d): %s"), skipped_clips.size(), String(", ").join(skipped_clips)));
+			report["warnings"] = warnings;
+		}
+		definition->rescan_animations();
+		if (!has_model) {
+			report["completed"] = true;
+			continue;
+		}
+		err = DirAccess::make_dir_recursive_absolute(folder);
+		ERR_FAIL_COND_V(err != OK, err);
+		Node3D *root = memnew(Node3D);
+		root->set_name(p_source.get_file().get_basename());
+		if (Node3D *source_root = Object::cast_to<Node3D>(p_scene)) {
+			root->set_transform(source_root->get_transform());
+		}
+		Skeleton3D *bones = memnew(Skeleton3D);
+		bones->set_name("Skeleton3D");
+		root->add_child(bones);
+		bones->set_owner(root);
+		bones->set_transform(relative_transform(source_skeleton));
+		for (int i = 0; i < source_skeleton->get_bone_count(); i++) {
+			bones->add_bone(source_skeleton->get_bone_name(i));
+		}
+		for (int i = 0; i < source_skeleton->get_bone_count(); i++) {
+			bones->set_bone_parent(i, source_skeleton->get_bone_parent(i));
+			bones->set_bone_rest(i, source_skeleton->get_bone_rest(i));
+		}
+		bones->reset_bone_poses();
+		for (int i = 0; i < source_skeleton->get_child_count(); i++) {
+			Node *child = source_skeleton->get_child(i);
+			if (mesh_paths.has(child)) {
+				continue;
+			}
+			Node *attachment = child->duplicate();
+			bones->add_child(attachment);
+			LocalVector<Node *> owned;
+			owned.push_back(attachment);
+			for (uint32_t n = 0; n < owned.size(); n++) {
+				owned[n]->set_owner(root);
+				for (int c = 0; c < owned[n]->get_child_count(); c++) {
+					owned.push_back(owned[n]->get_child(c));
+				}
+			}
+		}
+		Node3D *meshes = memnew(Node3D);
+		meshes->set_name("Meshes");
+		root->add_child(meshes);
+		meshes->set_owner(root);
+		for (const KeyValue<Node *, String> &entry : mesh_paths) {
+			MeshInstance3D *source = Object::cast_to<MeshInstance3D>(entry.key);
+			MeshInstance3D *mesh = memnew(MeshInstance3D);
+			mesh->set_name(entry.value.get_file());
+			meshes->add_child(mesh);
+			mesh->set_owner(root);
+			mesh->set_transform(relative_transform(source));
+			Ref<Mesh> geometry = source->get_mesh();
+
+			mesh->set_mesh(geometry);
+			mesh->set_skin(source->get_skin());
+			mesh->set_skeleton_path(NodePath("../../Skeleton3D"));
+			mesh->set_material_override(source->get_material_override());
+			for (int i = 0; i < source->get_surface_override_material_count(); i++) {
+				mesh->set_surface_override_material(i, source->get_surface_override_material(i));
+			}
+		}
+		AnimationPlayer *player = memnew(AnimationPlayer);
+		player->set_name("AnimationPlayer");
+		root->add_child(player);
+		player->set_owner(root);
+		player->set_root_node(NodePath(".."));
+		player->set_skeleton_definition(definition);
+		// Updating a model preserves nodes and settings outside its Meshes subtree.
+		if (!update_mesh.is_empty()) {
+			Ref<PackedScene> previous = ResourceLoader::load(update_mesh);
+			Node3D *existing = previous.is_valid() ? Object::cast_to<Node3D>(previous->instantiate()) : nullptr;
+			if (!existing) {
+				memdelete(root);
+				return ERR_INVALID_DATA;
+			}
+			Skeleton3D *existing_bones = Object::cast_to<Skeleton3D>(existing->get_node_or_null(NodePath("Skeleton3D")));
+			Node *old_meshes = existing->get_node_or_null(NodePath("Meshes"));
+			if (!existing_bones || !old_meshes) {
+				memdelete(existing);
+				memdelete(root);
+				return ERR_INVALID_DATA;
+			}
+			const Transform3D correction = existing_bones->get_transform() * bones->get_transform().affine_inverse();
+			for (int i = 0; i < meshes->get_child_count(); i++) {
+				Node3D *mesh = Object::cast_to<Node3D>(meshes->get_child(i));
+				mesh->set_transform(correction * mesh->get_transform());
+			}
+			existing->remove_child(old_meshes);
+			memdelete(old_meshes);
+			meshes->set_owner(nullptr);
+			for (int i = 0; i < meshes->get_child_count(); i++) {
+				meshes->get_child(i)->set_owner(nullptr);
+			}
+			root->remove_child(meshes);
+			existing->add_child(meshes);
+			meshes->set_owner(existing);
+			for (int i = 0; i < meshes->get_child_count(); i++) {
+				meshes->get_child(i)->set_owner(existing);
+			}
+			memdelete(root);
+			root = existing;
+			AnimationPlayer *existing_player = Object::cast_to<AnimationPlayer>(root->get_node_or_null(NodePath("AnimationPlayer")));
+			if (existing_player) {
+				existing_player->set_skeleton_definition(definition);
+			}
+		}
+		Ref<PackedScene> packed;
+		packed.instantiate();
+		err = packed->pack(root);
+		memdelete(root);
+		ERR_FAIL_COND_V(err != OK, err);
+		err = ResourceSaver::save(packed, model_path);
+		ERR_FAIL_COND_V(err != OK, err);
+		report["model"] = model_path;
+		saved_files.push_back(model_path);
+		if (!update_mesh.is_empty()) {
+			Ref<PackedScene> cached = ResourceCache::get_ref(model_path);
+			if (cached.is_valid()) {
+				cached->copy_from(packed);
+			}
+		}
+		r_assets.push_back(packed);
+		if (update_mesh.is_empty() && definition->get_preview_mesh().is_empty()) {
+			definition->set_preview_mesh(model_path);
+			err = ResourceSaver::save(definition, definition_path);
+			if (err != OK) {
+				definition->set_preview_mesh(String());
+				return err;
+			}
+			if (!generated_definition) {
+				saved_files.push_back(definition_path);
+			}
+		}
+		report["completed"] = true;
+	}
+	return OK;
+}
+
 Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p_source_file, const String &p_save_path, const HashMap<StringName, Variant> &p_options, List<String> *r_platform_variants, List<String> *r_gen_files, Variant *r_metadata) {
 	const String &src_path = p_source_file;
 
@@ -3511,6 +3881,44 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 
 	for (int i = 0; i < post_importer_plugins.size(); i++) {
 		post_importer_plugins.write[i]->post_process(scene, p_options);
+	}
+
+	Vector<Ref<PackedScene>> skeletal_assets;
+	Array skeleton_reports;
+	if (p_options.has("_asset_output_dir")) {
+		err = _prepare_skeletal_assets(scene, p_source_file, p_options, node_data, skeletal_assets, skeleton_reports);
+		if (r_metadata) {
+			Dictionary import_metadata;
+			import_metadata["skeleton_validation"] = skeleton_reports;
+			*r_metadata = import_metadata;
+		}
+		if (err != OK) {
+			memdelete(scene);
+			return err;
+		}
+	}
+	if (p_options.has("_asset_output_dir")) {
+		if (skeleton_reports.is_empty()) {
+			if (_scene_import_type == "AnimationLibrary") {
+				memdelete(scene);
+				ERR_FAIL_V_MSG(ERR_INVALID_DATA, "Animation-only import requires skeletal animation data.");
+			}
+			// Non-skeletal models keep their native scene hierarchy and node animations.
+			Ref<PackedScene> packed;
+			packed.instantiate();
+			err = packed->pack(scene);
+			const String path = _animation_asset_path(p_options["_asset_output_dir"], p_source_file.get_file().get_basename(), "tscn");
+			if (err == OK) {
+				err = ResourceSaver::save(packed, path);
+			}
+			if (r_metadata) {
+				Dictionary asset_metadata;
+				asset_metadata["scene"] = path;
+				*r_metadata = asset_metadata;
+			}
+		}
+		memdelete(scene);
+		return err;
 	}
 
 	progress.step(TTR("Saving..."), 104);

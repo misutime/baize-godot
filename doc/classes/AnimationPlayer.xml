@@ -332,6 +332,9 @@
 		<member name="playback_default_blend_time" type="float" setter="set_default_blend_time" getter="get_default_blend_time" default="0.0">
 			The default time in which to blend animations. Ranges from 0 to 4096 with 0.01 precision.
 		</member>
+		<member name="skeleton_definition" type="SkeletonDefinition" setter="set_skeleton_definition" getter="get_skeleton_definition">
+			When assigned, all of the player's animation libraries come from this skeleton: one per folder of its animation directory, see [SkeletonDefinition]. They follow the skeleton's clip files and are not stored in the scene. Adding, removing, or renaming animation libraries on the player is rejected while a skeleton is assigned.
+		</member>
 		<member name="speed_scale" type="float" setter="set_speed_scale" getter="get_speed_scale" default="1.0">
 			The speed scaling ratio. For example, if this value is [code]1[/code], then the animation plays at normal speed. If it's [code]0.5[/code], then it plays at half speed. If it's [code]2[/code], then it plays at double speed.
 			If set to a negative value, the animation is played in reverse. If set to [code]0[/code], the animation will not advance.

@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/templates/hash_set.h"
 #include "scene/animation/animation_mixer.h"
 #include "scene/resources/animation.h"
 
@@ -152,6 +153,13 @@ protected:
 	virtual void _validate_property(PropertyInfo &p_property) const override;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
 	void _notification(int p_what);
+	Ref<SkeletonDefinition> skeleton_definition;
+	HashSet<StringName> derived_libraries;
+	bool syncing_skeleton_library = false;
+	void _sync_skeleton_library();
+	void _remove_additional_animation_libraries();
+	bool _is_library_derived(const StringName &p_name) const override;
+	bool _allows_animation_library_change(const StringName &p_name) const override;
 
 	static void _bind_methods();
 
@@ -260,6 +268,8 @@ public:
 	virtual void advance(double p_time) override;
 
 	AnimationPlayer();
+	void set_skeleton_definition(const Ref<SkeletonDefinition> &p_definition);
+	Ref<SkeletonDefinition> get_skeleton_definition() const;
 	~AnimationPlayer();
 };
 

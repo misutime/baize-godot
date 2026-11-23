@@ -105,6 +105,7 @@ private:
 	Node3DEditorViewportContainer *viewport_base = nullptr;
 	VSplitContainer *workspace_root = nullptr;
 	VBoxContainer *scene_workspace = nullptr;
+	Control *asset_workspace = nullptr;
 	Control *document_workspace = nullptr;
 	Node3DEditorViewport *viewports[VIEWPORTS_COUNT];
 	int last_used_viewport = 0;
@@ -493,6 +494,8 @@ public:
 	Ref<Environment> get_viewport_environment() { return viewport_environment; }
 
 	void add_control_to_menu_panel(Control *p_control);
+	void set_asset_workspace(Control *p_workspace);
+	void show_asset_workspace(bool p_show);
 	void show_document_workspace(Control *p_workspace, bool p_keep_scene = false);
 	void remove_control_from_menu_panel(Control *p_control);
 

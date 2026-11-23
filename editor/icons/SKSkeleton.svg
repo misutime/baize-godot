@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
+  <!-- UIX Icons Regular: skeleton-full. Adapted for the Godot editor theme. -->
+  <g fill="none" stroke="#3b8f7c" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75">
+    <path d="M10 4.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0m2 2v8m-6.5.5l2-6h9l2 6"/>
+    <path d="m8.5 21.5l1.5-7h4l1.5 7m-6-9.75h5"/>
+  </g>
+</svg>

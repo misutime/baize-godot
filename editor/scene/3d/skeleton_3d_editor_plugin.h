@@ -121,6 +121,7 @@ class Skeleton3DEditor : public VBoxContainer {
 		SKELETON_OPTION_SELECTED_POSES_TO_RESTS,
 		SKELETON_OPTION_CREATE_PHYSICAL_SKELETON,
 		SKELETON_OPTION_EXPORT_SKELETON_PROFILE,
+		SKELETON_OPTION_EXPORT_SKELETON_DEFINITION,
 	};
 
 	struct BoneInfo {
@@ -163,6 +164,7 @@ class Skeleton3DEditor : public VBoxContainer {
 	EditorInspectorSection *bones_section = nullptr;
 
 	EditorFileDialog *file_dialog = nullptr;
+	bool exporting_skeleton_definition = false;
 
 	bool keyable = false;
 
@@ -190,6 +192,7 @@ class Skeleton3DEditor : public VBoxContainer {
 	PhysicalBone3D *create_physical_bone(int bone_id, int bone_child_id, const Vector<BoneInfo> &bones_infos);
 
 	void export_skeleton_profile();
+	void export_skeleton_definition();
 
 	Variant get_drag_data_fw(const Point2 &p_point, Control *p_from);
 	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;

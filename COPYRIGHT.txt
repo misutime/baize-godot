@@ -53,6 +53,24 @@ Copyright: 2011, Ole Kniemeyer, MAXON, www.maxon.net
  2007-2014, Juan Linietsky, Ariel Manzur
 License: Expat and Zlib
 
+Files: editor/icons/SKAnimation.svg
+Copyright: Google LLC
+License: Apache-2.0
+Comment: Google Material Icons
+Source: https://github.com/google/material-design-icons/blob/master/src/maps/local_play/materialiconsround/24px.svg
+
+Files: editor/icons/SKMesh.svg
+Copyright: Pictogrammers
+License: Apache-2.0
+Comment: Material Design Icons
+Source: https://github.com/Templarian/MaterialDesign/blob/master/svg/human-handsdown.svg
+
+Files: editor/icons/SKSkeleton.svg
+Copyright: 2026, Rakib Shekh, trading as Sigma Studio
+License: Expat
+Comment: UIX Icons Regular
+Source: https://github.com/mdrakibshekh/uix-icons
+
 Files: misc/dist/linux/org.godotengine.Godot.appdata.xml
 Comment: Linux AppStream Metadata File
 Copyright: 2017-2022, Rémi Verschelde

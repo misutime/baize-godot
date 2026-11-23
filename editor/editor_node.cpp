@@ -30,6 +30,8 @@
 
 #include "editor_node.h"
 
+#include "editor/animation/animation_workbench_editor_plugin.h"
+
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/extension/gdextension_manager.h"
@@ -79,6 +81,7 @@
 #include "editor/export/project_export.h"
 #include "editor/export/project_zip_packer.h"
 #include "editor/export/register_exporters.h"
+#include "editor/export/skeleton_animation_export_plugin.h"
 #include "editor/file_system/dependency_editor.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/gui/editor_about.h"
@@ -2573,6 +2576,14 @@ Error EditorNode::_save_scene(String p_file, int idx, bool p_save_plugin_data) {
 		return ERR_CANT_CREATE;
 	}
 
+	// Built-in clip drafts must reach their owning resources before PackedScene::pack().
+	if (AnimationWorkbenchEditorPlugin *workbench = AnimationWorkbenchEditorPlugin::get_singleton()) {
+		const Error error = workbench->save_clip_drafts(scene);
+		if (error != OK) {
+			show_warning(workbench->get_last_error());
+			return error;
+		}
+	}
 	scene->propagate_notification(NOTIFICATION_EDITOR_PRE_SAVE);
 
 	editor_data.apply_changes_in_editors();
@@ -6655,6 +6666,20 @@ Ref<Texture2D> EditorNode::get_object_icon(const Object *p_object, const String 
 	}
 }
 
+Ref<Texture2D> EditorNode::get_custom_resource_file_icon(const String &p_path, const String &p_fallback) {
+	const String extension = p_path.get_extension().to_lower();
+	if (extension == "sk") {
+		return get_class_icon(SNAME("SKSkeleton"), p_fallback);
+	} else if (extension == "skanim") {
+		return get_class_icon(SNAME("SKAnimation"), p_fallback);
+	} else if (extension == "skmesh") {
+		return get_class_icon(SNAME("SKMesh"), p_fallback);
+	} else if (extension == "animtree") {
+		return get_class_icon(SNAME("SKAnimationTree"), p_fallback);
+	}
+	return nullptr;
+}
+
 Ref<Texture2D> EditorNode::get_class_icon(const String &p_class, const String &p_fallback) {
 	ERR_FAIL_COND_V_MSG(p_class.is_empty(), nullptr, "Class name cannot be empty.");
 	const Pair<String, String> key(p_class, p_fallback);
@@ -7832,9 +7857,25 @@ void EditorNode::_dropped_files(const Vector<String> &p_files) {
 	if (to_path.is_empty()) {
 		to_path = FileSystemDock::get_singleton()->get_current_directory();
 	}
+	Vector<String> glb_files;
+	Vector<String> other_files;
+	for (const String &path : p_files) {
+		if (path.get_extension().to_lower() == "glb" && FileAccess::exists(path)) {
+			glb_files.push_back(path);
+		} else {
+			other_files.push_back(path);
+		}
+	}
+	if (!glb_files.is_empty()) {
+		// The dialog also offers the native copy for static models.
+		callable_mp(AnimationWorkbenchEditorPlugin::get_singleton(), &AnimationWorkbenchEditorPlugin::import_dropped_files).call_deferred(glb_files, ProjectSettings::get_singleton()->localize_path(to_path));
+	}
+	if (other_files.is_empty()) {
+		return;
+	}
 	to_path = ProjectSettings::get_singleton()->globalize_path(to_path);
 
-	_add_dropped_files_recursive(p_files, to_path);
+	_add_dropped_files_recursive(other_files, to_path);
 
 	EditorFileSystem::get_singleton()->scan_changes();
 }
@@ -10311,6 +10352,11 @@ EditorNode::EditorNode() {
 	dedicated_server_export_plugin.instantiate();
 
 	EditorExport::get_singleton()->add_export_plugin(dedicated_server_export_plugin);
+
+	Ref<SkeletonAnimationExportPlugin> skeleton_animation_export_plugin;
+	skeleton_animation_export_plugin.instantiate();
+
+	EditorExport::get_singleton()->add_export_plugin(skeleton_animation_export_plugin);
 
 #ifdef RD_ENABLED
 	Ref<ShaderBakerExportPlugin> shader_baker_export_plugin;

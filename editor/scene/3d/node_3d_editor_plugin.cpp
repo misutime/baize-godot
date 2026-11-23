@@ -2692,6 +2692,30 @@ void Node3DEditor::clear_subgizmo_selection(Object *p_obj) {
 	_clear_subgizmo_selection(p_obj);
 }
 
+void Node3DEditor::set_asset_workspace(Control *p_workspace) {
+	show_asset_workspace(false);
+	if (asset_workspace) {
+		workspace_root->remove_child(asset_workspace);
+	}
+	asset_workspace = p_workspace;
+	if (asset_workspace) {
+		workspace_root->add_child(asset_workspace);
+		asset_workspace->set_v_size_flags(SIZE_EXPAND_FILL);
+		asset_workspace->hide();
+	}
+}
+
+void Node3DEditor::show_asset_workspace(bool p_show) {
+	if (document_workspace) {
+		document_workspace->hide();
+	}
+	const bool show_asset = p_show && asset_workspace;
+	scene_workspace->set_visible(!show_asset);
+	if (asset_workspace) {
+		asset_workspace->set_visible(show_asset);
+	}
+}
+
 void Node3DEditor::show_document_workspace(Control *p_workspace, bool p_keep_scene) {
 	if (document_workspace && document_workspace != p_workspace) {
 		document_workspace->hide();
@@ -2699,6 +2723,9 @@ void Node3DEditor::show_document_workspace(Control *p_workspace, bool p_keep_sce
 	document_workspace = p_workspace;
 	// Editors that work on the scene itself share the tab with the viewport.
 	scene_workspace->set_visible(!p_workspace || p_keep_scene);
+	if (asset_workspace) {
+		asset_workspace->hide();
+	}
 	if (p_workspace) {
 		if (!p_workspace->get_parent()) {
 			workspace_root->add_child(p_workspace);
@@ -4282,6 +4309,15 @@ Node3DEditor::~Node3DEditor() {
 }
 
 void Node3DEditorPlugin::edited_scene_changed() {
+	EditorData &scene_data = EditorNode::get_editor_data();
+	Node3D *root = Object::cast_to<Node3D>(scene_data.get_edited_scene_root());
+	if (root && root->get_scene_file_path().has_extension("skmesh")) {
+		const Dictionary states = scene_data.get_scene_editor_states_with_selection(scene_data.get_edited_scene());
+		const Dictionary spatial_state = states.get("3D", Dictionary());
+		if (!spatial_state.has("viewports")) {
+			spatial_editor->get_editor_viewport(0)->frame_model(root);
+		}
+	}
 	for (uint32_t i = 0; i < Node3DEditor::VIEWPORTS_COUNT; i++) {
 		Node3DEditorViewport *viewport = Node3DEditor::get_singleton()->get_editor_viewport(i);
 		if (viewport->is_visible()) {

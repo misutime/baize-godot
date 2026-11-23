@@ -21681,11 +21681,427 @@ msgstr "需要大于 0 的 FPS 才能换算为帧；当前显示秒。"
 msgid "Display times in seconds or frames. Frames use the animation's FPS; preview speed does not change frame numbers."
 msgstr "按秒或帧显示时间。帧数使用动画的编辑 FPS 换算，不受预览速度影响。"
 
+msgid "Update SKMesh from File..."
+msgstr "从文件更新 SKMesh…"
+
+msgid "Enable the Animation Workbench plugin to import external GLB assets. No GLB files were copied."
+msgstr "请启用动画工作区插件以导入外部 GLB 资产。未复制任何 GLB 文件。"
+
+msgid "Enable the Animation Workbench plugin to update a SKMesh."
+msgstr "请启用动画工作区插件以更新 SKMesh。"
+
+msgid "An animation tree has unsaved changes."
+msgstr "动画树有未保存的修改。"
+
+msgid "Save the current animation tree before continuing?"
+msgstr "保存当前动画树后继续？"
+
+msgid "Cannot save '%s': %s"
+msgstr "无法保存“%s”：%s"
+
+msgid "Skeleton"
+msgstr "骨骼"
+
+#: editor/gui/editor_quick_open_dialog.cpp
+msgid "Select Skeleton"
+msgstr "选择骨骼"
+
+msgid "Enable the animation workbench plugin to edit animation clips."
+msgstr "请启用动画工作区插件以编辑动画片段。"
+
+msgid "Save the owning scene before saving its animation tree."
+msgstr "请先为所属场景指定保存路径，再保存动画树。"
+
+msgid "Import GLB..."
+msgstr "导入 GLB…"
+
+msgid "Focus Model"
+msgstr "聚焦模型"
+
+msgid "Refresh Animations"
+msgstr "刷新动画"
+
+msgid "Category"
+msgstr "分类"
+
+msgid "Rebind Skeleton Animation"
+msgstr "重新绑定骨骼动画"
+
+msgid "Rebind"
+msgstr "重新绑定"
+
+msgid "Choose Skeleton..."
+msgstr "选择骨骼…"
+
+msgid "No skeleton selected"
+msgstr "未选择骨骼"
+
+msgid "Animation Name"
+msgstr "动画名称"
+
+msgid "Skeleton Definition"
+msgstr "骨骼定义"
+
+msgid "Choose a valid saved .sk skeleton."
+msgstr "请选择有效的已保存 .sk 骨骼。"
+
+msgid "Choose a valid skeleton."
+msgstr "请选择有效的骨骼。"
+
+msgid "The skeleton is missing bones used by this clip: %s"
+msgstr "骨骼缺少这个片段使用的骨骼：%s"
+
+msgid "Choose the owning .sk skeleton."
+msgstr "请选择所属的 .sk 骨骼。"
+
+msgid "The selected skeleton is not a saved .sk asset."
+msgstr "所选骨骼不是已保存的 .sk 资产。"
+
+msgid "Enter a valid animation name without /, :, comma, or brackets."
+msgstr "请输入不包含 /、:、逗号或方括号的有效动画名称。"
+
+msgid "RESET is reserved for the skeleton's reset pose."
+msgstr "RESET 是骨骼重置姿态的保留名称。"
+
+msgid "Another clip already uses this animation name."
+msgstr "另一个片段已经使用了这个动画名称。"
+
+msgid "Choose a saved .skanim clip to rebind."
+msgstr "请选择已保存的 .skanim 片段进行重新绑定。"
+
+msgid "Choose a saved .sk skeleton."
+msgstr "请选择已保存的 .sk 骨骼。"
+
+msgid "Could not save the animation clip: %s"
+msgstr "无法保存动画片段：%s"
+
+msgid "A .skanim clip must be bound to a saved .sk skeleton before it can be saved."
+msgstr "保存 .skanim 片段前必须绑定已保存的 .sk 骨骼。"
+
+msgid "Drag to scrub. Drag in the bottom strip to select a range. Right-click to clear the selection."
+msgstr "拖动时间轴可预览动画，拖动底部窄条可选择剪辑区间。右键单击可取消选区。"
+
+msgid "Restore the preview pose and fit the entire clip in the timeline."
+msgstr "恢复预览模型的姿态，并在时间轴中显示整个片段。"
+
+msgctxt "Animation Range"
+msgid "Start"
+msgstr "起点"
+
+msgctxt "Animation Range"
+msgid "End"
+msgstr "终点"
+
+msgid "Selection Start"
+msgstr "选区起点"
+
+msgid "Selection End"
+msgstr "选区终点"
+
+msgid "Delete Range"
+msgstr "删除选区"
+
+msgid "Delete the selected range including both endpoints."
+msgstr "删除整个选区，包含起点和终点。"
+
+msgid "%d frame (%s s)"
+msgid_plural "%d frames (%s s)"
+msgstr[0] "%d 帧 · %s 秒"
+
+msgctxt "Animation Range"
+msgid "%s s"
+msgstr "%s 秒"
+
+msgid "Save Current Clip"
+msgstr "保存当前片段"
+
+msgid "Save Clip As..."
+msgstr "另存新片段…"
+
+msgid "Preview Model"
+msgstr "预览模型"
+
+msgid "Search skeleton animations"
+msgstr "搜索该骨骼的动画"
+
+msgid "Unsaved Animation"
+msgstr "动画有未保存的修改"
+
+msgid "Save the current animation before continuing?"
+msgstr "保存当前动画后继续？"
+
+msgid "Loop Preview"
+msgstr "循环播放"
+
+msgid "Skeleton Animations"
+msgstr "骨骼动画"
+
+msgid "Default Library"
+msgstr "默认动画库"
+
+msgid "Provided by the skeleton"
+msgstr "由关联骨骼提供"
+
+msgid "Configured on this AnimationPlayer"
+msgstr "直接配置在此 AnimationPlayer 上"
+
+msgid "Choose a preview model that uses this skeleton."
+msgstr "选择一个使用该骨骼的预览模型。"
+
+msgid "The preview model must use the current skeleton."
+msgstr "预览模型必须使用当前骨骼。"
+
+msgid "Clip editing requires uncompressed 3D pose or blend shape tracks."
+msgstr "剪辑支持未压缩的骨骼变换和 Blend Shape 轨道。"
+
+msgid "Skeleton '%s': %s"
+msgstr "骨架“%s”：%s"
+
+msgid "Files already saved (%d):\n%s\nRetrying the whole GLB can create numbered copies."
+msgstr "已保存的文件（%d 个）：\n%s\n重新导入整个 GLB 可能会生成带编号的副本。"
+
+msgid "Could not save the preview model selection."
+msgstr "无法保存所选的预览模型。"
+
+msgid "The animation belongs to an imported resource and cannot be overwritten."
+msgstr "此动画属于导入的资源，无法直接覆盖。"
+
+msgid "Animation save failed: %s"
+msgstr "动画保存失败 %s"
+
+msgid "Current clip saved."
+msgstr "已保存当前片段"
+
+msgid "Animation workbench has unsaved clip edits."
+msgstr "动画工作区有未保存的片段修改。"
+
+msgid "Unsaved animation clips:"
+msgstr "未保存的动画片段："
+
+msgid "Choose a new clip filename and a skeleton."
+msgstr "请选择新的片段文件名和所属骨骼。"
+
+msgid "Import Model / Animation"
+msgstr "导入模型／动画"
+
+msgid "Import Model / Animation..."
+msgstr "导入模型／动画…"
+
+msgid "Import Assets"
+msgstr "导入新资产"
+
+msgid "External GLB"
+msgstr "外部 GLB"
+
+msgid "Project Destination"
+msgstr "项目目标目录"
+
+msgid "Update SKMesh"
+msgstr "从文件更新 SKMesh"
+
+msgid "Import Model"
+msgstr "导入模型"
+
+msgid "Import Animations"
+msgstr "导入动画"
+
+msgid "Create Skeleton"
+msgstr "创建新骨骼"
+
+msgid "Use Existing Skeleton"
+msgstr "使用已有骨骼"
+
+msgid "Import Sampling FPS"
+msgstr "导入采样 FPS"
+
+msgid "Detect the sampling rate of each animation from its keyframe times. Use 30 FPS when no rate can be detected."
+msgstr "根据各动画的关键帧时间自动判断采样率。无法判断时使用 30 FPS。"
+
+msgid "Choose an existing skeleton or create a new skeleton."
+msgstr "请选择已有骨骼或创建新骨骼。"
+
+msgid "Embedded in Scene"
+msgstr "场景内嵌"
+
+msgid "Shared Animation Graph"
+msgstr "共享动画图"
+
+msgid "Choose Shared Graph..."
+msgstr "选择共享动画图…"
+
+msgid "Save as Shared Graph..."
+msgstr "保存为共享动画图…"
+
+msgid "Make Embedded Copy"
+msgstr "转为内嵌副本"
+
+msgid "Animation Graph"
+msgstr "动画图"
+
+msgid "Edit Animation Graph"
+msgstr "编辑动画图"
+
+msgid "Change Animation Graph Binding"
+msgstr "更改动画图引用"
+
+msgid "Set Animation Graph Skeleton"
+msgstr "设置动画图骨骼"
+
+msgid "Open the graph from an AnimationTree node to change its binding."
+msgstr "请从 AnimationTree 节点打开动画图后更改引用。"
+
+msgid "The shared graph must use the same skeleton, and the owning scene must be saved."
+msgstr "共享动画图需要使用相同骨骼，请先保存所属场景。"
+
+msgid "Could not save the shared animation graph."
+msgstr "共享动画图保存失败。"
+
+msgid "Could not save the embedded animation graph."
+msgstr "内嵌动画图保存失败。"
+
 msgid "Pin Tab"
 msgstr "固定标签"
 
 msgid "Unpin Tab"
 msgstr "取消固定标签"
+
+msgid "Node Properties"
+msgstr "节点属性"
+
+msgid "Graph Properties"
+msgstr "图属性"
+
+msgid "Loop mode stored in the clip."
+msgstr "保存在片段里的循环模式。"
+
+msgctxt "Clip Loop Mode"
+msgid "Once"
+msgstr "单次"
+
+msgctxt "Clip Loop Mode"
+msgid "Loop"
+msgstr "循环"
+
+msgctxt "Clip Loop Mode"
+msgid "Ping-Pong"
+msgstr "往返"
+
+msgid "Loop the preview only. The clip is not changed."
+msgstr "仅循环预览，不修改片段。"
+
+msgid "Choose SKMesh..."
+msgstr "选择 SKMesh…"
+
+msgid "Choose from SKMesh..."
+msgstr "从 SKMesh 选择…"
+
+msgid "Choose SKMesh Instance"
+msgstr "选择 SKMesh 实例"
+
+msgid "Bind Animation Player"
+msgstr "绑定动画播放器"
+
+msgid "No SKMesh instances with an AnimationPlayer in this scene."
+msgstr "此场景中没有带 AnimationPlayer 的 SKMesh 实例。"
+
+msgid "No matching SKMesh in this project"
+msgstr "项目中还没有使用该骨骼的 SKMesh"
+
+msgid "Select a .skmesh from the project that uses this skeleton."
+msgstr "请选择项目中使用该骨骼的 .skmesh。"
+
+msgid "No model uses this skeleton yet. Import a model for it, or choose a preview model."
+msgstr "还没有模型使用这个骨骼。请为它导入模型，或选择一个预览模型。"
+
+msgid "This animation player has no 3D model to preview."
+msgstr "这个动画播放器没有可预览的 3D 模型。"
+
+msgid "Match Automatically"
+msgstr "自动匹配"
+
+msgid "Use the project skeleton that matches each file. Create a new skeleton when a model matches none."
+msgstr "为每个文件使用项目中匹配的骨骼。模型匹配不到任何骨骼时创建新骨骼。"
+
+msgid "Copy as Native GLB"
+msgstr "按原生 GLB 复制"
+
+msgid "%d files: %s"
+msgstr "%d 个文件：%s"
+
+msgid "Choose an existing skeleton, or match automatically."
+msgstr "请选择已有骨骼，或使用自动匹配。"
+
+msgid "Cannot copy %s: %s"
+msgstr "无法复制 %s：%s"
+
+msgid "Skeleton Animation"
+msgstr "骨骼动画"
+
+msgid "No animation to edit."
+msgstr "没有可编辑的动画。"
+
+msgid "The range %f - %f is outside the clip (0 - %f)."
+msgstr "区间 %f - %f 超出片段范围（0 - %f）。"
+
+msgid "The range covers the whole clip. Delete the clip file instead."
+msgstr "区间覆盖了整个片段。请直接删除片段文件。"
+
+msgid "Track %d (%s) is compressed. Clip editing requires uncompressed tracks."
+msgstr "轨道 %d（%s）已压缩。片段剪辑需要未压缩的轨道。"
+
+msgid "Open a saved .sk or .skanim asset."
+msgstr "请打开已保存的 .sk 或 .skanim 资产。"
+
+msgid "Select an external GLB source and a project destination folder."
+msgstr "请选择项目外的 GLB 文件和项目内的目标目录。"
+
+msgid "Choose the model, the animations or both, with automatic or positive sampling FPS."
+msgstr "请选择导入模型、动画或两者，并使用自动采样或填写正数 FPS。"
+
+msgid "Import complete."
+msgstr "导入完成。"
+
+msgid "Import failed (%s)."
+msgstr "导入失败（%s）。"
+
+msgid "The file contains no skeleton this import can use. A skeleton needs at least one skinned mesh in the file."
+msgstr "文件中没有可用的骨骼。骨骼至少需要文件里有一个蒙皮网格。"
+
+msgid "Select an existing SKMesh with a saved skeleton."
+msgstr "请选择一个骨骼已保存的 SKMesh。"
+
+msgid "Source file not found: %s"
+msgstr "找不到源文件：%s"
+
+msgid "Cannot create the destination folder: %s"
+msgstr "无法创建目标目录：%s"
+
+msgid "The file has no model for this skeleton and no skeleton in the project matches it. Import the model first, or choose the skeleton."
+msgstr "文件里没有这个骨骼的模型，项目里也没有匹配的骨骼。请先导入模型，或手动选择骨骼。"
+
+msgid "Skeleton mismatch with %s. %s. Choose a matching skeleton or create a new one."
+msgstr "与骨骼 %s 不匹配。%s。请选择匹配的骨骼或创建新骨骼。"
+
+msgid "skipped clips without tracks for this skeleton (%d): %s"
+msgstr "已跳过没有该骨骼轨道的片段（%d）：%s"
+
+msgid "The file contains no skeleton. A skeleton needs at least one skinned mesh in the file."
+msgstr "文件中没有骨骼。骨骼至少需要文件里有一个蒙皮网格。"
+
+msgid "The file contains several skeletons. Import it without choosing a skeleton, or split the file."
+msgstr "文件包含多个骨骼。请不指定骨骼直接导入，或拆分文件。"
+
+msgid "Bones missing from the file"
+msgstr "文件中缺少的骨骼"
+
+msgid "Bones not in the skeleton"
+msgstr "骨骼定义中没有的骨骼"
+
+msgid "Bones with another parent"
+msgstr "父骨骼不同的骨骼"
+
+msgid "Bones with another rest pose"
+msgstr "Rest 姿态不同的骨骼"
 
 msgid "Scene tree and inspector are locked. Click to follow the active document again."
 msgstr "场景树和检查器已锁定。点击后重新跟随活动文档。"
@@ -21719,3 +22135,147 @@ msgstr "无场景上下文"
 
 msgid "This document has no scene context.\n\n%s"
 msgstr "此文档没有场景上下文。\n\n%s"
+
+msgid "This .skanim is not inside a skeleton's animation directory. Choose its owning .sk to move it there."
+msgstr "此 .skanim 不在任何骨骼的动画目录中。请选择它所属的 .sk，片段会被移入该骨骼的动画目录。"
+
+msgid "Ready to move this clip into the selected skeleton's animation directory."
+msgstr "可以将此片段移入所选骨骼的动画目录。"
+
+msgid "Move to Trash"
+msgstr "移到回收站"
+
+msgid "Move Clips to the Animation Directory"
+msgstr "将片段移入动画目录"
+
+msgid "Move Clips"
+msgstr "移动片段"
+
+msgid "Open this skeleton and move its clips to the animation directory first."
+msgstr "请先打开该骨骼，并将其片段移入动画目录。"
+
+msgid "Could not move the clip into the animation directory: %s"
+msgstr "无法将片段移入动画目录：%s"
+
+msgid "Could not prepare temporary files for rebinding the clip."
+msgstr "无法为重新绑定片段准备临时文件。"
+
+msgid "Could not restore the clip to its original path. The original file is at '%s'."
+msgstr "无法将片段恢复到原路径。原文件位于“%s”。"
+
+msgid "This skeleton still lists its clips inside the .sk file.\nMove them into '%s'? File names then become the animation names, and each sub-folder becomes an animation library."
+msgstr "此骨骼仍在 .sk 文件内部登记片段。\n是否将它们移入“%s”？此后文件名就是动画名，每个子文件夹就是一个动画库。"
+
+msgid "Open a saved .sk skeleton to manage its animations."
+msgstr "请打开已保存的 .sk 骨骼以管理其动画。"
+
+msgid "Animation not found: %s"
+msgstr "找不到动画：%s"
+
+msgid "Could not rename the clip file: %s"
+msgstr "无法重命名片段文件：%s"
+
+msgid "Enter a valid library name without /, :, comma, or brackets."
+msgstr "请输入有效的动画库名称，不能包含 /、:、逗号或方括号。"
+
+msgid "The target library already has an animation with this name."
+msgstr "目标动画库中已有同名动画。"
+
+msgid "Could not move the clip file: %s"
+msgstr "无法移动片段文件：%s"
+
+msgid "Could not move the clip file to the trash: %s"
+msgstr "无法将片段文件移到回收站：%s"
+
+msgid "A library with this name already exists."
+msgstr "已存在同名动画库。"
+
+msgid "Could not create the library folder: %s"
+msgstr "无法创建动画库文件夹：%s"
+
+msgid "Choose a library folder. The default library is the animation directory itself."
+msgstr "请选择一个动画库文件夹。默认库就是动画目录本身。"
+
+msgid "Could not rename the library folder: %s"
+msgstr "无法重命名动画库文件夹：%s"
+
+msgid "The library name '%s' cannot be used as a folder name."
+msgstr "动画库名称“%s”不能用作文件夹名。"
+
+msgid "Animation '%s' is not a standalone .skanim file."
+msgstr "动画“%s”不是独立的 .skanim 文件。"
+
+msgid "The animation name '%s' cannot be used as a file name."
+msgstr "动画名“%s”不能用作文件名。"
+
+msgid "The file '%s' already exists."
+msgstr "文件“%s”已存在。"
+
+msgid "Could not move the clip files: %s"
+msgstr "无法移动片段文件：%s"
+
+msgid "Could not save the skeleton: %s"
+msgstr "无法保存骨骼：%s"
+
+msgid "Clips moved. File names are now the animation names."
+msgstr "片段已移动。现在文件名就是动画名。"
+
+msgid "Rebind to This Skeleton..."
+msgstr "重新绑定到当前骨骼…"
+
+msgid "Move this clip file to the system trash?\n%s"
+msgstr "将此片段文件移到系统回收站？\n%s"
+
+msgid "Needs Attention"
+msgstr "需要处理"
+
+msgid "Save the clip inside '%s' or one of its library folders."
+msgstr "请将片段保存在“%s”或其中的动画库文件夹内。"
+
+msgid "%s (not found)"
+msgstr "%s（未找到）"
+
+msgid "Animation '%s' not found. It may have been renamed or moved to another library. Choose an existing animation."
+msgstr "找不到动画“%s”。它可能已被重命名或移到其他动画库，请重新选择一个存在的动画。"
+
+msgid "Animation Directory"
+msgstr "动画目录"
+
+msgid "Modify"
+msgstr "修改"
+
+msgid "Locate"
+msgstr "定位"
+
+msgid "Locate in FileSystem"
+msgstr "在文件系统中定位"
+
+msgid "Change..."
+msgstr "更改…"
+
+msgid "Choose the Animation Directory"
+msgstr "选择动画目录"
+
+msgid "(missing)"
+msgstr "（不存在）"
+
+msgid "Clip files in this folder are the skeleton's animations. Each sub-folder is an animation library."
+msgstr "此文件夹中的片段文件就是该骨骼的动画，每个子文件夹是一个动画库。"
+
+msgid "This folder does not exist yet. It is created when the first clip is imported or saved."
+msgstr "此文件夹尚不存在，导入或保存第一个片段时会自动创建。"
+
+msgid "Animation directory changed. Clip files were not moved."
+msgstr "动画目录已更改。片段文件没有被移动。"
+
+msgid "Choose an existing folder inside the project."
+msgstr "请选择项目内已存在的文件夹。"
+
+msgid "Move to %s"
+msgstr "移动到 %s"
+
+msgid "Renamed. Scripts and animation graphs that use the old name need updating."
+msgstr "已重命名。使用旧名称的脚本和动画图需要手动更新。"
+
+msgid "Moved. Scripts and animation graphs that use the old name need updating."
+msgstr "已移动。使用旧名称的脚本和动画图需要手动更新。"

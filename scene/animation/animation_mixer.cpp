@@ -131,6 +131,9 @@ uint32_t AnimationMixer::_get_libraries_property_usage() const {
 void AnimationMixer::_get_property_list(List<PropertyInfo> *p_list) const {
 	for (uint32_t i = 0; i < animation_libraries.size(); i++) {
 		const String path = vformat("libraries/%s", animation_libraries[i].name);
+		if (_is_library_derived(animation_libraries[i].name)) {
+			continue;
+		}
 		p_list->push_back(PropertyInfo(Variant::OBJECT, path, PROPERTY_HINT_RESOURCE_TYPE, AnimationLibrary::get_class_static(), _get_libraries_property_usage()));
 	}
 }
@@ -294,6 +297,7 @@ const StringName &AnimationMixer::find_animation_library(const Ref<Animation> &p
 
 Error AnimationMixer::add_animation_library(const StringName &p_name, const Ref<AnimationLibrary> &p_animation_library) {
 	ERR_FAIL_COND_V(p_animation_library.is_null(), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V_MSG(!_allows_animation_library_change(p_name), ERR_UNAUTHORIZED, "This animation player only exposes the animation library owned by its skeleton definition.");
 #ifdef DEBUG_ENABLED
 	ERR_FAIL_COND_V_MSG(String(p_name).contains_char('/') || String(p_name).contains_char(':') || String(p_name).contains_char(',') || String(p_name).contains_char('['), ERR_INVALID_PARAMETER, "Invalid animation name: " + String(p_name) + ".");
 #endif
@@ -330,6 +334,7 @@ Error AnimationMixer::add_animation_library(const StringName &p_name, const Ref<
 }
 
 void AnimationMixer::remove_animation_library(const StringName &p_name) {
+	ERR_FAIL_COND_MSG(!_allows_animation_library_change(p_name), "This animation player only exposes the animation library owned by its skeleton definition.");
 	int at_pos = -1;
 
 	for (uint32_t i = 0; i < animation_libraries.size(); i++) {
@@ -356,6 +361,7 @@ void AnimationMixer::rename_animation_library(const StringName &p_name, const St
 	if (p_name == p_new_name) {
 		return;
 	}
+	ERR_FAIL_COND_MSG(!_allows_animation_library_change(p_name) || !_allows_animation_library_change(p_new_name), "This animation player only exposes the animation library owned by its skeleton definition.");
 #ifdef DEBUG_ENABLED
 	ERR_FAIL_COND_MSG(String(p_new_name).contains_char('/') || String(p_new_name).contains_char(':') || String(p_new_name).contains_char(',') || String(p_new_name).contains_char('['), "Invalid animation library name: " + String(p_new_name) + ".");
 #endif

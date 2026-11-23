@@ -146,6 +146,9 @@ String EditorQuickOpenDialog::get_dialog_title(const Vector<StringName> &p_base_
 	if (p_base_types[0] == SNAME("PackedScene")) {
 		return TTR("Select Scene");
 	}
+	if (p_base_types[0] == SNAME("SkeletonDefinition")) {
+		return TTR("Select Skeleton");
+	}
 
 	return vformat(TTR("Select %s"), p_base_types[0]);
 }
@@ -757,6 +760,8 @@ void QuickOpenResultContainer::_add_candidate(QuickOpenResultCandidate &p_candid
 	EditorResourcePreview::PreviewItem item = EditorResourcePreview::get_singleton()->get_resource_preview_if_available(file_path);
 	if (item.preview.is_valid()) {
 		p_candidate.thumbnail = item.preview;
+	} else if (Ref<Texture2D> custom_icon = EditorNode::get_singleton()->get_custom_resource_file_icon(file_path); custom_icon.is_valid()) {
+		p_candidate.thumbnail = custom_icon;
 	} else if (file_type_icons.has(actual_type)) {
 		p_candidate.thumbnail = *file_type_icons.getptr(actual_type);
 	} else if (has_theme_icon(actual_type, EditorStringName(EditorIcons))) {

@@ -62,6 +62,7 @@
 #include "scene/gui/rich_text_label.h"
 #include "scene/main/node.h"
 #include "scene/resources/packed_scene.h"
+#include "scene/resources/skeleton_definition.h"
 #include "scene/resources/texture.h"
 
 class EditorExportSaveProxy {
@@ -689,6 +690,16 @@ void EditorExportPlatform::_export_find_dependencies(const String &p_path, HashS
 
 	for (int i = 0; i < deps.size(); i++) {
 		_export_find_dependencies(deps[i], p_paths);
+	}
+
+	if (dir->get_file_type(file_idx) == SNAME("SkeletonDefinition")) {
+		Ref<SkeletonDefinition> skeleton = ResourceLoader::load(p_path, "SkeletonDefinition");
+		if (skeleton.is_valid() && !skeleton->has_baked_animation_libraries()) {
+			// These clips become external dependencies when the skeleton is baked.
+			for (const Dictionary &clip : skeleton->get_animation_catalog()) {
+				_export_find_dependencies(clip["path"], p_paths);
+			}
+		}
 	}
 }
 
@@ -1674,7 +1685,7 @@ Error EditorExportPlatform::export_project_files(const Ref<EditorExportPreset> &
 				export_path = path;
 			} else {
 				// Customization only happens if plugins did not take care of it before.
-				bool force_binary = convert_text_to_binary && (path.has_extension("tres") || path.has_extension("tscn"));
+				bool force_binary = convert_text_to_binary && (path.has_extension("tres") || path.has_extension("tscn") || path.has_extension("sk") || path.has_extension("skmesh") || path.has_extension("skanim") || path.has_extension("animtree"));
 				export_path = _export_customize(path, customize_resources_plugins, customize_scenes_plugins, export_cache, export_base_path, force_binary);
 
 				if (export_path != path) {

@@ -38,11 +38,14 @@
 #include "core/object/class_db.h"
 #include "core/os/keyboard.h"
 #include "editor/animation/animation_player_editor_plugin.h"
+#include "editor/animation/animation_tree_editor_plugin.h"
+#include "editor/animation/animation_workbench_editor_plugin.h"
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/groups_dock.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/docks/signals_dock.h"
+#include "editor/editor_interface.h"
 #include "editor/editor_main_screen.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
@@ -65,6 +68,7 @@
 #include "editor/shader/shader_create_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/2d/node_2d.h"
+#include "scene/animation/animation_blend_tree.h"
 #include "scene/animation/animation_tree.h"
 #include "scene/audio/audio_stream_player.h"
 #include "scene/gui/box_container.h"
@@ -193,10 +197,10 @@ void SceneTreeDock::input(const Ref<InputEvent> &p_event) {
 }
 
 void SceneTreeDock::shortcut_input(const Ref<InputEvent> &p_event) {
+	ERR_FAIL_COND(p_event.is_null());
 	if (locked_read_only) {
 		return;
 	}
-	ERR_FAIL_COND(p_event.is_null());
 
 	Control *focus_owner = get_viewport()->gui_get_focus_owner();
 	if (focus_owner && focus_owner->is_text_field()) {
@@ -303,6 +307,21 @@ void SceneTreeDock::shortcut_input(const Ref<InputEvent> &p_event) {
 void SceneTreeDock::_scene_tree_gui_input(Ref<InputEvent> p_event) {
 	if (locked_read_only) {
 		return;
+	}
+	Ref<InputEventMouseButton> mouse = p_event;
+	if (mouse.is_valid() && mouse->is_pressed() && mouse->get_button_index() == MouseButton::LEFT && mouse->is_double_click()) {
+		Tree *tree = scene_tree->get_scene_tree();
+		TreeItem *item = tree->get_item_at_position(mouse->get_position());
+		if (item && edited_scene && tree->get_button_id_at_position(mouse->get_position()) < 0) {
+			Node *node = edited_scene->get_node_or_null(item->get_metadata(0));
+			if (Object::cast_to<AnimationPlayer>(node) || Object::cast_to<AnimationTree>(node)) {
+				scene_tree->set_selected(node);
+				pending_click_select = nullptr;
+				callable_mp(this, &SceneTreeDock::_open_animation_node).call_deferred(node);
+				tree->accept_event();
+				return;
+			}
+		}
 	}
 	Ref<InputEventKey> key = p_event;
 
@@ -695,7 +714,8 @@ void SceneTreeDock::_tool_selected(int p_tool, bool p_confirm_override) {
 				}
 				tree->grab_focus(!tree->has_focus(true));
 				Node *node = scene_tree->get_selected();
-				tree->edit_selected();
+				const bool animation_node = Object::cast_to<AnimationPlayer>(node) || Object::cast_to<AnimationTree>(node);
+				tree->edit_selected(animation_node);
 			}
 		} break;
 		case TOOL_REPARENT_TO_NEW_NODE:
@@ -3202,9 +3222,19 @@ void SceneTreeDock::_selection_changed() {
 	_queue_update_script_button();
 }
 
+static void initialize_new_animation_tree(Node *p_node) {
+	AnimationTree *tree = Object::cast_to<AnimationTree>(p_node);
+	if (tree && tree->get_root_animation_node().is_null()) {
+		Ref<AnimationNodeBlendTree> root;
+		root.instantiate();
+		tree->set_root_animation_node(root);
+	}
+}
+
 Node *SceneTreeDock::_do_create(Node *p_parent) {
 	Node *child = create_dialog->instantiate_selected<Node>();
 	ERR_FAIL_NULL_V(child, nullptr);
+	initialize_new_animation_tree(child);
 
 	String new_name = child->get_name();
 	if (new_name.is_empty()) {
@@ -3253,6 +3283,7 @@ Node *SceneTreeDock::_do_create_multi(Ref<MultiNodeEdit> p_parent) {
 		Variant c = create_dialog->instantiate_selected();
 		Node *child = Object::cast_to<Node>(c);
 		ERR_FAIL_NULL_V(child, nullptr);
+		initialize_new_animation_tree(child);
 
 		String new_name = parent->validate_child_name(child);
 		if (GLOBAL_GET("editor/naming/node_name_casing").operator int() != NAME_CASING_PASCAL_CASE) {
@@ -4634,6 +4665,36 @@ void SceneTreeDock::save_branch_to_file(const String &p_directory) {
 	_tool_selected(TOOL_NEW_SCENE_FROM);
 }
 
+bool SceneTreeDock::_open_animation_node(Node *p_node) {
+	if (AnimationPlayer *player = Object::cast_to<AnimationPlayer>(p_node)) {
+		if (player->get_skeleton_definition().is_valid() && Object::cast_to<Node3D>(player->get_node_or_null(player->get_root_node()))) {
+			AnimationWorkbenchEditorPlugin::get_singleton()->open_player(player);
+		} else {
+			EditorPlugin *tracks = editor_data->get_editor_by_name("Anim");
+			ERR_FAIL_NULL_V(tracks, false);
+			tracks->edit(player);
+			tracks->make_visible(true);
+		}
+		return true;
+	}
+	if (AnimationTree *tree = Object::cast_to<AnimationTree>(p_node)) {
+		AnimationTreeEditorPlugin *editor = Object::cast_to<AnimationTreeEditorPlugin>(editor_data->get_editor_by_name("AnimationTree"));
+		editor->open_node_document(tree);
+		return true;
+	}
+	return false;
+}
+
+void SceneTreeDock::_node_activated() {
+	if (locked_read_only) {
+		return;
+	}
+	Node *node = scene_tree->get_selected();
+	if (node) {
+		_open_animation_node(node);
+	}
+}
+
 void SceneTreeDock::_focus_node() {
 	if (locked_read_only) {
 		return;
@@ -4641,6 +4702,9 @@ void SceneTreeDock::_focus_node() {
 	Node *node = scene_tree->get_selected();
 	// This method handles the item_icon_double_clicked signal and there is no guarantee anything is actually selected.
 	if (!node) {
+		return;
+	}
+	if (_open_animation_node(node)) {
 		return;
 	}
 
@@ -5556,6 +5620,7 @@ SceneTreeDock::SceneTreeDock(Node *p_scene_root, EditorSelection *p_editor_selec
 	scene_tree->get_scene_tree()->connect(SceneStringName(draw), callable_mp(this, &SceneTreeDock::_scene_tree_draw));
 	scene_tree->get_scene_tree()->connect("cell_selected", callable_mp(this, &SceneTreeDock::_scene_tree_item_selected));
 	scene_tree->get_scene_tree()->connect("item_icon_double_clicked", callable_mp(this, &SceneTreeDock::_focus_node));
+	scene_tree->get_scene_tree()->connect("item_activated", callable_mp(this, &SceneTreeDock::_node_activated), CONNECT_DEFERRED);
 
 	editor_selection->connect("selection_changed", callable_mp(this, &SceneTreeDock::_selection_changed));
 
