@@ -466,9 +466,9 @@ void register_scene_types() {
 	GDREGISTER_VIRTUAL_CLASS(CompositorEffect);
 
 	GDREGISTER_ABSTRACT_CLASS(MultiplayerPeer);
-	GDREGISTER_CLASS(MultiplayerPeerExtension);
+	GDREGISTER_VIRTUAL_CLASS(MultiplayerPeerExtension);
 	GDREGISTER_ABSTRACT_CLASS(MultiplayerAPI);
-	GDREGISTER_CLASS(MultiplayerAPIExtension);
+	GDREGISTER_VIRTUAL_CLASS(MultiplayerAPIExtension);
 
 	GDREGISTER_CLASS(HTTPRequest);
 	GDREGISTER_CLASS(Timer);
@@ -809,7 +809,9 @@ void register_scene_types() {
 	GDREGISTER_CLASS(BlitMaterial);
 
 	// SpriteFrames is needed by both AnimatedSprite2D and AnimatedSprite3D.
+#if !defined(_2D_DISABLED) || !defined(_3D_DISABLED)
 	GDREGISTER_CLASS(SpriteFrames);
+#endif // !defined(_2D_DISABLED) || !defined(_3D_DISABLED)
 
 	/* REGISTER 2D */
 
