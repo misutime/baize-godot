@@ -351,8 +351,6 @@ private:
 	bool _transform_gizmo_select(const Vector2 &p_screenpos, bool p_highlight_only = false);
 	void _transform_gizmo_apply(Node3D *p_node, const Transform3D &p_transform, bool p_local);
 
-	bool _is_shortcut_empty(const String &p_name);
-	bool _is_nav_modifier_pressed(const String &p_name);
 
 	float get_znear() const;
 	float get_zfar() const;
