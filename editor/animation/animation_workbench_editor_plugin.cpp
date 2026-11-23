@@ -47,8 +47,11 @@
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/gui/editor_file_dialog.h"
+#include "editor/scene/3d/editor_3d_navigation.h"
+#include "editor/scene/3d/node_3d_editor_constants.h"
 #include "editor/scene/3d/node_3d_editor_plugin.h"
 #include "editor/scene/editor_scene_tabs.h"
+#include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/3d/light_3d.h"
@@ -80,7 +83,7 @@
 #include "scene/resources/font.h"
 #include "scene/resources/material.h"
 #include "scene/resources/packed_scene.h"
-#include "scene/resources/immediate_mesh.h"
+#include "scene/resources/shader.h"
 #include "scene/resources/style_box.h"
 
 #include <cfloat>
@@ -423,6 +426,87 @@ static void workbench_locate_path(const String &p_path) {
 	dock->select_file(p_path);
 }
 
+static constexpr Color workbench_axis_colors[3] = {
+	Color(0.96, 0.2, 0.32),
+	Color(0.53, 0.84, 0.01),
+	Color(0.16, 0.55, 0.96),
+};
+
+static MeshInstance3D *create_workbench_floor() {
+	Ref<Shader> shader;
+	shader.instantiate();
+	shader->set_code(R"(
+shader_type spatial;
+render_mode diffuse_lambert, specular_disabled;
+
+uniform vec3 floor_color : source_color = vec3(0.31, 0.33, 0.36);
+uniform vec3 x_axis_color : source_color;
+uniform vec3 z_axis_color : source_color;
+varying vec2 floor_position;
+
+void vertex() {
+	floor_position = VERTEX.xz;
+}
+
+float grid(vec2 cells, vec2 pixel_width, float half_width) {
+	// Integrate the line across the pixel, then fade out undersampled cells.
+	pixel_width = max(pixel_width, vec2(0.0001));
+	vec2 line_distance = abs(fract(cells + 0.5) - 0.5);
+	vec2 near_edge = clamp(line_distance - 0.5 * pixel_width, -half_width, half_width);
+	vec2 far_edge = clamp(line_distance + 0.5 * pixel_width, -half_width, half_width);
+	vec2 coverage = (far_edge - near_edge) / pixel_width;
+	coverage *= 1.0 - smoothstep(vec2(0.12), vec2(0.45), pixel_width);
+	return max(coverage.x, coverage.y);
+}
+
+float axis_arrow(vec2 position, vec2 pixel_width) {
+	const vec2 tip = vec2(1.35, 0.0);
+	const vec2 arm = vec2(-0.12, 0.068);
+	// Reflect across the axis so one segment forms both arms of the arrowhead.
+	vec2 offset = vec2(position.x, abs(position.y)) - tip;
+	float progress = clamp(dot(offset, arm) / dot(arm, arm), 0.0, 1.0);
+	float distance = length(offset - progress * arm);
+	float stroke_pixel = max(dot(pixel_width, normalize(abs(arm.yx))), 0.0001);
+	float coverage = 1.0 - smoothstep(0.35, 1.15, distance / stroke_pixel);
+	return 0.65 * coverage * (1.0 - smoothstep(0.025, 0.05, max(pixel_width.x, pixel_width.y)));
+}
+
+void fragment() {
+	vec2 floor_pixel = fwidth(floor_position);
+	float pixel_size = max(floor_pixel.x, floor_pixel.y);
+	vec2 tile = floor(floor_position);
+	float checker = mod(tile.x + tile.y, 2.0) - 0.5;
+	float checker_strength = 1.0 - smoothstep(0.15, 0.45, pixel_size);
+	float major = grid(floor_position, floor_pixel, 0.008);
+	float minor = grid(floor_position * 4.0, floor_pixel * 4.0, 0.010);
+	float shade = 1.0 + 0.06 * checker * checker_strength - max(0.20 * major, 0.08 * minor);
+	// X follows Z = 0 and Z follows X = 0. Keep the lines thin as the camera zooms.
+	vec2 axis_distance = abs(floor_position) / max(floor_pixel, vec2(0.0001));
+	vec2 axis_coverage = 1.0 - smoothstep(vec2(0.35), vec2(1.15), axis_distance);
+	float x_axis_mask = max(axis_coverage.y, axis_arrow(floor_position, floor_pixel));
+	float z_axis_mask = max(axis_coverage.x, axis_arrow(floor_position.yx, floor_pixel.yx));
+	vec3 color = mix(floor_color * shade, x_axis_color, 0.48 * x_axis_mask);
+	color = mix(color, z_axis_color, 0.48 * z_axis_mask);
+	ALBEDO = color;
+	ROUGHNESS = 1.0;
+}
+)");
+	Ref<ShaderMaterial> material;
+	material.instantiate();
+	material->set_shader(shader);
+	material->set_shader_parameter("x_axis_color", workbench_axis_colors[0]);
+	material->set_shader_parameter("z_axis_color", workbench_axis_colors[2]);
+
+	Ref<PlaneMesh> plane;
+	plane.instantiate();
+	plane->set_size(Size2(1024.0f, 1024.0f));
+	MeshInstance3D *floor = memnew(MeshInstance3D);
+	floor->set_mesh(plane);
+	floor->set_material_override(material);
+	floor->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
+	return floor;
+}
+
 AnimationWorkbenchEditorPlugin::AnimationWorkbenchEditorPlugin() {
 	singleton = this;
 	workspace = memnew(VBoxContainer);
@@ -437,7 +521,7 @@ AnimationWorkbenchEditorPlugin::AnimationWorkbenchEditorPlugin() {
 	title->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	header->add_child(title);
 	workbench_button(header, TTR("Import GLB..."), callable_mp(this, &AnimationWorkbenchEditorPlugin::_show_import).bind(String(), String("res://")));
-	workbench_button(header, TTR("Focus Model"), callable_mp(this, &AnimationWorkbenchEditorPlugin::_frame_model));
+	workbench_button(header, TTR("Focus Model"), callable_mp(this, &AnimationWorkbenchEditorPlugin::_frame_model).bind(false));
 	workbench_button(header, TTR("Refresh Animations"), callable_mp(this, &AnimationWorkbenchEditorPlugin::_rescan));
 	HSplitContainer *split = memnew(HSplitContainer);
 	split->set_v_size_flags(Control::SIZE_EXPAND_FILL);
@@ -445,12 +529,22 @@ AnimationWorkbenchEditorPlugin::AnimationWorkbenchEditorPlugin() {
 	VSplitContainer *left = memnew(VSplitContainer);
 	left->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	split->add_child(left);
+	preview_navigation.instantiate();
+	preview_navigation->cursor.pos_y = 1.0;
+	preview_navigation->cursor.x_rot = 0.28;
+	preview_navigation->cursor.y_rot = 0.0;
+	preview_navigation->cursor.unsnapped_x_rot = preview_navigation->cursor.x_rot;
+	preview_navigation->cursor.unsnapped_y_rot = preview_navigation->cursor.y_rot;
+	preview_navigation->cursor.distance = 3.0;
+	preview_navigation->connect("cursor_interpolated", callable_mp(this, &AnimationWorkbenchEditorPlugin::_update_camera));
 	view = memnew(SubViewportContainer);
 	view->set_stretch(true);
 	view->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	view->set_custom_minimum_size(Size2(420, 280) * EDSCALE);
 	view->set_focus_mode(Control::FOCUS_ALL);
 	view->connect(SceneStringName(gui_input), callable_mp(this, &AnimationWorkbenchEditorPlugin::_preview_input));
+	view->connect(SceneStringName(focus_exited), callable_mp(this, &AnimationWorkbenchEditorPlugin::_stop_preview_freelook));
+	view->connect(SceneStringName(visibility_changed), callable_mp(this, &AnimationWorkbenchEditorPlugin::_preview_visibility_changed));
 	left->add_child(view);
 	viewport = memnew(SubViewport);
 	viewport->set_use_own_world_3d(true);
@@ -462,54 +556,34 @@ AnimationWorkbenchEditorPlugin::AnimationWorkbenchEditorPlugin() {
 	camera->set_current(true);
 	camera->set_near(0.01);
 	world->add_child(camera);
+	preview_navigation->set_z_near(camera->get_near());
+	preview_navigation->set_z_far(camera->get_far());
 	WorldEnvironment *environment = memnew(WorldEnvironment);
 	Ref<Environment> settings;
 	settings.instantiate();
+	// Compatibility blends the shadowed light additively in sRGB, brightening the preview.
+	const float light_scale = OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" ? 0.55f : 1.0f;
 	settings->set_background(Environment::BG_COLOR);
 	settings->set_bg_color(Color(0.16, 0.18, 0.21));
 	settings->set_ambient_source(Environment::AMBIENT_SOURCE_COLOR);
 	settings->set_ambient_light_color(Color(0.85, 0.87, 0.92));
-	settings->set_ambient_light_energy(0.6);
+	settings->set_ambient_light_energy(0.6f * light_scale);
 	environment->set_environment(settings);
 	world->add_child(environment);
-	for (Vector3 angle : { Vector3(-45, -35, 0), Vector3(-20, 140, 0) }) {
-		DirectionalLight3D *light = memnew(DirectionalLight3D);
-		light->set_rotation_degrees(angle);
-		light->set_param(Light3D::PARAM_ENERGY, 1.2);
-		world->add_child(light);
-	}
-	Ref<ImmediateMesh> grid;
-	grid.instantiate();
-	Ref<StandardMaterial3D> material;
-	material.instantiate();
-	material->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
-	material->set_albedo(Color(0.28, 0.3, 0.34));
-	grid->surface_begin(Mesh::PRIMITIVE_LINES, material);
-	for (int i = -10; i <= 10; i++) {
-		grid->surface_add_vertex(Vector3(i, 0, -10));
-		grid->surface_add_vertex(Vector3(i, 0, 10));
-		grid->surface_add_vertex(Vector3(-10, 0, i));
-		grid->surface_add_vertex(Vector3(10, 0, i));
-	}
-	grid->surface_end();
-	MeshInstance3D *floor = memnew(MeshInstance3D);
-	// World axes at the origin: X red, Y green, Z blue, one unit long on the positive side.
-	Ref<StandardMaterial3D> axis_material;
-	axis_material.instantiate();
-	axis_material->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
-	axis_material->set_flag(BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-	grid->surface_begin(Mesh::PRIMITIVE_LINES, axis_material);
-	const Vector3 axis_directions[3] = { Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1) };
-	const Color axis_colors[3] = { Color(0.96, 0.2, 0.32), Color(0.53, 0.84, 0.01), Color(0.16, 0.55, 0.96) };
-	for (int axis = 0; axis < 3; axis++) {
-		grid->surface_set_color(axis_colors[axis]);
-		grid->surface_add_vertex(Vector3());
-		grid->surface_set_color(axis_colors[axis]);
-		grid->surface_add_vertex(axis_directions[axis]);
-	}
-	grid->surface_end();
-	floor->set_mesh(grid);
-	world->add_child(floor);
+	DirectionalLight3D *key_light = memnew(DirectionalLight3D);
+	key_light->set_rotation_degrees(Vector3(-45, -35, 0));
+	key_light->set_param(Light3D::PARAM_ENERGY, 1.2f * light_scale);
+	key_light->set_shadow(true);
+	key_light->set_shadow_mode(DirectionalLight3D::SHADOW_PARALLEL_2_SPLITS);
+	key_light->set_param(Light3D::PARAM_SHADOW_MAX_DISTANCE, 32.0);
+	key_light->set_param(Light3D::PARAM_SHADOW_SPLIT_1_OFFSET, 0.28);
+	key_light->set_blend_splits(true);
+	world->add_child(key_light);
+	DirectionalLight3D *fill_light = memnew(DirectionalLight3D);
+	fill_light->set_rotation_degrees(Vector3(-20, 140, 0));
+	fill_light->set_param(Light3D::PARAM_ENERGY, 0.7f * light_scale);
+	world->add_child(fill_light);
+	world->add_child(create_workbench_floor());
 	axis_gizmo = memnew(Control);
 	axis_gizmo->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
 	axis_gizmo->set_anchors_and_offsets_preset(Control::PRESET_TOP_RIGHT);
@@ -779,7 +853,7 @@ AnimationWorkbenchEditorPlugin::AnimationWorkbenchEditorPlugin() {
 	editor->connect("scene_document_selected", callable_mp(this, &AnimationWorkbenchEditorPlugin::_leave_document));
 	set_process(true);
 	set_process_input(true);
-	_update_camera();
+	preview_navigation->update_camera();
 }
 
 void AnimationWorkbenchEditorPlugin::_bind_methods() {
@@ -1410,7 +1484,7 @@ void AnimationWorkbenchEditorPlugin::_build_preview(Node3D *p_model, AnimationPl
 	model->add_child(sample_player);
 	world->add_child(model);
 	p_catalog->connect("animation_list_changed", callable_mp(this, &AnimationWorkbenchEditorPlugin::_catalog_changed), CONNECT_DEFERRED);
-	_frame_model();
+	_frame_model(true);
 }
 
 static void _collect_skmesh_paths(const String &p_directory, Vector<String> &r_paths) {
@@ -1521,6 +1595,7 @@ void AnimationWorkbenchEditorPlugin::_show_preview_model() {
 }
 
 void AnimationWorkbenchEditorPlugin::_clear_model() {
+	_stop_preview_freelook();
 	if (AnimationPlayer *catalog_player = _get_catalog_player()) {
 		catalog_player->disconnect("animation_list_changed", callable_mp(this, &AnimationWorkbenchEditorPlugin::_catalog_changed));
 	}
@@ -1603,7 +1678,7 @@ void AnimationWorkbenchEditorPlugin::_prune_documents() {
 	}
 }
 
-void AnimationWorkbenchEditorPlugin::_frame_model() {
+void AnimationWorkbenchEditorPlugin::_frame_model(bool p_show_forward_space) {
 	if (!model) {
 		return;
 	}
@@ -1625,10 +1700,20 @@ void AnimationWorkbenchEditorPlugin::_frame_model() {
 		}
 	}
 	if (found) {
-		center = combined.get_center();
-		distance = MAX(combined.get_size().length() * 1.2, 0.5);
+		const Vector3 size = combined.get_size();
+		Vector3 center = combined.get_center();
+		real_t distance = MAX(size.length() * 1.2, 0.5);
+		if (p_show_forward_space && skeleton.is_valid()) {
+			// Leave room around the character without moving its orbit pivot.
+			distance = MAX(distance, size.y * 2.65);
+		}
+		_stop_preview_freelook();
+		preview_navigation->cursor.pos_x = center.x;
+		preview_navigation->cursor.pos_y = center.y;
+		preview_navigation->cursor.pos_z = center.z;
+		preview_navigation->cursor.distance = distance;
 	}
-	_update_camera();
+	preview_navigation->update_camera();
 }
 
 void AnimationWorkbenchEditorPlugin::_draw_axis_gizmo() {
@@ -1637,7 +1722,6 @@ void AnimationWorkbenchEditorPlugin::_draw_axis_gizmo() {
 	const Vector2 middle = axis_gizmo->get_size() / 2;
 	const double radius = 30 * EDSCALE;
 	const Vector3 directions[3] = { Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1) };
-	const Color colors[3] = { Color(0.96, 0.2, 0.32), Color(0.53, 0.84, 0.01), Color(0.16, 0.55, 0.96) };
 	const String names[3] = { "X", "Y", "Z" };
 	int order[3] = { 0, 1, 2 };
 	Vector3 projected[3];
@@ -1658,44 +1742,43 @@ void AnimationWorkbenchEditorPlugin::_draw_axis_gizmo() {
 	for (int i = 0; i < 3; i++) {
 		const int axis = order[i];
 		const Vector2 tip = middle + Vector2(projected[axis].x, -projected[axis].y) * radius;
-		axis_gizmo->draw_line(middle, tip, colors[axis], 2 * EDSCALE, true);
-		axis_gizmo->draw_circle(tip, 8 * EDSCALE, colors[axis]);
+		axis_gizmo->draw_line(middle, tip, workbench_axis_colors[axis], 2 * EDSCALE, true);
+		axis_gizmo->draw_circle(tip, 8 * EDSCALE, workbench_axis_colors[axis]);
 		const Vector2 text_size = font->get_string_size(names[axis], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size * 0.8);
 		axis_gizmo->draw_string(font, tip + Vector2(-text_size.x / 2, text_size.y / 4), names[axis], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size * 0.8, Color(0, 0, 0));
 	}
 }
 
 void AnimationWorkbenchEditorPlugin::_update_camera() {
-	if (axis_gizmo) {
-		axis_gizmo->queue_redraw();
-	}
-	Basis basis = Basis::from_euler(Vector3(orbit.y, orbit.x, 0));
-	camera->set_position(center + basis.xform(Vector3(0, 0, distance)));
-	if (camera->is_inside_tree()) {
-		camera->look_at(center);
-	}
+	camera->set_transform(preview_navigation->interp_to_camera_transform());
+	camera->set_fov(CLAMP(75.0f * preview_navigation->cursor.fov_scale, Node3DEditorConstants::MIN_FOV, Node3DEditorConstants::MAX_FOV));
+	axis_gizmo->queue_redraw();
 }
 
 void AnimationWorkbenchEditorPlugin::_preview_input(const Ref<InputEvent> &p_event) {
-	Ref<InputEventMouseButton> button = p_event;
+	const Ref<InputEventMouseButton> button = p_event;
 	if (button.is_valid() && button->is_pressed()) {
 		view->grab_focus();
-		if (button->get_button_index() == MouseButton::WHEEL_UP) {
-			distance = MAX(distance * 0.9, 0.05);
-		} else if (button->get_button_index() == MouseButton::WHEEL_DOWN) {
-			distance = MIN(distance * 1.1, 10000.0);
-		}
-		_update_camera();
 	}
-	Ref<InputEventMouseMotion> motion = p_event;
-	if (motion.is_valid()) {
-		if (motion->get_button_mask().has_flag(MouseButtonMask::LEFT)) {
-			orbit -= motion->get_relative() * 0.008;
-			orbit.y = CLAMP(orbit.y, -1.45f, 1.45f);
-		} else if (motion->get_button_mask().has_flag(MouseButtonMask::MIDDLE)) {
-			center += camera->get_basis().xform(Vector3(-motion->get_relative().x, motion->get_relative().y, 0)) * distance * 0.0015;
-		}
-		_update_camera();
+	if (_handle_preview_navigation(p_event)) {
+		view->accept_event();
+	}
+}
+
+bool AnimationWorkbenchEditorPlugin::_handle_preview_navigation(const Ref<InputEvent> &p_event) {
+	if (preview_navigation->gui_input(p_event, view->get_global_rect())) {
+		return true;
+	}
+	return Editor3DNavigation::handle_freelook_input(preview_navigation, *view, p_event);
+}
+
+void AnimationWorkbenchEditorPlugin::_stop_preview_freelook() {
+	preview_navigation->set_freelook_enabled(false);
+}
+
+void AnimationWorkbenchEditorPlugin::_preview_visibility_changed() {
+	if (!view->is_visible_in_tree()) {
+		_stop_preview_freelook();
 	}
 }
 
@@ -3244,6 +3327,12 @@ void AnimationWorkbenchEditorPlugin::_continue_navigation() {
 }
 
 void AnimationWorkbenchEditorPlugin::input(const Ref<InputEvent> &p_event) {
+	if (preview_navigation->is_freelook_enabled()) {
+		// A captured mouse may be outside the preview, so route these events before GUI input.
+		_handle_preview_navigation(p_event);
+		get_viewport()->set_input_as_handled();
+		return;
+	}
 	Ref<InputEventKey> key = p_event;
 	if (key.is_null() || !visible || !workspace->is_visible_in_tree() || !drafts.has(current_clip) || key->is_alt_pressed()) {
 		return;
@@ -3274,6 +3363,7 @@ void AnimationWorkbenchEditorPlugin::input(const Ref<InputEvent> &p_event) {
 
 void AnimationWorkbenchEditorPlugin::_notification(int p_what) {
 	if (p_what == NOTIFICATION_READY) {
+		Editor3DNavigation::configure_controller(preview_navigation);
 		_update_model_picker_icon();
 		set_name("AnimationWorkbench");
 
@@ -3286,8 +3376,18 @@ void AnimationWorkbenchEditorPlugin::_notification(int p_what) {
 		_update_controls();
 		EditorFileSystem::get_singleton()->connect("filesystem_changed", callable_mp(this, &AnimationWorkbenchEditorPlugin::_filesystem_changed));
 		add_tool_menu_item(TTR("Import Model / Animation..."), callable_mp(this, &AnimationWorkbenchEditorPlugin::_show_import).bind(String(), String("res://")));
+	} else if (p_what == EditorSettings::NOTIFICATION_EDITOR_SETTINGS_CHANGED) {
+		Editor3DNavigation::configure_controller(preview_navigation);
+	} else if (p_what == NOTIFICATION_APPLICATION_FOCUS_OUT || p_what == NOTIFICATION_WM_WINDOW_FOCUS_OUT) {
+		_stop_preview_freelook();
 	} else if (p_what == NOTIFICATION_PROCESS) {
 		const real_t delta = get_process_delta_time();
+		if (view->is_visible_in_tree()) {
+			if (preview_navigation->is_freelook_enabled()) {
+				preview_navigation->update_freelook(delta);
+			}
+			preview_navigation->update_camera(delta);
+		}
 		if (playing && visible && workspace->is_visible_in_tree() && drafts.has(current_clip)) {
 			const double duration = drafts[current_clip].current()->get_length();
 			double next = time + delta * speed;

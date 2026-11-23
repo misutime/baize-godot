@@ -32,6 +32,7 @@
 
 #include "core/templates/hash_set.h"
 #include "editor/plugins/editor_plugin.h"
+#include "scene/debugger/view_3d_controller.h"
 #include "scene/gui/range.h"
 #include "scene/resources/animation.h"
 #include "scene/resources/skeleton_definition.h"
@@ -142,9 +143,7 @@ class AnimationWorkbenchEditorPlugin : public EditorPlugin {
 	ObjectID catalog_player_id;
 	AnimationPlayer *sample_player = nullptr;
 	Vector<Pose> poses;
-	Vector3 center = Vector3(0, 1, 0);
-	Vector2 orbit = Vector2(-0.4, -0.12);
-	double distance = 3.0;
+	Ref<View3DController> preview_navigation;
 	double time = 0.0;
 	double speed = 1.0;
 	bool playing = false;
@@ -271,7 +270,10 @@ class AnimationWorkbenchEditorPlugin : public EditorPlugin {
 	void _update_model_picker_icon();
 	void _show_preview_model();
 	void _preview_input(const Ref<InputEvent> &p_event);
-	void _frame_model();
+	bool _handle_preview_navigation(const Ref<InputEvent> &p_event);
+	void _stop_preview_freelook();
+	void _preview_visibility_changed();
+	void _frame_model(bool p_show_forward_space);
 	void _update_camera();
 	void _reset_preview();
 	void _restore_pose();
