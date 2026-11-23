@@ -37,6 +37,7 @@ class FileAccessCompressed : public FileAccess {
 	GDSOFTCLASS(FileAccessCompressed, FileAccess);
 	Compression::Mode cmode = Compression::MODE_ZSTD;
 	bool writing = false;
+	Error write_error = OK;
 	uint64_t write_pos = 0;
 	uint8_t *write_ptr = nullptr;
 	uint64_t write_buffer_size = 0;

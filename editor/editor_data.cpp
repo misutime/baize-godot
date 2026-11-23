@@ -44,6 +44,7 @@
 #include "editor/inspector/editor_context_menu_plugin.h"
 #include "editor/inspector/multi_node_edit.h"
 #include "editor/plugins/editor_plugin.h"
+#include "editor/scene/editor_scene_tabs.h"
 #include "scene/main/scene_tree.h"
 #include "scene/property_utils.h"
 #include "scene/resources/packed_scene.h"
@@ -154,6 +155,11 @@ void EditorSelectionHistory::replace_object(ObjectID p_old_object, ObjectID p_ne
 			}
 		}
 	}
+}
+
+void EditorSelectionHistory::copy_from(const EditorSelectionHistory &p_other) {
+	history = p_other.history;
+	current_elem_idx = p_other.current_elem_idx;
 }
 
 int EditorSelectionHistory::get_history_len() {
@@ -666,6 +672,9 @@ int EditorData::add_edited_scene(int p_at_pos) {
 void EditorData::remove_scene(int p_idx) {
 	ERR_FAIL_INDEX(p_idx, edited_scene.size());
 	if (edited_scene[p_idx].root) {
+		if (EditorSceneTabs *tabs = EditorSceneTabs::get_singleton()) {
+			tabs->close_node_documents(edited_scene[p_idx].root);
+		}
 		for (int i = 0; i < editor_plugins.size(); i++) {
 			editor_plugins[i]->notify_scene_closed(edited_scene[p_idx].root->get_scene_file_path());
 		}
@@ -1009,8 +1018,10 @@ Dictionary EditorData::restore_edited_scene_state(EditorSelection *p_selection, 
 	p_history->history = es.history_stored;
 
 	p_selection->clear();
-	for (Node *E : es.selection) {
-		p_selection->add_node(E);
+	for (Node *node : es.selection) {
+		if (node->is_inside_tree()) {
+			p_selection->add_node(node);
+		}
 	}
 	set_editor_plugin_states(es.editor_states);
 

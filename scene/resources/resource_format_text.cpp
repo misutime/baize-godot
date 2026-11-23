@@ -2176,6 +2176,8 @@ Error ResourceFormatSaverTextInstance::save(const String &p_path, const Ref<Reso
 		_parse_nodes(packed_scene, f);
 	}
 
+	// Safe-save replaces the destination when the file is closed.
+	f->close();
 	if (f->get_error() != OK && f->get_error() != ERR_FILE_EOF) {
 		return ERR_CANT_CREATE;
 	}

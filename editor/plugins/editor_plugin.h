@@ -211,6 +211,7 @@ public:
 	virtual void set_state(const Dictionary &p_state); //restore editor state (likely was saved with the scene)
 	virtual void clear(); // clear any temporary data in the editor, reset it (likely new scene or load another scene)
 	virtual String get_unsaved_status(const String &p_for_scene = "") const;
+	virtual String get_scene_unsaved_status(const Node *p_scene) const;
 	virtual void save_external_data(); // if editor references external resources/scenes, save them
 	virtual void apply_changes(); // if changes are pending in editor, apply them
 	virtual void get_breakpoints(List<String> *p_breakpoints);

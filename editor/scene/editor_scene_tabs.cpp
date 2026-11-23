@@ -30,11 +30,19 @@
 
 #include "editor_scene_tabs.h"
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/io/config_file.h"
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "editor/docks/editor_dock_manager.h"
+#include "editor/docks/filesystem_dock.h"
+#include "editor/scene/3d/node_3d_editor_plugin.h"
 #include "editor/docks/inspector_dock.h"
+#include "editor/docks/scene_tree_dock.h"
+#include "editor/editor_interface.h"
 #include "editor/editor_main_screen.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
@@ -53,6 +61,7 @@
 #include "scene/gui/panel.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/popup_menu.h"
+#include "scene/gui/scroll_container.h"
 #include "scene/gui/tab_bar.h"
 #include "scene/gui/texture_rect.h"
 
@@ -69,19 +78,18 @@ void EditorSceneTabs::_notification(int p_what) {
 			scene_tabs->add_theme_constant_override("icon_max_width", get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor)));
 
 			scene_list->set_button_icon(get_editor_theme_icon(SNAME("GuiTabMenuHl")));
+			_update_context_lock_button();
 			_update_tab_titles();
 
 			scene_tab_add->set_button_icon(get_editor_theme_icon(SNAME("Add")));
 			scene_tab_add->add_theme_color_override("icon_normal_color", Color(0.6f, 0.6f, 0.6f, 0.8f));
-
-			scene_tab_add_ph->set_custom_minimum_size(scene_tab_add->get_minimum_size());
 		} break;
 
 		case EditorSettings::NOTIFICATION_EDITOR_SETTINGS_CHANGED: {
 			if (EditorSettings::get_singleton()->check_changed_settings_in_group("interface/scene_tabs")) {
 				scene_tabs->set_tab_close_display_policy((TabBar::CloseButtonDisplayPolicy)EDITOR_GET("interface/scene_tabs/display_close_button").operator int());
 				scene_tabs->set_max_tab_width(int(EDITOR_GET("interface/scene_tabs/maximum_width")) * EDSCALE);
-				_scene_tabs_resized();
+				_scroll_to_current_tab();
 			}
 		} break;
 
@@ -99,8 +107,8 @@ void EditorSceneTabs::_update_visibility() {
 	// Keep global controls, such as distraction-free mode, available in every workspace.
 	scene_tabs->set_visible(show_scene_tabs);
 	scene_tab_add->set_visible(show_scene_tabs);
-	scene_tab_add_ph->set_visible(show_scene_tabs);
 	scene_list->set_visible(show_scene_tabs);
+	context_lock->set_visible(show_scene_tabs);
 	if (!show_scene_tabs) {
 		tab_preview_panel->hide();
 		scene_tabs_context_menu->hide();
@@ -108,21 +116,615 @@ void EditorSceneTabs::_update_visibility() {
 	}
 }
 
+void EditorSceneTabs::_update_context_lock_button() {
+	if (!context_lock) {
+		return;
+	}
+	const bool locked = EditorNode::get_singleton()->document_context_locked;
+	context_lock->set_pressed_no_signal(locked);
+	context_lock->set_button_icon(get_editor_theme_icon(locked ? SNAME("Lock") : SNAME("Unlock")));
+	const String context = EditorNode::get_singleton()->_get_document_context_description();
+	String tooltip = (locked ? TTR("Scene tree and inspector are locked. Click to follow the active document again.") : TTR("Lock the scene tree and inspector while switching documents.")) + "\n" + context;
+	if (SceneTreeDock::get_singleton()->is_locked_read_only()) {
+		tooltip += "\n" + TTR("The locked scene is read-only while another scene or document is active.");
+	}
+	context_lock->set_tooltip_text(tooltip);
+	context_lock->set_accessibility_name(locked ? TTRC("Unlock Scene Context") : TTRC("Lock Scene Context"));
+}
+
+void EditorSceneTabs::_toggle_context_lock() {
+	EditorNode::get_singleton()->_set_document_context_locked(context_lock->is_pressed());
+}
+
+void EditorSceneTabs::update_context_lock_button() {
+	_update_context_lock_button();
+}
+
+int EditorSceneTabs::_find_document(const String &p_path) const {
+	for (int i = 0; i < documents.size(); i++) {
+		if (documents[i].path == p_path) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+String EditorSceneTabs::_scene_key(int p_scene) const {
+	return "scene:" + itos(EditorNode::get_editor_data().get_scene_history_id(p_scene));
+}
+
+int EditorSceneTabs::_scene_index(int p_tab) const {
+	if (p_tab < 0 || p_tab >= tab_order.size()) {
+		return -1;
+	}
+	for (int i = 0; i < EditorNode::get_editor_data().get_edited_scene_count(); i++) {
+		if (tab_order[p_tab] == _scene_key(i)) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+int EditorSceneTabs::_scene_tab(int p_scene) const {
+	if (p_scene < 0 || p_scene >= EditorNode::get_editor_data().get_edited_scene_count()) {
+		return -1;
+	}
+	return tab_order.find(_scene_key(p_scene));
+}
+
+int EditorSceneTabs::_document_index(int p_tab) const {
+	if (p_tab < 0 || p_tab >= tab_order.size() || !tab_order[p_tab].begins_with("resource:")) {
+		return -1;
+	}
+	return _find_document(tab_order[p_tab].trim_prefix("resource:"));
+}
+
+int EditorSceneTabs::_current_tab() const {
+	return active_document.is_empty() ? _scene_tab(EditorNode::get_editor_data().get_edited_scene()) : tab_order.find("resource:" + active_document);
+}
+
+int EditorSceneTabs::_context_tab() const {
+	return tab_order.find(context_tab);
+}
+
+void EditorSceneTabs::_sync_tab_order() {
+	Vector<String> available;
+	for (int i = 0; i < EditorNode::get_editor_data().get_edited_scene_count(); i++) {
+		available.push_back(_scene_key(i));
+	}
+	for (const ResourceDocument &document : documents) {
+		available.push_back("resource:" + document.path);
+	}
+	for (int i = tab_order.size() - 1; i >= 0; i--) {
+		if (!available.has(tab_order[i])) {
+			tab_order.remove_at(i);
+		}
+	}
+	for (const String &key : available) {
+		if (!tab_order.has(key)) {
+			tab_order.push_back(key);
+		}
+	}
+	Vector<String> ordered;
+	HashSet<String> remaining_pins;
+	for (const String &key : tab_order) {
+		if (pinned_tabs.has(key)) {
+			ordered.push_back(key);
+			remaining_pins.insert(key);
+		}
+	}
+	for (const String &key : tab_order) {
+		if (!pinned_tabs.has(key)) {
+			ordered.push_back(key);
+		}
+	}
+	pinned_tabs = remaining_pins;
+	tab_order = ordered;
+}
+
+void EditorSceneTabs::_save_layout_delayed() {
+	if (!restoring_documents) {
+		EditorNode::get_singleton()->save_editor_layout_delayed();
+	}
+}
+
+void EditorSceneTabs::save_layout_to_config(const Ref<ConfigFile> &p_config) {
+	Array order;
+	Dictionary active;
+	for (int tab = 0; tab < tab_order.size(); tab++) {
+		Dictionary entry;
+		const int scene = _scene_index(tab);
+		if (scene >= 0) {
+			const String path = EditorNode::get_editor_data().get_scene_path(scene);
+			if (path.is_empty()) {
+				continue;
+			}
+			entry["type"] = "scene";
+			entry["path"] = path;
+		} else {
+			const int document = _document_index(tab);
+			if (document < 0) {
+				continue;
+			}
+			entry["type"] = documents[document].path.begins_with("editor://") ? "workspace" : "resource";
+			const ResourceDocument &doc = documents[document];
+			String path = doc.path;
+			if (doc.scene_node.is_valid()) {
+				Node *root = ObjectDB::get_instance<Node>(doc.scene_root);
+				Node *node = ObjectDB::get_instance<Node>(doc.scene_node);
+				if (!root || !node || root->get_scene_file_path().is_empty() || (root != node && !root->is_ancestor_of(node))) {
+					continue;
+				}
+				path = root->get_scene_file_path() + "::" + path.get_slice("::", 1).get_slice("/", 0) + "/" + String(root->get_path_to(node));
+			}
+			entry["path"] = path;
+			if (!documents[document].restore_path.is_empty()) {
+				entry["restore_path"] = documents[document].restore_path;
+			}
+		}
+		entry["pinned"] = pinned_tabs.has(tab_order[tab]);
+		order.push_back(entry);
+		if (tab == _current_tab()) {
+			active = entry;
+		}
+	}
+	p_config->set_value("EditorDocuments", "order", order);
+	p_config->set_value("EditorDocuments", "active", active);
+}
+
+void EditorSceneTabs::restore_layout_from_config(const Ref<ConfigFile> &p_config) {
+	if (Engine::get_singleton()->is_recovery_mode_hint() || !bool(EDITOR_GET("interface/scene_tabs/restore_scenes_on_load"))) {
+		return;
+	}
+	restoring_documents = true;
+	const Array order = p_config->get_value("EditorDocuments", "order", Array());
+	Vector<String> restored;
+	pinned_tabs.clear();
+	for (const Variant &value : order) {
+		if (value.get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary entry = value;
+		const String type = entry.get("type", String());
+		const String path = entry.get("path", String());
+		String key;
+		if (type == "scene") {
+			for (int scene = 0; scene < EditorNode::get_editor_data().get_edited_scene_count(); scene++) {
+				if (EditorNode::get_editor_data().get_scene_path(scene) == path) {
+					key = _scene_key(scene);
+					break;
+				}
+			}
+		} else if (type == "workspace" || (type == "resource" && FileAccess::exists(path.get_slice("::", 0)))) {
+			const String restore_path = entry.get("restore_path", path);
+			EditorInterface::get_singleton()->emit_signal(SNAME("editor_document_restore_requested"), restore_path);
+			if (_find_document(path) >= 0) {
+				key = "resource:" + path;
+			}
+		}
+		if (!key.is_empty() && !restored.has(key)) {
+			restored.push_back(key);
+			if (entry.get("pinned", false)) {
+				pinned_tabs.insert(key);
+			}
+		}
+	}
+	for (const String &key : tab_order) {
+		if (!restored.has(key)) {
+			restored.push_back(key);
+		}
+	}
+	tab_order = restored;
+	update_scene_tabs();
+	const Dictionary active = p_config->get_value("EditorDocuments", "active", Dictionary());
+	const String active_type = active.get("type", String());
+	const String active_path = active.get("path", String());
+	if ((active_type == "resource" || active_type == "workspace") && _find_document(active_path) >= 0) {
+		_activate_document(active_path);
+	}
+	restoring_documents = false;
+}
+
+void EditorSceneTabs::_request_navigation(const Callable &p_action) {
+	const int current = _find_document(active_document);
+	if (current >= 0 && documents[current].navigate.is_valid()) {
+		documents[current].navigate.call(p_action);
+	} else {
+		p_action.call();
+	}
+}
+
+void EditorSceneTabs::_activate_document(const String &p_path) {
+	const int index = _find_document(p_path);
+	if (index < 0) {
+		return;
+	}
+	EditorNode::get_singleton()->_begin_document_activation(p_path);
+	if (active_document.is_empty()) {
+		// Documents are hosted by the 3D screen. Remember where the user was.
+		Control *screen = EditorNode::get_singleton()->get_editor_main_screen()->get_current_tab_control();
+		previous_main_screen = screen ? screen->get_instance_id() : ObjectID();
+	}
+	active_document = p_path;
+	const Callable activate = documents[index].activate;
+	_update_tab_titles();
+	EditorInterface::get_singleton()->emit_signal(SNAME("editor_document_selected"), p_path);
+	activate.call();
+	if (active_document == p_path) {
+		EditorNode::get_singleton()->_finish_document_activation(p_path);
+	}
+	EditorNode::get_singleton()->update_distraction_free_mode();
+	_save_layout_delayed();
+}
+
+void EditorSceneTabs::restore_active_document(bool p_save_current) {
+	const String path = active_document;
+	const int index = _find_document(path);
+	if (index < 0) {
+		return;
+	}
+	EditorNode::get_singleton()->_begin_document_activation(path, p_save_current);
+	const Callable activate = documents[index].activate;
+	activate.call();
+	if (active_document == path) {
+		EditorNode::get_singleton()->_finish_document_activation(path);
+	}
+}
+
+void EditorSceneTabs::_restore_main_screen() {
+	EditorDock *screen = Object::cast_to<EditorDock>(ObjectDB::get_instance(previous_main_screen));
+	previous_main_screen = ObjectID();
+	if (screen && screen != Node3DEditor::get_singleton()) {
+		EditorDockManager::get_singleton()->force_focus_dock(screen);
+	}
+}
+
+void EditorSceneTabs::_activate_scene(int p_scene) {
+	EditorNode::get_singleton()->_begin_scene_document_activation();
+	active_document = String();
+	EditorInterface::get_singleton()->emit_signal(SNAME("scene_document_selected"));
+	_restore_main_screen();
+	emit_signal("tab_changed", p_scene);
+	EditorNode::get_singleton()->_finish_scene_document_activation(p_scene);
+	EditorNode::get_singleton()->update_distraction_free_mode();
+	_update_tab_titles();
+	_save_layout_delayed();
+}
+
 void EditorSceneTabs::_scene_tab_changed(int p_tab) {
 	tab_preview_panel->hide();
+	if (p_tab >= 0 && p_tab < tab_order.size()) {
+		_queue_scroll_to_tab(p_tab);
+	}
+	const int index = _document_index(p_tab);
+	// Restore the current selection until the provider accepts navigation.
+	_update_tab_titles();
+	if (index >= 0) {
+		const String path = documents[index].path;
+		if (active_document != path) {
+			_request_navigation(callable_mp(this, &EditorSceneTabs::_activate_document).bind(path));
+		}
+	} else if (_scene_index(p_tab) >= 0) {
+		_request_navigation(callable_mp(this, &EditorSceneTabs::_activate_scene).bind(_scene_index(p_tab)));
+	}
+}
 
-	emit_signal("tab_changed", p_tab);
+String EditorSceneTabs::get_node_document_path(Node *p_root, Node *p_node, const String &p_kind) const {
+	for (const ResourceDocument &document : documents) {
+		if (document.scene_root == p_root->get_instance_id() && document.scene_node == p_node->get_instance_id() && document.path.get_slice("::", 1).get_slice("/", 0) == p_kind) {
+			return document.path;
+		}
+	}
+	const String scene = p_root->get_scene_file_path().is_empty() ? "unsaved://" + itos(p_root->get_instance_id()) : p_root->get_scene_file_path();
+	const String suffix = "::" + p_kind + "/" + String(p_root->get_path_to(p_node));
+	const String path = scene + suffix;
+	// A renamed node may still own this session key. The layout records both live paths.
+	return _find_document(path) < 0 ? path : "node://" + itos(p_node->get_instance_id()) + suffix;
+}
+
+void EditorSceneTabs::close_node_documents(Node *p_root) {
+	Vector<String> paths;
+	for (const ResourceDocument &document : documents) {
+		if (document.scene_root == p_root->get_instance_id()) {
+			paths.push_back(document.path);
+		}
+	}
+	const bool active_removed = paths.has(active_document);
+	for (const String &path : paths) {
+		const int index = _find_document(path);
+		if (index < 0) {
+			continue;
+		}
+		const Callable close = documents[index].close;
+		remove_document(path, false);
+		if (close.is_valid()) {
+			close.call();
+		}
+	}
+	// Switching to the next tab during teardown could reactivate the scene being freed.
+	if (active_removed && !EditorNode::get_singleton()->is_exiting() && EditorNode::get_editor_data().get_edited_scene_root() != p_root) {
+		_activate_scene(EditorNode::get_editor_data().get_edited_scene());
+	}
+}
+
+void EditorSceneTabs::open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path, Node *p_scene_root, Node *p_scene_node) {
+	ERR_FAIL_COND(p_path.is_empty() || !p_activate.is_valid());
+	const int index = _find_document(p_path);
+	if (index < 0) {
+		ResourceDocument document;
+		document.path = p_path;
+		document.restore_path = p_restore_path;
+		if (p_scene_root && p_scene_node) {
+			document.scene_root = p_scene_root->get_instance_id();
+			document.scene_node = p_scene_node->get_instance_id();
+		}
+		document.title = p_title;
+		document.icon = p_icon;
+		document.activate = p_activate;
+		document.save = p_save;
+		document.save_as = p_save_as;
+		document.close = p_close;
+		document.navigate = p_navigate;
+		documents.push_back(document);
+		update_scene_tabs();
+		_save_layout_delayed();
+	} else if (!p_restore_path.is_empty()) {
+		documents.write[index].restore_path = p_restore_path;
+	}
+	if (!p_activate_document) {
+		return;
+	}
+	if (active_document != p_path) {
+		_request_navigation(callable_mp(this, &EditorSceneTabs::_activate_document).bind(p_path));
+	} else {
+		restore_active_document(true);
+	}
+}
+
+void EditorSceneTabs::set_document_title(const String &p_path, const String &p_title) {
+	const int index = _find_document(p_path);
+	if (index >= 0 && documents[index].title != p_title) {
+		documents.write[index].title = p_title;
+		_update_tab_titles();
+		if (active_document == p_path) {
+			EditorNode::get_singleton()->_update_title();
+			EditorNode::get_singleton()->_refresh_document_context_title();
+		}
+	}
+}
+
+void EditorSceneTabs::set_document_tooltip(const String &p_path, const String &p_tooltip) {
+	const int index = _find_document(p_path);
+	if (index >= 0 && documents[index].tooltip != p_tooltip) {
+		documents.write[index].tooltip = p_tooltip;
+		_update_tab_titles();
+	}
+}
+
+void EditorSceneTabs::set_document_restore_path(const String &p_path, const String &p_restore_path) {
+	const int index = _find_document(p_path);
+	if (index >= 0) {
+		documents.write[index].restore_path = p_restore_path;
+	}
+}
+
+void EditorSceneTabs::_remove_document(const String &p_path) {
+	const int index = _find_document(p_path);
+	if (index < 0) {
+		return;
+	}
+	const bool was_active = active_document == p_path;
+	const int tab = tab_order.find("resource:" + p_path);
+	const Callable close = documents[index].close;
+	EditorNode::get_singleton()->_forget_document_state(p_path);
+	documents.remove_at(index);
+	if (was_active) {
+		active_document = String();
+	}
+	if (close.is_valid()) {
+		close.call();
+	}
+	update_scene_tabs();
+	if (was_active && !tab_order.is_empty()) {
+		_scene_tab_changed(MIN(tab, tab_order.size() - 1));
+	} else if (was_active) {
+		_activate_scene(EditorNode::get_editor_data().get_edited_scene());
+	}
+	_save_layout_delayed();
+}
+
+void EditorSceneTabs::remove_document(const String &p_path, bool p_activate_next) {
+	// Provider teardown bypasses navigation and callbacks.
+	const int index = _find_document(p_path);
+	if (index < 0) {
+		return;
+	}
+	const bool was_active = active_document == p_path;
+	const int tab = tab_order.find("resource:" + p_path);
+	if (was_active) {
+		EditorNode::get_singleton()->_begin_scene_document_activation();
+		active_document = String();
+	}
+	EditorNode::get_singleton()->_forget_document_state(p_path);
+	documents.remove_at(index);
+	update_scene_tabs();
+	const bool activate_next = p_activate_next && !EditorNode::get_singleton()->is_exiting();
+	if (was_active && activate_next && !tab_order.is_empty()) {
+		_scene_tab_changed(MIN(tab, tab_order.size() - 1));
+	} else if (was_active && activate_next) {
+		_activate_scene(EditorNode::get_editor_data().get_edited_scene());
+	}
+}
+
+void EditorSceneTabs::set_document_modified(const String &p_path, bool p_modified) {
+	const int index = _find_document(p_path);
+	if (index >= 0 && documents[index].modified != p_modified) {
+		documents.write[index].modified = p_modified;
+		_update_tab_titles();
+		if (active_document == p_path) {
+			EditorNode::get_singleton()->_update_title();
+		}
+	}
+}
+
+String EditorSceneTabs::get_active_document_title() const {
+	const int index = _find_document(active_document);
+	return index >= 0 ? documents[index].title : String();
+}
+
+bool EditorSceneTabs::is_active_document_modified() const {
+	const int index = _find_document(active_document);
+	return index >= 0 && documents[index].modified;
+}
+
+bool EditorSceneTabs::has_modified_documents() const {
+	for (const ResourceDocument &document : documents) {
+		if (document.modified) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool EditorSceneTabs::can_save_document_as() const {
+	const int document = _find_document(active_document);
+	return document < 0 || documents[document].save_as.is_valid();
+}
+
+void EditorSceneTabs::save_documents() {
+	const Vector<ResourceDocument> snapshot = documents;
+	for (const ResourceDocument &document : snapshot) {
+		if (document.modified && document.save.is_valid()) {
+			document.save.call();
+		}
+	}
+}
+
+void EditorSceneTabs::_close_documents(const PackedStringArray &p_paths, const Callable &p_after_close) {
+	if (p_paths.is_empty()) {
+		p_after_close.call();
+		return;
+	}
+	const String path = p_paths[0];
+	const PackedStringArray remaining = p_paths.slice(1);
+	if (_find_document(path) >= 0) {
+		_request_document_close(path, callable_mp(this, &EditorSceneTabs::_close_document_and_continue).bind(path, remaining, p_after_close));
+		return;
+	}
+	_close_documents(remaining, p_after_close);
+}
+
+void EditorSceneTabs::_request_document_close(const String &p_path, const Callable &p_action) {
+	const int index = _find_document(p_path);
+	if (index >= 0 && documents[index].navigate.is_valid() && (p_path == active_document || documents[index].modified)) {
+		const Callable navigate = documents[index].navigate;
+		if (p_path != active_document) {
+			_activate_document(p_path);
+		}
+		closing_document = true;
+		navigate.call(p_action);
+		closing_document = false;
+	} else {
+		p_action.call();
+	}
+}
+
+void EditorSceneTabs::_close_document_and_continue(const String &p_path, const PackedStringArray &p_remaining, const Callable &p_after_close) {
+	_remove_document(p_path);
+	_close_documents(p_remaining, p_after_close);
+}
+
+void EditorSceneTabs::_close_scene_documents(int p_option) {
+	tab_to_keep_after_close = p_option == SCENE_CLOSE_OTHERS ? context_tab : String();
+	EditorNode::get_singleton()->trigger_menu_option(p_option, true);
+}
+
+void EditorSceneTabs::finish_closing_tabs() {
+	const String tab = tab_to_keep_after_close;
+	tab_to_keep_after_close = String();
+	const int index = tab_order.find(tab);
+	if (index >= 0) {
+		_scene_tab_changed(index);
+	}
+}
+
+void EditorSceneTabs::_run_scene_action(const Callable &p_action) {
+	EditorNode::get_singleton()->_begin_scene_document_activation();
+	active_document = String();
+	EditorInterface::get_singleton()->emit_signal(SNAME("scene_document_selected"));
+	_restore_main_screen();
+	p_action.call();
+	EditorNode::get_singleton()->_finish_scene_document_activation(EditorNode::get_editor_data().get_edited_scene());
+	_update_tab_titles();
+}
+
+bool EditorSceneTabs::request_scene_action(const Callable &p_action) {
+	if (active_document.is_empty()) {
+		return false;
+	}
+	_request_navigation(callable_mp(this, &EditorSceneTabs::_run_scene_action).bind(p_action));
+	return true;
+}
+
+bool EditorSceneTabs::handle_document_menu(int p_option) {
+	if (!documents.is_empty() && (p_option == EditorNode::SCENE_CLOSE_ALL || p_option == SCENE_CLOSE_OTHERS || p_option == SCENE_CLOSE_RIGHT)) {
+		PackedStringArray paths;
+		for (int tab = 0; tab < tab_order.size(); tab++) {
+			const int document = _document_index(tab);
+			if (document >= 0 && (p_option == EditorNode::SCENE_CLOSE_ALL || (!is_tab_pinned(tab) && ((p_option == SCENE_CLOSE_OTHERS && tab != _context_tab()) || (p_option == SCENE_CLOSE_RIGHT && tab > _context_tab()))))) {
+				paths.push_back(documents[document].path);
+			}
+		}
+		_close_documents(paths, callable_mp(this, &EditorSceneTabs::_close_scene_documents).bind(p_option));
+		return true;
+	}
+	if (p_option == EditorNode::SCENE_NEW_SCENE) {
+		return request_scene_action(callable_mp(EditorNode::get_singleton(), &EditorNode::trigger_menu_option).bind(p_option, true));
+	}
+	const int index = _find_document(active_document);
+	if (index < 0) {
+		return false;
+	}
+	if (p_option == EditorNode::SCENE_SAVE_SCENE || p_option == EditorNode::SCENE_SAVE_AS_SCENE) {
+		const Callable save = p_option == EditorNode::SCENE_SAVE_AS_SCENE ? documents[index].save_as : documents[index].save;
+		if (save.is_valid()) {
+			save.call();
+		}
+		return true;
+	}
+	if (p_option == EditorNode::SCENE_CLOSE) {
+		_request_document_close(active_document, callable_mp(this, &EditorSceneTabs::_remove_document).bind(active_document));
+		return true;
+	}
+	return false;
 }
 
 void EditorSceneTabs::_scene_tab_script_edited(int p_tab) {
-	Ref<Script> scr = EditorNode::get_editor_data().get_scene_root_script(p_tab);
+	if (is_tab_pinned(p_tab) || _document_index(p_tab) >= 0) {
+		return;
+	}
+	Ref<Script> scr = EditorNode::get_editor_data().get_scene_root_script(_scene_index(p_tab));
 	if (scr.is_valid()) {
 		InspectorDock::get_singleton()->edit_resource(scr);
 	}
 }
 
 void EditorSceneTabs::_scene_tab_closed(int p_tab) {
-	emit_signal("tab_closed", p_tab);
+	const int index = _document_index(p_tab);
+	if (index >= 0) {
+		const String path = documents[index].path;
+		const Callable close = callable_mp(this, &EditorSceneTabs::_remove_document).bind(path);
+		_request_document_close(path, close);
+	} else {
+		const int scene = _scene_index(p_tab);
+		if (scene >= 0) {
+			_request_navigation(callable_mp(this, &EditorSceneTabs::_close_scene_tab).bind(scene));
+		}
+	}
+}
+
+void EditorSceneTabs::_close_scene_tab(int p_scene) {
+	emit_signal("tab_closed", p_scene);
 }
 
 void EditorSceneTabs::_scene_tab_hovered(int p_tab) {
@@ -139,10 +741,10 @@ void EditorSceneTabs::_scene_tab_hovered(int p_tab) {
 
 	int current_tab = scene_tabs->get_current_tab();
 
-	if (p_tab == current_tab || p_tab < 0) {
+	if (p_tab == current_tab || p_tab < 0 || _document_index(p_tab) >= 0) {
 		tab_preview_panel->hide();
 	} else {
-		String path = EditorNode::get_editor_data().get_scene_path(p_tab);
+		String path = EditorNode::get_editor_data().get_scene_path(_scene_index(p_tab));
 		if (!path.is_empty()) {
 			EditorResourcePreview::get_singleton()->queue_resource_preview(path, callable_mp(this, &EditorSceneTabs::_tab_preview_done).bind(p_tab));
 		}
@@ -190,8 +792,31 @@ void EditorSceneTabs::unhandled_key_input(const Ref<InputEvent> &p_event) {
 }
 
 void EditorSceneTabs::_reposition_active_tab(int p_to_index) {
-	EditorNode::get_editor_data().move_edited_scene_to_index(p_to_index);
+	const String key = scene_tabs->get_tab_metadata(p_to_index);
+	const int from = tab_order.find(key);
+	ERR_FAIL_COND(from < 0);
+	const int pinned_count = pinned_tabs.size();
+	p_to_index = pinned_tabs.has(key) ? CLAMP(p_to_index, 0, pinned_count - 1) : CLAMP(p_to_index, pinned_count, tab_order.size() - 1);
+	tab_order.remove_at(from);
+	tab_order.insert(p_to_index, key);
+	context_tab = String();
 	update_scene_tabs();
+	_save_layout_delayed();
+}
+
+void EditorSceneTabs::set_tab_pinned(int p_tab, bool p_pinned) {
+	ERR_FAIL_INDEX(p_tab, tab_order.size());
+	if (p_pinned) {
+		pinned_tabs.insert(tab_order[p_tab]);
+	} else {
+		pinned_tabs.erase(tab_order[p_tab]);
+	}
+	update_scene_tabs();
+	_save_layout_delayed();
+}
+
+bool EditorSceneTabs::is_tab_pinned(int p_tab) const {
+	return p_tab >= 0 && p_tab < tab_order.size() && pinned_tabs.has(tab_order[p_tab]);
 }
 
 void EditorSceneTabs::_update_context_menu(int p_index) {
@@ -203,7 +828,29 @@ void EditorSceneTabs::_update_context_menu(int p_index) {
 	scene_tabs_context_menu->clear();
 	scene_tabs_context_menu->reset_size();
 
-	int tab_id = p_index;
+	context_tab = p_index >= 0 ? tab_order[p_index] : String();
+	if (p_index >= 0) {
+		scene_tabs_context_menu->add_icon_item(get_editor_theme_icon(SNAME("Pin")), is_tab_pinned(p_index) ? TTR("Unpin Tab") : TTR("Pin Tab"), DOCUMENT_TOGGLE_PIN);
+		scene_tabs_context_menu->add_separator();
+	}
+	if (_document_index(p_index) >= 0) {
+		scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/save_scene"), SCENE_SAVE_SCENE);
+		scene_tabs_context_menu->set_item_text(-1, TTR("Save"));
+		if (!documents[_document_index(p_index)].path.begins_with("editor://")) {
+			scene_tabs_context_menu->add_item(TTR("Show in FileSystem"), SCENE_SHOW_IN_FILESYSTEM);
+		}
+		scene_tabs_context_menu->add_separator();
+		scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/close_scene"), SCENE_CLOSE);
+		scene_tabs_context_menu->set_item_text(-1, TTR("Close Tab"));
+		scene_tabs_context_menu->add_item(TTR("Close Other Tabs"), SCENE_CLOSE_OTHERS);
+		scene_tabs_context_menu->set_item_disabled(-1, tab_order.size() <= 1);
+		scene_tabs_context_menu->add_item(TTR("Close Tabs to the Right"), SCENE_CLOSE_RIGHT);
+		scene_tabs_context_menu->set_item_disabled(-1, p_index == tab_order.size() - 1);
+		scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/close_all_scenes"), EditorNode::SCENE_CLOSE_ALL);
+		scene_tabs_context_menu->set_item_text(-1, TTR("Close All Tabs"));
+		return;
+	}
+	int tab_id = _scene_index(p_index);
 	bool no_root_node = !EditorNode::get_editor_data().get_edited_scene_root(tab_id);
 
 	scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/new_scene"), EditorNode::SCENE_NEW_SCENE);
@@ -222,7 +869,7 @@ void EditorSceneTabs::_update_context_menu(int p_index) {
 		}
 	}
 	scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/save_all_scenes"), EditorNode::SCENE_SAVE_ALL_SCENES);
-	DISABLE_LAST_OPTION_IF(!has_unsaved_scenes);
+	DISABLE_LAST_OPTION_IF(!has_unsaved_scenes && !has_modified_documents());
 
 	if (tab_id >= 0) {
 		const String scene_path = EditorNode::get_editor_data().get_scene_path(tab_id);
@@ -243,9 +890,9 @@ void EditorSceneTabs::_update_context_menu(int p_index) {
 		scene_tabs_context_menu->set_item_text(-1, TTR("Undo Close Tab"));
 		DISABLE_LAST_OPTION_IF(!EditorNode::get_singleton()->has_previous_closed_scenes());
 		scene_tabs_context_menu->add_item(TTR("Close Other Tabs"), SCENE_CLOSE_OTHERS);
-		DISABLE_LAST_OPTION_IF(EditorNode::get_editor_data().get_edited_scene_count() <= 1);
+		DISABLE_LAST_OPTION_IF(tab_order.size() <= 1);
 		scene_tabs_context_menu->add_item(TTR("Close Tabs to the Right"), SCENE_CLOSE_RIGHT);
-		DISABLE_LAST_OPTION_IF(EditorNode::get_editor_data().get_edited_scene_count() == tab_id + 1);
+		DISABLE_LAST_OPTION_IF(tab_order.size() == p_index + 1);
 		scene_tabs_context_menu->add_shortcut(ED_GET_SHORTCUT("editor/close_all_scenes"), EditorNode::SCENE_CLOSE_ALL);
 		scene_tabs_context_menu->set_item_text(-1, TTRC("Close All Tabs"));
 	} else {
@@ -266,12 +913,52 @@ void EditorSceneTabs::_update_context_menu(int p_index) {
 		EditorContextMenuPluginManager::get_singleton()->add_options_from_plugins(scene_tabs_context_menu, EditorContextMenuPlugin::CONTEXT_SLOT_SCENE_TABS, paths, tab_id >= 0 ? paths[0] : String(), 500);
 #endif
 	}
-
-	last_hovered_tab = tab_id;
 }
 
 int EditorSceneTabs::get_option_tab() const {
-	return last_hovered_tab >= 0 ? last_hovered_tab : scene_tabs->get_current_tab();
+	const int tab = _context_tab() >= 0 ? _context_tab() : _current_tab();
+	const int scene = _scene_index(tab);
+	return scene >= 0 ? scene : EditorNode::get_editor_data().get_edited_scene();
+}
+
+Vector<int> EditorSceneTabs::get_scene_tabs_to_close(int p_option) const {
+	Vector<int> scenes;
+	for (int tab = 0; tab < tab_order.size(); tab++) {
+		const int scene = _scene_index(tab);
+		if (scene >= 0 && !is_tab_pinned(tab) && ((p_option == SCENE_CLOSE_OTHERS && tab != _context_tab()) || (p_option == SCENE_CLOSE_RIGHT && tab > _context_tab()))) {
+			scenes.push_back(scene);
+		}
+	}
+	return scenes;
+}
+
+void EditorSceneTabs::_menu_option(int p_option) {
+	if (p_option == DOCUMENT_TOGGLE_PIN) {
+		const int tab = _context_tab();
+		set_tab_pinned(tab, !is_tab_pinned(tab));
+		return;
+	}
+	if (p_option == SCENE_CLOSE_OTHERS || p_option == SCENE_CLOSE_RIGHT || p_option == EditorNode::SCENE_CLOSE_ALL) {
+		EditorNode::get_singleton()->trigger_menu_option(p_option, false);
+		return;
+	}
+	const int index = _document_index(_context_tab());
+	if (index >= 0) {
+		const String path = documents[index].path;
+		if (p_option == SCENE_SAVE_SCENE && documents[index].save.is_valid()) {
+			documents[index].save.call();
+		} else if (p_option == SCENE_CLOSE) {
+			_scene_tab_closed(_context_tab());
+		} else if (p_option == SCENE_SHOW_IN_FILESYSTEM) {
+			EditorInterface::get_singleton()->get_file_system_dock()->navigate_to_path(path.get_slice("::", 0));
+		}
+		return;
+	}
+	if (p_option == SCENE_CLOSE) {
+		_scene_tab_closed(_context_tab());
+		return;
+	}
+	EditorNode::get_singleton()->trigger_menu_option(p_option, false);
 }
 
 void EditorSceneTabs::_custom_menu_option(int p_option) {
@@ -291,34 +978,20 @@ void EditorSceneTabs::_update_scene_list() {
 }
 
 void EditorSceneTabs::update_scene_tabs() {
-	static bool menu_initialized = false;
+	_sync_tab_order();
 	tab_preview_panel->hide();
-
-	if (menu_initialized && scene_tabs->get_tab_count() == EditorNode::get_editor_data().get_edited_scene_count()) {
-		_update_tab_titles();
-		return;
-	}
-	menu_initialized = true;
-
+	scene_tabs->set_block_signals(true);
+	scene_tabs->set_tab_count(tab_order.size());
+	scene_tabs->set_block_signals(false);
 	if (NativeMenu::get_singleton()->has_feature(NativeMenu::FEATURE_GLOBAL_MENU)) {
 		RID dock_rid = NativeMenu::get_singleton()->get_system_menu(NativeMenu::DOCK_MENU_ID);
 		NativeMenu::get_singleton()->clear(dock_rid);
-	}
-
-	scene_tabs->set_block_signals(true);
-	scene_tabs->set_tab_count(EditorNode::get_editor_data().get_edited_scene_count());
-	scene_tabs->set_block_signals(false);
-
-	if (NativeMenu::get_singleton()->has_feature(NativeMenu::FEATURE_GLOBAL_MENU)) {
-		RID dock_rid = NativeMenu::get_singleton()->get_system_menu(NativeMenu::DOCK_MENU_ID);
 		for (int i = 0; i < EditorNode::get_editor_data().get_edited_scene_count(); i++) {
-			int global_menu_index = NativeMenu::get_singleton()->add_item(dock_rid, EditorNode::get_editor_data().get_scene_title(i), callable_mp(this, &EditorSceneTabs::_global_menu_scene), Callable(), i);
-			scene_tabs->set_tab_metadata(i, global_menu_index);
+			NativeMenu::get_singleton()->add_item(dock_rid, EditorNode::get_editor_data().get_scene_title(i), callable_mp(this, &EditorSceneTabs::_global_menu_scene), Callable(), i);
 		}
 		NativeMenu::get_singleton()->add_separator(dock_rid);
 		NativeMenu::get_singleton()->add_item(dock_rid, TTR("New Window"), callable_mp(this, &EditorSceneTabs::_global_menu_new_window));
 	}
-
 	_update_tab_titles();
 }
 
@@ -337,85 +1010,127 @@ void EditorSceneTabs::_update_tab_titles() {
 
 	Ref<Texture2D> script_icon = get_editor_theme_icon(SNAME("Script"));
 	for (int i = 0; i < EditorNode::get_editor_data().get_edited_scene_count(); i++) {
+		const int tab = _scene_tab(i);
+		if (tab < 0 || tab >= scene_tabs->get_tab_count()) {
+			continue;
+		}
 		Node *type_node = EditorNode::get_editor_data().get_edited_scene_root(i);
+		const String scene_path = EditorNode::get_editor_data().get_scene_path(i);
 		Ref<Texture2D> icon;
 		if (type_node) {
 			icon = EditorNode::get_singleton()->get_object_icon(type_node);
 		}
-		scene_tabs->set_tab_icon(i, icon);
+		scene_tabs->set_tab_icon(tab, icon);
+		scene_tabs->set_tab_tooltip(tab, scene_path);
 
 		bool unsaved = EditorUndoRedoManager::get_singleton()->is_history_unsaved(EditorNode::get_editor_data().get_scene_history_id(i));
-		scene_tabs->set_tab_title(i, disambiguated_scene_names[i] + (unsaved ? "(*)" : ""));
+		const String marker = unsaved ? "* " : String();
+		scene_tabs->set_tab_title(tab, marker + disambiguated_scene_names[i]);
 
 		if (!main_scene_path.is_empty() && main_scene_path == EditorNode::get_editor_data().get_scene_path(i)) {
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_DISABLED, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.7));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_NORMAL, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.7));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_HOVER, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_PRESSED, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_DISABLED, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.7));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_NORMAL, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.7));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_HOVER, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_PRESSED, get_theme_color(SNAME("accent_color"), EditorStringName(Editor)));
 		} else {
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_DISABLED, get_theme_color(SNAME("font_disabled_color"), SNAME("TabBar")));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_NORMAL, get_theme_color(SNAME("font_unselected_color"), SNAME("TabBar")));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_HOVER, get_theme_color(SNAME("font_hovered_color"), SNAME("TabBar")));
-			scene_tabs->set_font_color_override(i, TabBar::DRAW_PRESSED, get_theme_color(SNAME("font_selected_color"), SNAME("TabBar")));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_DISABLED, get_theme_color(SNAME("font_disabled_color"), SNAME("TabBar")));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_NORMAL, get_theme_color(SNAME("font_unselected_color"), SNAME("TabBar")));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_HOVER, get_theme_color(SNAME("font_hovered_color"), SNAME("TabBar")));
+			scene_tabs->set_font_color_override(tab, TabBar::DRAW_PRESSED, get_theme_color(SNAME("font_selected_color"), SNAME("TabBar")));
 		}
 
 		if (NativeMenu::get_singleton()->has_feature(NativeMenu::FEATURE_GLOBAL_MENU)) {
 			RID dock_rid = NativeMenu::get_singleton()->get_system_menu(NativeMenu::DOCK_MENU_ID);
-			int global_menu_index = scene_tabs->get_tab_metadata(i);
-			NativeMenu::get_singleton()->set_item_text(dock_rid, global_menu_index, EditorNode::get_editor_data().get_scene_title(i) + (unsaved ? "(*)" : ""));
+			int global_menu_index = i;
+			NativeMenu::get_singleton()->set_item_text(dock_rid, global_menu_index, marker + EditorNode::get_editor_data().get_scene_title(i));
 			NativeMenu::get_singleton()->set_item_tag(dock_rid, global_menu_index, i);
 		}
 
-		if (show_rb && EditorNode::get_editor_data().get_scene_root_script(i).is_valid()) {
-			scene_tabs->set_tab_button_icon(i, script_icon);
+		if (show_rb && !is_tab_pinned(tab) && EditorNode::get_editor_data().get_scene_root_script(i).is_valid()) {
+			scene_tabs->set_tab_button_icon(tab, script_icon);
 		} else {
-			scene_tabs->set_tab_button_icon(i, nullptr);
+			scene_tabs->set_tab_button_icon(tab, nullptr);
 		}
 	}
 
-	int current_tab = EditorNode::get_editor_data().get_edited_scene();
-	if (scene_tabs->get_tab_count() > 0 && scene_tabs->get_current_tab() != current_tab) {
+	for (int i = 0; i < documents.size(); i++) {
+		const int tab = tab_order.find("resource:" + documents[i].path);
+		if (tab < 0 || tab >= scene_tabs->get_tab_count()) {
+			continue;
+		}
+		const ResourceDocument &document = documents[i];
+		const String marker = document.modified ? "* " : String();
+		scene_tabs->set_tab_title(tab, marker + document.title);
+		scene_tabs->set_tab_tooltip(tab, document.tooltip.is_empty() ? document.path : document.tooltip);
+		scene_tabs->set_tab_icon(tab, document.icon);
+		scene_tabs->set_tab_button_icon(tab, nullptr);
+		scene_tabs->set_font_color_override(tab, TabBar::DRAW_DISABLED, get_theme_color(SNAME("font_disabled_color"), SNAME("TabBar")));
+		scene_tabs->set_font_color_override(tab, TabBar::DRAW_NORMAL, get_theme_color(SNAME("font_unselected_color"), SNAME("TabBar")));
+		scene_tabs->set_font_color_override(tab, TabBar::DRAW_HOVER, get_theme_color(SNAME("font_hovered_color"), SNAME("TabBar")));
+		scene_tabs->set_font_color_override(tab, TabBar::DRAW_PRESSED, get_theme_color(SNAME("font_selected_color"), SNAME("TabBar")));
+	}
+	for (int i = 0; i < tab_order.size() && i < scene_tabs->get_tab_count(); i++) {
+		scene_tabs->set_tab_metadata(i, tab_order[i]);
+		scene_tabs->set_tab_close_enabled(i, !is_tab_pinned(i));
+	}
+	const int previous_tab = scene_tabs->get_current_tab();
+	const int current_tab = _current_tab();
+	if (current_tab >= 0 && scene_tabs->get_tab_count() > 0 && scene_tabs->get_current_tab() != current_tab) {
 		scene_tabs->set_block_signals(true);
 		scene_tabs->set_current_tab(current_tab);
 		scene_tabs->set_block_signals(false);
 	}
-
-	_scene_tabs_resized();
-}
-
-void EditorSceneTabs::_scene_tabs_resized() {
-	const Size2 add_button_size = Size2(scene_tab_add->get_size().x, scene_tabs->get_size().y);
-	if (scene_tabs->get_offset_buttons_visible()) {
-		// Move the add button to a fixed position.
-		if (scene_tab_add->get_parent() == scene_tabs) {
-			scene_tabs->remove_child(scene_tab_add);
-			scene_tab_add_ph->add_child(scene_tab_add);
-			scene_tab_add->set_rect(Rect2(Point2(), add_button_size));
-		}
-	} else {
-		// Move the add button to be after the last tab.
-		if (scene_tab_add->get_parent() == scene_tab_add_ph) {
-			scene_tab_add_ph->remove_child(scene_tab_add);
-			scene_tabs->add_child(scene_tab_add);
-		}
-
-		if (scene_tabs->get_tab_count() == 0) {
-			scene_tab_add->set_rect(Rect2(Point2(), add_button_size));
-			return;
-		}
-
-		Rect2 last_tab = scene_tabs->get_tab_rect(scene_tabs->get_tab_count() - 1);
-		int hsep = scene_tabs->get_theme_constant(SNAME("h_separation"));
-		if (scene_tabs->is_layout_rtl()) {
-			scene_tab_add->set_rect(Rect2(Point2(last_tab.position.x - add_button_size.x - hsep, last_tab.position.y), add_button_size));
-		} else {
-			scene_tab_add->set_rect(Rect2(Point2(last_tab.position.x + last_tab.size.width + hsep, last_tab.position.y), add_button_size));
-		}
+	if (current_tab >= 0 && current_tab != previous_tab) {
+		_queue_scroll_to_tab(current_tab);
 	}
 }
 
+void EditorSceneTabs::_queue_scroll_to_tab(int p_tab) {
+	pending_scroll_tab = p_tab;
+	callable_mp(this, &EditorSceneTabs::_apply_pending_scroll).call_deferred();
+}
+
+void EditorSceneTabs::_scroll_to_current_tab() {
+	const int tab = _current_tab();
+	if (tab >= 0) {
+		_queue_scroll_to_tab(tab);
+	}
+}
+
+void EditorSceneTabs::_apply_pending_scroll() {
+	const int tab = pending_scroll_tab;
+	pending_scroll_tab = -1;
+	if (tab >= 0) {
+		_scroll_to_tab(tab);
+	}
+}
+
+void EditorSceneTabs::_scroll_to_tab(int p_tab) {
+	if (!tab_scroll || p_tab < 0 || p_tab >= scene_tabs->get_tab_count()) {
+		return;
+	}
+
+	HScrollBar *scroll_bar = tab_scroll->get_h_scroll_bar();
+	const int page = Math::round(scroll_bar->get_page());
+	const int view_width = page > 0 ? page : Math::round(tab_scroll->get_size().x);
+	if (view_width <= 0) {
+		return;
+	}
+
+	const Rect2 tab_rect = scene_tabs->get_tab_rect(p_tab);
+	const int margin = Math::round(4 * EDSCALE);
+	const int max_scroll = MAX(0, Math::round(scroll_bar->get_max() - page));
+	int target = tab_scroll->get_h_scroll();
+	if (tab_rect.position.x < target + margin) {
+		target = tab_rect.position.x - margin;
+	} else if (tab_rect.get_end().x > target + view_width - margin) {
+		target = tab_rect.get_end().x - view_width + margin;
+	}
+	tab_scroll->set_h_scroll(CLAMP(target, 0, max_scroll));
+}
+
 void EditorSceneTabs::_tab_preview_done(const String &p_path, const Ref<Texture2D> &p_preview, const Ref<Texture2D> &p_small_preview, int p_tab) {
-	if (p_preview.is_valid() && scene_tabs->is_visible_in_tree()) {
+	if (p_preview.is_valid() && scene_tabs->is_visible_in_tree() && _scene_index(p_tab) >= 0 && EditorNode::get_editor_data().get_scene_path(_scene_index(p_tab)) == p_path) {
 		tab_preview->set_texture(p_preview);
 
 		Rect2 rect = scene_tabs->get_tab_rect(p_tab);
@@ -433,7 +1148,7 @@ Dictionary EditorSceneTabs::_get_context_data(int p_current_tab) {
 
 void EditorSceneTabs::_global_menu_scene(const Variant &p_tag) {
 	int idx = (int)p_tag;
-	scene_tabs->set_current_tab(idx);
+	set_current_tab(idx);
 }
 
 void EditorSceneTabs::_global_menu_new_window(const Variant &p_tag) {
@@ -450,22 +1165,26 @@ void EditorSceneTabs::shortcut_input(const Ref<InputEvent> &p_event) {
 		return;
 	}
 
-	if (ED_IS_SHORTCUT("editor/next_tab", p_event)) {
-		int next_tab = EditorNode::get_editor_data().get_edited_scene() + 1;
-		next_tab %= EditorNode::get_editor_data().get_edited_scene_count();
-		set_current_tab(next_tab);
+	const Ref<InputEventKey> key = p_event;
+	if (!active_document.is_empty() && key.is_valid() && key->is_command_or_control_pressed() && !key->is_shift_pressed() && !key->is_alt_pressed() && key->get_keycode() == Key::W) {
+		handle_document_menu(EditorNode::SCENE_CLOSE);
+		accept_event();
+	} else if (ED_IS_SHORTCUT("editor/next_tab", p_event)) {
+		int next_tab = scene_tabs->get_current_tab() + 1;
+		next_tab %= scene_tabs->get_tab_count();
+		_scene_tab_changed(next_tab);
 		accept_event();
 	} else if (ED_IS_SHORTCUT("editor/prev_tab", p_event)) {
-		int next_tab = EditorNode::get_editor_data().get_edited_scene() - 1;
-		next_tab = next_tab >= 0 ? next_tab : EditorNode::get_editor_data().get_edited_scene_count() - 1;
-		set_current_tab(next_tab);
+		int next_tab = scene_tabs->get_current_tab() - 1;
+		next_tab = next_tab >= 0 ? next_tab : scene_tabs->get_tab_count() - 1;
+		_scene_tab_changed(next_tab);
 		accept_event();
 	} else {
 		const Callable custom_callback = EditorContextMenuPluginManager::get_singleton()->match_custom_shortcut(EditorContextMenuPlugin::CONTEXT_SLOT_SCENE_TABS, p_event);
 		if (custom_callback.is_valid()) {
 #ifndef DISABLE_DEPRECATED
 			if (p_event->get_meta("_legacy_shortcut", false)) {
-				EditorContextMenuPluginManager::get_singleton()->invoke_callback(custom_callback, last_hovered_tab >= 0 ? EditorNode::get_editor_data().get_scene_path(last_hovered_tab) : String());
+				EditorContextMenuPluginManager::get_singleton()->invoke_callback(custom_callback, _scene_index(_context_tab()) >= 0 ? EditorNode::get_editor_data().get_scene_path(_scene_index(_context_tab())) : String());
 				accept_event();
 				return;
 			}
@@ -481,11 +1200,11 @@ void EditorSceneTabs::add_extra_button(Button *p_button) {
 }
 
 void EditorSceneTabs::set_current_tab(int p_tab) {
-	scene_tabs->set_current_tab(p_tab);
+	_scene_tab_changed(_scene_tab(p_tab));
 }
 
 int EditorSceneTabs::get_current_tab() const {
-	return scene_tabs->get_current_tab();
+	return EditorNode::get_editor_data().get_edited_scene();
 }
 
 void EditorSceneTabs::_project_settings_changed() {
@@ -495,6 +1214,8 @@ void EditorSceneTabs::_project_settings_changed() {
 }
 
 void EditorSceneTabs::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_tab_pinned", "tab", "pinned"), &EditorSceneTabs::set_tab_pinned);
+	ClassDB::bind_method(D_METHOD("is_tab_pinned", "tab"), &EditorSceneTabs::is_tab_pinned);
 	ADD_SIGNAL(MethodInfo("tab_changed", PropertyInfo(Variant::INT, "tab_index")));
 	ADD_SIGNAL(MethodInfo("tab_closed", PropertyInfo(Variant::INT, "tab_index")));
 }
@@ -511,14 +1232,26 @@ EditorSceneTabs::EditorSceneTabs() {
 	tabbar_container->set_alignment(BoxContainer::ALIGNMENT_END);
 	tabbar_panel->add_child(tabbar_container);
 
+	tab_scroll = memnew(ScrollContainer);
+	tab_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	tab_scroll->set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_AUTO);
+	tab_scroll->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
+	tab_scroll->set_scroll_horizontal_by_default(true);
+	tab_scroll->connect(SceneStringName(resized), callable_mp(this, &EditorSceneTabs::_scroll_to_current_tab));
+	tabbar_container->add_child(tab_scroll);
+
 	scene_tabs = memnew(TabBar);
+	scene_tabs->set_keep_tab_width_on_selection(true);
 	scene_tabs->add_tab("unsaved");
 	scene_tabs->set_tab_close_display_policy((TabBar::CloseButtonDisplayPolicy)EDITOR_GET("interface/scene_tabs/display_close_button").operator int());
 	scene_tabs->set_max_tab_width(int(EDITOR_GET("interface/scene_tabs/maximum_width")) * EDSCALE);
+	scene_tabs->set_clip_tabs(false);
+	scene_tabs->set_scrolling_enabled(false);
+	scene_tabs->set_scroll_to_selected(false);
 	scene_tabs->set_drag_to_rearrange_enabled(true);
 	scene_tabs->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 	scene_tabs->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	tabbar_container->add_child(scene_tabs);
+	tab_scroll->add_child(scene_tabs);
 
 	scene_tabs->connect("tab_changed", callable_mp(this, &EditorSceneTabs::_scene_tab_changed));
 	scene_tabs->connect("tab_button_pressed", callable_mp(this, &EditorSceneTabs::_scene_tab_script_edited));
@@ -527,23 +1260,25 @@ EditorSceneTabs::EditorSceneTabs() {
 	scene_tabs->connect(SceneStringName(mouse_exited), callable_mp(this, &EditorSceneTabs::_scene_tab_exit));
 	scene_tabs->connect(SceneStringName(gui_input), callable_mp(this, &EditorSceneTabs::_scene_tab_input));
 	scene_tabs->connect("active_tab_rearranged", callable_mp(this, &EditorSceneTabs::_reposition_active_tab));
-	scene_tabs->connect(SceneStringName(resized), callable_mp(this, &EditorSceneTabs::_scene_tabs_resized), CONNECT_DEFERRED);
 
 	scene_tabs_context_menu = memnew(PopupMenu);
 	tabbar_container->add_child(scene_tabs_context_menu);
-	scene_tabs_context_menu->connect(SceneStringName(id_pressed), callable_mp(EditorNode::get_singleton(), &EditorNode::trigger_menu_option).bind(false));
+	scene_tabs_context_menu->connect(SceneStringName(id_pressed), callable_mp(this, &EditorSceneTabs::_menu_option));
 	scene_tabs_context_menu->connect(SceneStringName(id_pressed), callable_mp(this, &EditorSceneTabs::_custom_menu_option));
 
 	scene_tab_add = memnew(Button);
 	scene_tab_add->set_flat(true);
 	scene_tab_add->set_tooltip_text(TTR("Add a new scene."));
-	scene_tabs->add_child(scene_tab_add);
+	tabbar_container->add_child(scene_tab_add);
 	scene_tab_add->connect(SceneStringName(pressed), callable_mp(EditorNode::get_singleton(), &EditorNode::trigger_menu_option).bind(EditorNode::SCENE_NEW_SCENE, false));
 
-	scene_tab_add_ph = memnew(Control);
-	scene_tab_add_ph->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	scene_tab_add_ph->set_custom_minimum_size(scene_tab_add->get_minimum_size());
-	tabbar_container->add_child(scene_tab_add_ph);
+	context_lock = memnew(Button);
+	context_lock->set_name("DocumentContextLock");
+	context_lock->set_flat(true);
+	context_lock->set_toggle_mode(true);
+	context_lock->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
+	context_lock->connect(SceneStringName(pressed), callable_mp(this, &EditorSceneTabs::_toggle_context_lock));
+	tabbar_container->add_child(context_lock);
 
 	scene_list = memnew(MenuButton);
 	scene_list->set_flat(false);
@@ -554,7 +1289,7 @@ EditorSceneTabs::EditorSceneTabs() {
 	scene_list->get_popup()->set_search_bar_enabled(true);
 	scene_list->get_popup()->set_search_bar_min_item_count(10);
 	scene_list->get_popup()->connect("about_to_popup", callable_mp(this, &EditorSceneTabs::_update_scene_list));
-	scene_list->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &EditorSceneTabs::set_current_tab));
+	scene_list->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &EditorSceneTabs::_scene_tab_changed));
 	tabbar_container->add_child(scene_list);
 
 	// On-hover tab preview.

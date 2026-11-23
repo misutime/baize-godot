@@ -40,6 +40,7 @@ class EditorData;
 class EditorSelection;
 class MenuButton;
 class PanelContainer;
+class Label;
 class RenameDialog;
 class ReparentDialog;
 class Shader;
@@ -135,6 +136,10 @@ class SceneTreeDock : public EditorDock {
 	PanelContainer *button_panel = nullptr;
 	Button *edit_local, *edit_remote;
 	SceneTreeEditor *scene_tree = nullptr;
+	ObjectID locked_scene_root;
+	Label *external_document_context = nullptr;
+	bool showing_external_document_context = false;
+	String external_document_title;
 	Tree *remote_tree = nullptr;
 
 	void _tool_selected(int p_tool, bool p_confirm_override = false);
@@ -320,12 +325,15 @@ class SceneTreeDock : public EditorDock {
 	void _clear_clipboard();
 	void _create_remap_for_node(Node *p_node, HashMap<Ref<Resource>, Ref<Resource>> &r_remap);
 	void _create_remap_for_resource(Ref<Resource> p_resource, HashMap<Ref<Resource>, Ref<Resource>> &r_remap);
+	int _get_edited_scene_index() const;
+	int _get_edited_scene_history_id() const;
 
 	void _list_all_subresources(PopupMenu *p_menu);
 	void _gather_resources(Node *p_node, List<Pair<Ref<Resource>, Node *>> &r_resources);
 	void _edit_subresource(int p_idx, const PopupMenu *p_from_menu);
 
 	bool profile_allow_editing = true;
+	bool locked_read_only = false;
 	bool profile_allow_script_editing = true;
 	bool determine_path_automatically = true;
 
@@ -357,6 +365,14 @@ public:
 
 	void add_root_node(Node *p_node);
 	void set_edited_scene(Node *p_scene);
+	void set_scene_tree_lock_root(Node *p_scene);
+	void clear_scene_tree_lock_root();
+	void set_locked_read_only(bool p_read_only);
+	bool is_locked_read_only() const { return locked_read_only; }
+	bool is_scene_tree_locked() const;
+	Node *get_locked_scene_root() const;
+	void set_external_document_context(bool p_enabled, const String &p_title = String());
+	void update_external_document_context_title(const String &p_title);
 	void instantiate(const String &p_file);
 	void instantiate_scenes(const Vector<String> &p_files, Node *p_parent = nullptr);
 	void clear_previous_node_selection();

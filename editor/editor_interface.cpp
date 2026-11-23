@@ -418,6 +418,26 @@ Ref<Theme> EditorInterface::get_editor_theme() const {
 	return EditorNode::get_singleton()->get_editor_theme();
 }
 
+void EditorInterface::open_editor_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document) {
+	EditorSceneTabs::get_singleton()->open_document(p_path, p_title, p_icon, p_activate, p_save, p_close, p_navigate, p_save_as, p_activate_document);
+}
+
+void EditorInterface::remove_editor_document(const String &p_path) {
+	EditorSceneTabs::get_singleton()->remove_document(p_path);
+}
+
+void EditorInterface::set_editor_document_modified(const String &p_path, bool p_modified) {
+	EditorSceneTabs::get_singleton()->set_document_modified(p_path, p_modified);
+}
+
+String EditorInterface::get_active_editor_document() const {
+	return EditorSceneTabs::get_singleton()->get_active_document();
+}
+
+void EditorInterface::activate_scene_document() {
+	EditorSceneTabs::get_singleton()->set_current_tab(EditorNode::get_editor_data().get_edited_scene());
+}
+
 Control *EditorInterface::get_base_control() const {
 	return EditorNode::get_singleton()->get_gui_base();
 }
@@ -443,6 +463,10 @@ SubViewport *EditorInterface::get_editor_viewport_3d(int p_idx) const {
 
 #ifndef DISABLE_DEPRECATED
 void EditorInterface::set_main_screen_editor(const String &p_name) {
+	if (p_name == "Script") {
+		ScriptEditor::get_singleton()->focus_editor();
+		return;
+	}
 	EditorDock *dock = EditorNode::get_singleton()->get_editor_main_screen()->get_dock_by_name(p_name);
 	ERR_FAIL_NULL_MSG(dock, "The editor name '" + p_name + "' was not found.");
 	EditorDockManager::get_singleton()->force_focus_dock(dock);
@@ -706,7 +730,7 @@ void EditorInterface::inspect_object(Object *p_obj, const String &p_for_property
 }
 
 void EditorInterface::edit_resource(const Ref<Resource> &p_resource) {
-	EditorNode::get_singleton()->edit_resource(p_resource);
+	InspectorDock::get_singleton()->edit_resource(p_resource);
 }
 
 void EditorInterface::edit_node(Node *p_node) {
@@ -789,8 +813,18 @@ Error EditorInterface::save_scene() {
 		return ERR_CANT_CREATE;
 	}
 
-	save_scene_as(get_edited_scene_root()->get_scene_file_path());
-	return OK;
+	return EditorNode::get_singleton()->save_scene_to_path(get_edited_scene_root()->get_scene_file_path());
+}
+
+Error EditorInterface::save_scene_root(Node *p_root) {
+	EditorData &scene_data = EditorNode::get_editor_data();
+	for (int scene = 0; scene < scene_data.get_edited_scene_count(); scene++) {
+		if (p_root && scene_data.get_edited_scene_root(scene) == p_root) {
+			ERR_FAIL_COND_V_MSG(p_root->get_scene_file_path().is_empty(), ERR_FILE_BAD_PATH, "Save the scene to a file before saving its animation document.");
+			return EditorNode::get_singleton()->save_scene_resources(p_root->get_scene_file_path(), false, scene);
+		}
+	}
+	return ERR_DOES_NOT_EXIST;
 }
 
 void EditorInterface::save_scene_as(const String &p_scene, bool p_with_preview) {
@@ -866,6 +900,14 @@ void EditorInterface::get_argument_options(const StringName &p_function, int p_i
 // Base.
 
 void EditorInterface::_bind_methods() {
+	ADD_SIGNAL(MethodInfo("scene_document_selected"));
+	ADD_SIGNAL(MethodInfo("editor_document_selected", PropertyInfo(Variant::STRING, "path")));
+	ADD_SIGNAL(MethodInfo("editor_document_restore_requested", PropertyInfo(Variant::STRING, "path")));
+	ClassDB::bind_method(D_METHOD("open_editor_document", "path", "title", "icon", "activate", "save", "close", "navigate", "save_as", "activate_document"), &EditorInterface::open_editor_document, DEFVAL(Callable()), DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("remove_editor_document", "path"), &EditorInterface::remove_editor_document);
+	ClassDB::bind_method(D_METHOD("set_editor_document_modified", "path", "modified"), &EditorInterface::set_editor_document_modified);
+	ClassDB::bind_method(D_METHOD("get_active_editor_document"), &EditorInterface::get_active_editor_document);
+	ClassDB::bind_method(D_METHOD("activate_scene_document"), &EditorInterface::activate_scene_document);
 	ClassDB::bind_method(D_METHOD("is_exiting"), &EditorInterface::is_exiting);
 	ClassDB::bind_method(D_METHOD("restart_editor", "save"), &EditorInterface::restart_editor, DEFVAL(true));
 
@@ -960,6 +1002,7 @@ void EditorInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_root_node", "node"), &EditorInterface::add_root_node);
 
 	ClassDB::bind_method(D_METHOD("save_scene"), &EditorInterface::save_scene);
+	ClassDB::bind_method(D_METHOD("save_scene_root", "root"), &EditorInterface::save_scene_root);
 	ClassDB::bind_method(D_METHOD("save_scene_as", "path", "with_preview"), &EditorInterface::save_scene_as, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("save_all_scenes"), &EditorInterface::save_all_scenes);
 	ClassDB::bind_method(D_METHOD("close_scene"), &EditorInterface::close_scene);

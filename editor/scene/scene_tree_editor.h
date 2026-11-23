@@ -113,6 +113,8 @@ class SceneTreeEditor : public Control {
 
 	Tree *tree = nullptr;
 	Node *selected = nullptr;
+	ObjectID display_scene_root;
+	bool reference_only = false;
 
 	String filter;
 	String filter_term_warning;
@@ -250,6 +252,8 @@ public:
 
 	void set_as_scene_tree_dock();
 	void set_display_foreign_nodes(bool p_display);
+	void set_display_scene_root(Node *p_root);
+	void set_reference_only(bool p_enabled);
 
 	void set_marked(const HashSet<Node *> &p_marked, bool p_selectable = true, bool p_children_selectable = true);
 	void set_marked(Node *p_marked, bool p_selectable = true, bool p_children_selectable = true);

@@ -91,6 +91,7 @@ private:
 		bool disabled = false;
 		bool hidden = false;
 		bool truncated = false;
+		bool close_enabled = true;
 
 		Variant metadata;
 		int ofs_cache = 0;
@@ -133,6 +134,7 @@ private:
 	int cb_hover = -1;
 	bool cb_pressing = false;
 	CloseButtonDisplayPolicy cb_displaypolicy = CLOSE_BUTTON_SHOW_NEVER;
+	bool keep_tab_width_on_selection = false;
 	bool close_with_middle_mouse = true;
 
 	int hover = -1; // Hovered tab.
@@ -211,6 +213,9 @@ private:
 	Timer *hover_switch_delay = nullptr;
 
 	int get_tab_width(int p_idx) const;
+	real_t _get_tab_style_width(int p_tab, bool p_match_hover) const;
+	bool _is_close_button_visible(int p_tab) const;
+	bool _has_close_button_space(int p_tab) const;
 	Size2 _get_tab_icon_size(int p_idx) const;
 	void _ensure_no_over_offset();
 	bool _can_deselect() const;
@@ -314,6 +319,8 @@ public:
 
 	void set_tab_close_display_policy(CloseButtonDisplayPolicy p_policy);
 	CloseButtonDisplayPolicy get_tab_close_display_policy() const;
+	void set_tab_close_enabled(int p_tab, bool p_enabled);
+	void set_keep_tab_width_on_selection(bool p_enabled);
 
 	void set_close_with_middle_mouse(bool p_scroll_close);
 	bool get_close_with_middle_mouse() const;

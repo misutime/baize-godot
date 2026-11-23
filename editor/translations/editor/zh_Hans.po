@@ -21680,3 +21680,42 @@ msgstr "需要大于 0 的 FPS 才能换算为帧；当前显示秒。"
 
 msgid "Display times in seconds or frames. Frames use the animation's FPS; preview speed does not change frame numbers."
 msgstr "按秒或帧显示时间。帧数使用动画的编辑 FPS 换算，不受预览速度影响。"
+
+msgid "Pin Tab"
+msgstr "固定标签"
+
+msgid "Unpin Tab"
+msgstr "取消固定标签"
+
+msgid "Scene tree and inspector are locked. Click to follow the active document again."
+msgstr "场景树和检查器已锁定。点击后重新跟随活动文档。"
+
+msgid "Lock the scene tree and inspector while switching documents."
+msgstr "切换文档时锁定场景树和检查器。"
+
+msgid "The locked scene is read-only while another scene or document is active."
+msgstr "当前活动的是其他场景或文档时，锁定的场景为只读。"
+
+msgid "Unlock Scene Context"
+msgstr "解锁场景上下文"
+
+msgid "Lock Scene Context"
+msgstr "锁定场景上下文"
+
+msgid "Scene context"
+msgstr "场景上下文"
+
+msgid "Node context: %s"
+msgstr "节点上下文：%s"
+
+msgid "Node context"
+msgstr "节点上下文"
+
+msgid "Resource context"
+msgstr "资源上下文"
+
+msgid "No scene context"
+msgstr "无场景上下文"
+
+msgid "This document has no scene context.\n\n%s"
+msgstr "此文档没有场景上下文。\n\n%s"

@@ -548,7 +548,7 @@ public:
 	Error close_file(const String &p_file) { return script_container->close_file(p_file); }
 
 	_FORCE_INLINE_ bool edit(const Ref<Resource> &p_resource, bool p_grab_focus = true) { return edit(p_resource, -1, 0, p_grab_focus); }
-	bool edit(const Ref<Resource> &p_resource, int p_line, int p_col, bool p_grab_focus = true) { return script_container->edit(p_resource, p_line, p_col, p_grab_focus); }
+	bool edit(const Ref<Resource> &p_resource, int p_line, int p_col, bool p_grab_focus = true);
 
 	Vector<String> _get_breakpoints() { return script_container->_get_breakpoints(); }
 	void get_breakpoints(List<String> *p_breakpoints) { script_container->get_breakpoints(p_breakpoints); }
@@ -593,17 +593,25 @@ class ScriptEditorPlugin : public EditorPlugin {
 
 	ScriptEditor *script_editor = nullptr;
 
-	Ref<Shortcut> make_floating_shortcut;
-
 	static inline ScriptEditorPlugin *script_editor_plugin = nullptr;
 
 	bool skip_visible = false;
+	bool workspace_enabled = true;
+	void _activate_workspace();
+	void _close_workspace();
+	void _save_workspace();
+	void _restore_workspace(const String &p_path);
+	void _workspace_visibility_changed();
 
 protected:
 	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
+	void _notification(int p_what);
 
 public:
 	static ScriptEditorPlugin *get_singleton() { return script_editor_plugin; }
+	void open_workspace(bool p_activate = true);
+	void set_workspace_enabled(bool p_enabled);
+	void update_workspace_modified();
 
 	static bool open_in_external_editor(const String &p_path, int p_line, int p_col, bool p_ignore_project = false);
 
