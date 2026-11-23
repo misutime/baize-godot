@@ -2606,7 +2606,11 @@ void AnimationPlayerEditorPlugin::_update_dummy_player(AnimationMixer *p_mixer) 
 }
 
 bool AnimationPlayerEditorPlugin::handles(Object *p_object) const {
-	return p_object->is_class("AnimationPlayer") || p_object->is_class("AnimationTree") || p_object->is_class("AnimationMixer");
+	const AnimationPlayer *selected = Object::cast_to<AnimationPlayer>(p_object);
+	if (selected) {
+		return selected->get_skeleton_definition().is_null();
+	}
+	return Object::cast_to<AnimationMixer>(p_object) && !Object::cast_to<AnimationTree>(p_object);
 }
 
 void AnimationPlayerEditorPlugin::make_visible(bool p_visible) {

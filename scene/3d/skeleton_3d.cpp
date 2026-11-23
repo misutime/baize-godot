@@ -1294,7 +1294,24 @@ void Skeleton3D::remove_child_notify(Node *p_child) {
 	}
 }
 
+Ref<SkeletonDefinition> Skeleton3D::create_skeleton_definition() const {
+	Ref<SkeletonDefinition> definition;
+	definition.instantiate();
+	TypedArray<Dictionary> entries;
+	for (int i = 0; i < get_bone_count(); i++) {
+		Dictionary entry;
+		entry["name"] = get_bone_name(i);
+		entry["parent"] = get_bone_parent(i);
+		entry["rest"] = get_bone_rest(i);
+		entries.push_back(entry);
+	}
+	ERR_FAIL_COND_V(definition->set_bones(entries) != OK, Ref<SkeletonDefinition>());
+	definition->set_name(get_name());
+	return definition;
+}
+
 void Skeleton3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("create_skeleton_definition"), &Skeleton3D::create_skeleton_definition);
 	ClassDB::bind_method(D_METHOD("add_bone", "name"), &Skeleton3D::add_bone);
 	ClassDB::bind_method(D_METHOD("find_bone", "name"), &Skeleton3D::find_bone);
 	ClassDB::bind_method(D_METHOD("get_bone_name", "bone_idx"), &Skeleton3D::get_bone_name);

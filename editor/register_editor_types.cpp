@@ -37,6 +37,7 @@
 #include "core/object/script_language.h"
 #include "core/os/os.h"
 #include "editor/animation/animation_tree_editor_plugin.h"
+#include "editor/animation/animation_workbench_editor_plugin.h"
 #include "editor/audio/audio_stream_randomizer_editor_plugin.h"
 #include "editor/debugger/debug_adapter/debug_adapter_server.h"
 #include "editor/debugger/editor_debugger_plugin.h"
@@ -225,7 +226,11 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterStreamedTexture);
 
 	// This list is alphabetized, and plugins that depend on Node2D or Node3D are in their own section below.
+	GDREGISTER_VIRTUAL_CLASS(AnimationTreeEditorPlugin);
+	GDREGISTER_INTERNAL_CLASS(AnimationClipTimeline);
+	GDREGISTER_VIRTUAL_CLASS(AnimationWorkbenchEditorPlugin);
 	EditorPlugins::add_by_type<AnimationTreeEditorPlugin>();
+	EditorPlugins::add_by_type<AnimationWorkbenchEditorPlugin>();
 	EditorPlugins::add_by_type<AudioStreamRandomizerEditorPlugin>();
 	EditorPlugins::add_by_type<BitMapEditorPlugin>();
 	EditorPlugins::add_by_type<ControlEditorPlugin>();

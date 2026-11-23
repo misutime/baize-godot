@@ -40,6 +40,12 @@
 				Removes the global pose override on all bones in the skeleton.
 			</description>
 		</method>
+		<method name="create_skeleton_definition" qualifiers="const">
+			<return type="SkeletonDefinition" />
+			<description>
+				Creates an independent resource from the current bone names, parent indices, and local rest transforms. Animated bone poses and skin scales are excluded. Save the result as a [code].skeleton[/code] file before assigning it to [member Animation.skeleton].
+			</description>
+		</method>
 		<method name="create_skin_from_rest_transforms">
 			<return type="Skin" />
 			<description>

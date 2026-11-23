@@ -68,6 +68,12 @@
 				Returns the active resource document path, or an empty string when a scene document is active.
 			</description>
 		</method>
+		<method name="get_animation_workbench" qualifiers="const">
+			<return type="AnimationWorkbenchEditorPlugin" />
+			<description>
+				Returns the built-in clip workbench, the entry point for scripted clip editing and import.
+			</description>
+		</method>
 		<method name="get_base_control" qualifiers="const">
 			<return type="Control" />
 			<description>
@@ -272,6 +278,15 @@
 				Returns an array of file paths of currently unsaved scenes.
 			</description>
 		</method>
+		<method name="import_animation_assets">
+			<return type="Dictionary" />
+			<param index="0" name="source" type="String" />
+			<param index="1" name="destination" type="String" />
+			<param index="2" name="settings" type="Dictionary" default="{}" />
+			<description>
+				Imports an external GLB into standalone assets in a project directory without copying the source. Settings support [code]animation_only[/code], [code]import_animations[/code], [code]skeleton[/code], and [code]fps[/code]. Set [code]fps[/code] to [code]0[/code] to detect the rate of each clip from its timestamps, or pass a positive rate to use for all clips. If omitted, [code]fps[/code] defaults to [code]30[/code]. Returns [code]error[/code], [code]message[/code], and generated asset paths in [code]metadata[/code]. Each invocation creates new assets with numbered names when necessary. For a GLB with multiple skeletons, processing stops at the first error. Entries in [code]metadata.skeleton_validation[/code] identify the source skeleton, whether the group completed, and the files saved before the import stopped. Previously saved files are retained. No source association is stored and existing clips are never overwritten. Animation-only import requires a skeleton. Non-skeletal models become ordinary [PackedScene] resources.
+			</description>
+		</method>
 		<method name="inspect_object">
 			<return type="void" />
 			<param index="0" name="object" type="Object" />
@@ -334,6 +349,13 @@
 			<return type="void" />
 			<description>
 				Marks the current scene tab as unsaved.
+			</description>
+		</method>
+		<method name="open_animation_node">
+			<return type="bool" />
+			<param index="0" name="node" type="Node" />
+			<description>
+				Opens the editor for an animation node, as a double-click in the scene tree does: the clip workbench for a 3D [AnimationPlayer] bound to a [SkeletonDefinition], the native animation dock for any other [AnimationPlayer], and the graph editor for an [AnimationTree]. Returns [code]false[/code] for other nodes.
 			</description>
 		</method>
 		<method name="open_editor_document">
@@ -547,6 +569,13 @@
 				Selects the file, with the path provided by [param file], in the FileSystem dock.
 			</description>
 		</method>
+		<method name="set_3d_asset_workspace">
+			<return type="void" />
+			<param index="0" name="workspace" type="Control" />
+			<description>
+				Installs a complete resource workspace in the central 3D editor. Pass [code]null[/code] to detach it during plugin cleanup. Register resource tabs with [method open_editor_document].
+			</description>
+		</method>
 		<method name="set_current_feature_profile">
 			<return type="void" />
 			<param index="0" name="profile_name" type="String" />
@@ -589,10 +618,25 @@
 				Sets the enabled status of a plugin. The plugin name is the same as its directory name.
 			</description>
 		</method>
+		<method name="show_3d_asset_workspace">
+			<return type="void" />
+			<param index="0" name="show" type="bool" />
+			<description>
+				Switches the central 3D editor between its installed asset workspace and normal scene controls.
+			</description>
+		</method>
 		<method name="stop_playing_scene">
 			<return type="void" />
 			<description>
 				Stops the scene that is currently playing.
+			</description>
+		</method>
+		<method name="update_skeletal_mesh">
+			<return type="Dictionary" />
+			<param index="0" name="source" type="String" />
+			<param index="1" name="target" type="String" />
+			<description>
+				Updates the Meshes subtree of a specified existing SKMesh from an external GLB. Requires matching skeleton names, hierarchy and rest transforms. Preserves the skeleton, scene root settings, AnimationPlayer libraries and AnimationTree configuration. Does not import animation clips or store the source path. Returns the same result structure as [method import_animation_assets]. Save scene edits before updating the model file.
 			</description>
 		</method>
 	</methods>

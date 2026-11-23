@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AnimationWorkbenchEditorPlugin" inherits="EditorPlugin" api_type="editor" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Built-in editor for skeletal animation assets and clip editing.
+	</brief_description>
+	<description>
+		Provides the central skeleton and animation workspace, independent model preview, timeline, clip drafts and GLB asset import. Preview model selection is limited to project [code].skmesh[/code] assets whose [AnimationPlayer] uses the current skeleton. The editor creates this plugin automatically for every project.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="create_animation_library">
+			<return type="int" enum="Error" />
+			<param index="0" name="library" type="String" />
+			<description>
+				Creates the folder for a new, empty animation library in the open skeleton's animation directory.
+			</description>
+		</method>
+		<method name="delete_animation">
+			<return type="int" enum="Error" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Moves the clip file of the named animation of the open skeleton to the system trash.
+			</description>
+		</method>
+		<method name="delete_clip_range" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="animation" type="Animation" />
+			<param index="1" name="first" type="float" />
+			<param index="2" name="last" type="float" />
+			<description>
+				Returns a copy of [param animation] without the time range from [param first] (inclusive) to [param last] (exclusive), as a [Dictionary] with [code]error[/code], [code]message[/code], [code]animation[/code] and [code]removed_markers[/code]. Keys of every track and markers after the range move earlier; markers inside it are removed. Does not need an open document.
+			</description>
+		</method>
+		<method name="delete_range">
+			<return type="int" enum="Error" />
+			<param index="0" name="first" type="float" />
+			<param index="1" name="last" type="float" />
+			<description>
+				Deletes the half-open interval in seconds from the current draft. Supports uncompressed 3D transform and blend shape tracks. Save separately to write the result to disk.
+			</description>
+		</method>
+		<method name="get_current_animation" qualifiers="const">
+			<return type="Animation" />
+			<description>
+				Returns the current in-memory clip result.
+			</description>
+		</method>
+		<method name="get_last_error" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the reason of the most recent failed edit or save, or an empty string.
+			</description>
+		</method>
+		<method name="get_state" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the current document, clip, playback time, selection, preview speed and loop state, clip loop mode, modified flags and undo depth as a [Dictionary]. Intended for scripted checks.
+			</description>
+		</method>
+		<method name="import_files">
+			<return type="Dictionary" />
+			<param index="0" name="sources" type="PackedStringArray" />
+			<param index="1" name="destination" type="String" />
+			<param index="2" name="settings" type="Dictionary" default="{}" />
+			<description>
+				Imports every external GLB in [param sources] into [param destination] with the same [param settings] (see [method EditorInterface.import_animation_assets]). Returns a [Dictionary] with [code]error[/code], a per-file [code]message[/code], [code]results[/code] and the first created [code]model[/code], [code]clip[/code] or [code]scene[/code].
+			</description>
+		</method>
+		<method name="is_preview_loop_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns whether the preview transport loops at the end of the current clip. This is independent from the clip's stored loop mode.
+			</description>
+		</method>
+		<method name="migrate_legacy_animations">
+			<return type="int" enum="Error" />
+			<param index="0" name="skeleton" type="SkeletonDefinition" />
+			<description>
+				Moves the clips a skeleton file still lists itself into its animation directory, naming each file after its animation, and saves the skeleton without the list. Animation names stay the same.
+			</description>
+		</method>
+		<method name="move_animation">
+			<return type="int" enum="Error" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="library" type="StringName" />
+			<description>
+				Moves the clip file of the named animation of the open skeleton into the library folder [param library]. An empty name is the default library. The animation is then addressed as [code]library/animation[/code].
+			</description>
+		</method>
+		<method name="open_player">
+			<return type="void" />
+			<param index="0" name="player" type="AnimationPlayer" />
+			<description>
+				Opens a central document for this player's actual libraries and previews a copy of its 3D animation root.
+			</description>
+		</method>
+		<method name="open_resource">
+			<return type="void" />
+			<param index="0" name="resource" type="Resource" />
+			<description>
+				Opens a SkeletonDefinition or Animation asset in a central document.
+			</description>
+		</method>
+		<method name="rebind_animation">
+			<return type="int" enum="Error" />
+			<param index="0" name="clip" type="Animation" />
+			<param index="1" name="skeleton" type="SkeletonDefinition" />
+			<param index="2" name="animation_name" type="StringName" />
+			<description>
+				Binds a [code].skanim[/code] clip to [param skeleton] and moves its file into that skeleton's animation directory as [param animation_name], which may be [code]library/animation[/code]. Fails if the clip uses bones the skeleton does not have or the name is taken.
+			</description>
+		</method>
+		<method name="redo_edit">
+			<return type="void" />
+			<description>
+				Redoes one clip edit.
+			</description>
+		</method>
+		<method name="rename_animation">
+			<return type="int" enum="Error" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="new_name" type="String" />
+			<description>
+				Renames the clip file of the named animation of the open skeleton, which renames the animation. Scripts and animation graphs that use the old name are not updated.
+			</description>
+		</method>
+		<method name="rename_animation_library">
+			<return type="int" enum="Error" />
+			<param index="0" name="library" type="StringName" />
+			<param index="1" name="new_name" type="String" />
+			<description>
+				Renames a library folder of the open skeleton, which renames every animation in it.
+			</description>
+		</method>
+		<method name="save_animation">
+			<return type="int" enum="Error" />
+			<description>
+				Saves the current clip while retaining existing resource references.
+			</description>
+		</method>
+		<method name="seek">
+			<return type="void" />
+			<param index="0" name="time" type="float" />
+			<description>
+				Pauses the preview and samples the current clip at [param time] seconds.
+			</description>
+		</method>
+		<method name="select_animation">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Selects an animation by its full player animation name.
+			</description>
+		</method>
+		<method name="set_animation_directory">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Points the open skeleton at another existing project folder as its animation directory and saves the skeleton. A folder below the skeleton file is stored relative to it. Clip files are not moved.
+			</description>
+		</method>
+		<method name="set_loop_mode">
+			<return type="int" enum="Error" />
+			<param index="0" name="loop_mode" type="int" />
+			<description>
+				Changes the loop mode of the current clip draft. The change follows undo and is written by [method save_animation].
+			</description>
+		</method>
+		<method name="set_playing">
+			<return type="void" />
+			<param index="0" name="playing" type="bool" />
+			<description>
+				Starts or pauses the preview.
+			</description>
+		</method>
+		<method name="set_preview_loop">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Sets the workbench-wide preview loop. Switching clips keeps this state and does not change the clip's stored loop mode.
+			</description>
+		</method>
+		<method name="set_preview_speed">
+			<return type="void" />
+			<param index="0" name="speed" type="float" />
+			<description>
+				Sets the workbench-wide preview speed to the closest available preset. Switching clips keeps this state.
+			</description>
+		</method>
+		<method name="set_selection">
+			<return type="void" />
+			<param index="0" name="first" type="float" />
+			<param index="1" name="last" type="float" />
+			<description>
+				Sets the timeline selection in seconds.
+			</description>
+		</method>
+		<method name="undo_edit">
+			<return type="void" />
+			<description>
+				Undoes one clip edit. Saving after undo writes that result to disk.
+			</description>
+		</method>
+	</methods>
+</class>

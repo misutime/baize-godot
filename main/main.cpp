@@ -4135,6 +4135,7 @@ int Main::start() {
 
 			String scene_path = ResourceUID::ensure_path(E->get());
 			if (scene_path.ends_with(".scn") ||
+					scene_path.ends_with(".skmesh") ||
 					scene_path.ends_with(".tscn") ||
 					scene_path.ends_with(".escn") ||
 					scene_path.ends_with(".res") ||

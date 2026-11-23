@@ -83,6 +83,11 @@ void EditorColorMap::create() {
 	add_conversion_color_pair("#76ad7b", "#64a66a"); // GUI Control Abstract
 	add_conversion_color_pair("#f0caa0", "#844b0e"); // Editor-only
 
+	// Skeletal assets.
+	add_conversion_color_pair("#3b8f7c", "#087d64"); // Skeleton
+	add_conversion_color_pair("#a08269", "#8f5427"); // Skeletal mesh
+	add_conversion_color_pair("#7d8fb4", "#4566ad"); // Skeletal animation
+
 	// Rainbow
 	add_conversion_color_pair("#ff4545", "#ff2929"); // Red
 	add_conversion_color_pair("#ffe345", "#ffe337"); // Yellow

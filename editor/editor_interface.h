@@ -34,6 +34,8 @@
 #include "core/object/object.h"
 #include "core/object/script_language.h"
 
+class AnimationMixer;
+class AnimationWorkbenchEditorPlugin;
 class Control;
 class CreateDialog;
 class EditorCommandPalette;
@@ -123,6 +125,8 @@ public:
 	Ref<Theme> get_editor_theme() const;
 
 	Control *get_base_control() const;
+	void set_3d_asset_workspace(Control *p_workspace);
+	void show_3d_asset_workspace(bool p_show);
 	void open_editor_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as = Callable(), bool p_activate_document = true);
 	void remove_editor_document(const String &p_path);
 	void set_editor_document_modified(const String &p_path, bool p_modified);
@@ -183,6 +187,10 @@ public:
 	void inspect_object(Object *p_obj, const String &p_for_property = String(), bool p_inspector_only = false);
 
 	void edit_resource(const Ref<Resource> &p_resource);
+	Dictionary update_skeletal_mesh(const String &p_source, const String &p_target);
+	AnimationWorkbenchEditorPlugin *get_animation_workbench() const;
+	bool open_animation_node(Node *p_node);
+	Dictionary import_animation_assets(const String &p_source, const String &p_destination, const Dictionary &p_settings = Dictionary());
 	void edit_node(Node *p_node);
 	void edit_script(const Ref<Script> &p_script, int p_line = -1, int p_col = 0, bool p_grab_focus = true);
 	void open_scene_from_path(const String &scene_path, bool p_set_inherited = false);

@@ -30,6 +30,8 @@
 
 #include "filesystem_dock.h"
 
+#include "editor/animation/animation_workbench_editor_plugin.h"
+
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
 #include "core/io/dir_access.h"
@@ -221,7 +223,7 @@ FileSystemList::FileSystemList() {
 	popup_editor->connect("popup_hide", callable_mp(this, &FileSystemList::_text_editor_popup_modal_close));
 }
 
-Ref<Texture2D> FileSystemDock::_get_tree_item_icon(bool p_is_valid, const String &p_file_type, const String &p_icon_path) {
+Ref<Texture2D> FileSystemDock::_get_tree_item_icon(bool p_is_valid, const String &p_file_type, const String &p_icon_path, const String &p_file_path) {
 	if (!p_icon_path.is_empty()) {
 		Ref<Texture2D> icon = ResourceLoader::load(p_icon_path);
 		if (icon.is_valid()) {
@@ -231,7 +233,12 @@ Ref<Texture2D> FileSystemDock::_get_tree_item_icon(bool p_is_valid, const String
 
 	if (!p_is_valid) {
 		return get_editor_theme_icon(SNAME("ImportFail"));
-	} else if (has_theme_icon(p_file_type, EditorStringName(EditorIcons))) {
+	}
+	Ref<Texture2D> custom_icon = EditorNode::get_singleton()->get_custom_resource_file_icon(p_file_path);
+	if (custom_icon.is_valid()) {
+		return custom_icon;
+	}
+	if (has_theme_icon(p_file_type, EditorStringName(EditorIcons))) {
 		return get_editor_theme_icon(p_file_type);
 	} else {
 		return get_editor_theme_icon(SNAME("File"));
@@ -328,7 +335,7 @@ void FileSystemDock::_create_tree(TreeItem *p_parent, EditorFileSystemDirectory 
 			const String file_metadata = lpath.path_join(file_info.name);
 			file_item->set_text(0, file_info.name);
 			file_item->set_structured_text_bidi_override(0, TextServer::STRUCTURED_TEXT_FILE);
-			file_item->set_icon(0, _get_tree_item_icon(!file_info.import_broken, file_info.type, file_info.icon_path));
+			file_item->set_icon(0, _get_tree_item_icon(!file_info.import_broken, file_info.type, file_info.icon_path, file_metadata));
 			if (da->is_link(file_metadata)) {
 				file_item->set_icon_overlay(0, get_editor_theme_icon(SNAME("LinkOverlay")));
 				// TRANSLATORS: This is a tooltip for a file that is a symbolic link to another file.
@@ -449,7 +456,7 @@ void FileSystemDock::_update_tree(const Vector<String> &p_uncollapsed_paths, boo
 			int index;
 			EditorFileSystemDirectory *dir = EditorFileSystem::get_singleton()->find_file(favorite, &index);
 			if (dir) {
-				icon = _get_tree_item_icon(dir->get_file_import_is_valid(index), dir->get_file_type(index), dir->get_file_icon_path(index));
+				icon = _get_tree_item_icon(dir->get_file_import_is_valid(index), dir->get_file_type(index), dir->get_file_icon_path(index), favorite);
 			} else {
 				icon = get_editor_theme_icon(SNAME("File"));
 			}
@@ -1235,7 +1242,7 @@ void FileSystemDock::_update_file_list(bool p_keep_selection, const Vector<Strin
 		String tooltip = fpath;
 
 		// Select the icons.
-		type_icon = _get_tree_item_icon(!finfo->import_broken, finfo->type, finfo->icon_path);
+		type_icon = _get_tree_item_icon(!finfo->import_broken, finfo->type, finfo->icon_path, fpath);
 		if (!finfo->import_broken) {
 			big_icon = file_thumbnail;
 		} else {
@@ -2715,6 +2722,10 @@ void FileSystemDock::_file_option(int p_option, const Vector<String> &p_selected
 		case FILE_MENU_REIMPORT: {
 			ImportDock::get_singleton()->reimport_resources(p_selected);
 		} break;
+		case FILE_MENU_UPDATE_SKMESH: {
+			ERR_FAIL_COND(p_selected.size() != 1 || !p_selected[0].has_extension("skmesh"));
+			AnimationWorkbenchEditorPlugin::get_singleton()->request_mesh_update(p_selected[0]);
+		} break;
 
 		case FILE_MENU_NEW_FOLDER: {
 			String directory = current_path;
@@ -3069,12 +3080,22 @@ void FileSystemDock::remove_resource_tooltip_plugin(const Ref<EditorResourceTool
 }
 
 String FileSystemDock::get_folder_path_at_mouse_position() const {
-	TreeItem *item = tree->get_item_at_position(tree->get_local_mouse_position());
-	if (!item) {
+	String path;
+	if (tree->is_visible_in_tree() && Rect2(Vector2(), tree->get_size()).has_point(tree->get_local_mouse_position())) {
+		TreeItem *item = tree->get_item_at_position(tree->get_local_mouse_position());
+		if (item) {
+			path = item->get_metadata(0);
+		}
+	} else if (files->is_visible_in_tree() && Rect2(Vector2(), files->get_size()).has_point(files->get_local_mouse_position())) {
+		const int index = files->get_item_at_position(files->get_local_mouse_position(), true);
+		if (index >= 0) {
+			path = files->get_item_metadata(index);
+		}
+	}
+	if (!path.begins_with("res://")) {
 		return String();
 	}
-	String fpath = item->get_metadata(0);
-	return fpath.get_base_dir();
+	return DirAccess::dir_exists_absolute(path) ? path : path.get_base_dir();
 }
 
 Control *FileSystemDock::create_tooltip_for_path(const String &p_path) const {
@@ -3699,6 +3720,9 @@ void FileSystemDock::_file_and_folders_fill_popup(PopupMenu *p_popup, const Vect
 
 	if (single_path) {
 		const String &fpath = p_paths[0];
+		if (fpath.has_extension("skmesh")) {
+			p_popup->add_icon_item(get_editor_theme_icon(SNAME("Load")), TTR("Update SKMesh from File..."), FILE_MENU_UPDATE_SKMESH);
+		}
 
 		[[maybe_unused]] bool added_separator = false;
 

@@ -52,6 +52,8 @@ class SpinBox : public Range {
 	SpinBoxLineEdit *line_edit = nullptr;
 	bool update_on_text_changed = false;
 	bool accepted = true;
+	bool value_hidden = false;
+	bool fixed_decimals = false;
 
 	struct SizingCache {
 		int buttons_block_width = 0;
@@ -186,6 +188,8 @@ public:
 
 	void set_editable(bool p_enabled);
 	bool is_editable() const;
+	void set_value_hidden(bool p_hidden);
+	void set_fixed_decimals(bool p_enabled);
 
 	void set_format(const String &p_format);
 	String get_format() const;

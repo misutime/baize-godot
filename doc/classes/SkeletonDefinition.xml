@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SkeletonDefinition" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A named bone hierarchy and reference pose shared by 3D animation assets.
+	</brief_description>
+	<description>
+		Stores bone names, parent indices and local rest transforms in a text [code].sk[/code] resource. Create one from [method Skeleton3D.create_skeleton_definition] or by importing a model.
+		The skeleton's animations are the [code].skanim[/code] files below its animation directory, see [member animation_directory]. A clip file directly in that directory is an animation of the default library and its file name is the animation name. Each sub-directory is one more [AnimationLibrary] named after the directory, so [code]Sword/Slash.skanim[/code] plays as [code]"Sword/Slash"[/code]. Renaming or moving a clip file therefore renames the animation. The skeleton file itself lists no clips.
+		An [AnimationPlayer] with [member AnimationPlayer.skeleton_definition] set exposes exactly these libraries.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="bake_animation_libraries" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the current libraries as a [Dictionary] of library name to a new [AnimationLibrary] that references the same clips. The exporter stores this in [member animation_libraries].
+			</description>
+		</method>
+		<method name="compare" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="other" type="SkeletonDefinition" />
+			<param index="1" name="tolerance" type="float" default="0.0001" />
+			<description>
+				Compares bones by name, independently of their stored index order. Returns [code]compatible[/code], [code]hierarchy_matches[/code], [code]missing_bones[/code], [code]extra_bones[/code], [code]parent_mismatches[/code], and [code]rest_mismatches[/code]. Bone lists are [PackedStringArray] values relative to this definition. Empty definitions are incompatible.
+				Compatibility requires identical names, parent relationships, and rest transforms within [param tolerance]. The tolerance is an absolute per-component difference for local position and Basis values. Scene root transforms and animation track paths are outside this comparison.
+			</description>
+		</method>
+		<method name="find_bone" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the named bone's index, or [code]-1[/code] if absent.
+			</description>
+		</method>
+		<method name="get_animation_catalog" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				Returns every animation, ordered by library and name. Each entry contains [code]name[/code] (the name passed to [method AnimationPlayer.play]), [code]library[/code], [code]animation[/code], [code]path[/code] and [code]uid[/code].
+			</description>
+		</method>
+		<method name="get_animation_directory_path" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the resolved path of the animation directory, or an empty string while the skeleton is not saved to a file.
+			</description>
+		</method>
+		<method name="get_animation_library" qualifiers="const">
+			<return type="AnimationLibrary" />
+			<param index="0" name="library" type="StringName" default="&amp;&quot;&quot;" />
+			<description>
+				Returns the animation library named [param library]. The default library is the animation directory itself and always exists. Returns [code]null[/code] for a library that does not exist. The returned object is updated in place by [method rescan_animations]; add or remove animations by adding or removing clip files instead of editing it.
+			</description>
+		</method>
+		<method name="get_animation_library_names" qualifiers="const">
+			<return type="StringName[]" />
+			<description>
+				Returns the names of all animation libraries in alphabetical order. The default library is the empty name.
+			</description>
+		</method>
+		<method name="get_animation_scan_issues" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				Returns the files below the animation directory that were not loaded as animations. Each entry contains [code]path[/code], [code]reason[/code] ([code]invalid_name[/code], [code]load_failed[/code], [code]foreign_skeleton[/code] or [code]nested_directory[/code]) and a readable [code]message[/code].
+			</description>
+		</method>
+		<method name="get_bone_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of bones.
+			</description>
+		</method>
+		<method name="get_bone_name" qualifiers="const">
+			<return type="StringName" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the bone name at [param index].
+			</description>
+		</method>
+		<method name="get_bone_parent" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the parent index, or [code]-1[/code] for a root bone.
+			</description>
+		</method>
+		<method name="get_bone_rest" qualifiers="const">
+			<return type="Transform3D" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the parent-relative rest transform.
+			</description>
+		</method>
+		<method name="has_baked_animation_libraries" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the skeleton uses the libraries stored in [member animation_libraries] instead of listing its animation directory. This is the case in exported projects and for skeleton files written before the animation directory existed.
+			</description>
+		</method>
+		<method name="rescan_animations">
+			<return type="bool" />
+			<description>
+				Lists the animation directory again and updates the libraries in place. Returns [code]true[/code] and emits [signal animations_changed] if anything changed. The editor calls this whenever the file system changes. Does nothing while [method has_baked_animation_libraries] is [code]true[/code].
+			</description>
+		</method>
+		<method name="set_bones">
+			<return type="int" enum="Error" />
+			<param index="0" name="bones" type="Dictionary[]" />
+			<description>
+				Replaces all bones atomically. Every dictionary must contain [code]name[/code] ([String] or [StringName]), [code]parent[/code] ([int]), and [code]rest[/code] ([Transform3D]). Returns [constant OK] on success or [constant ERR_INVALID_DATA] for duplicate or empty names, names containing [code]:[/code] or [code]/[/code], invalid parents, cycles, or non-finite transforms. The input dictionaries are copied. Parent indices may appear after their children.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="_preview_mesh_uid" type="int" setter="_set_preview_mesh_uid" getter="_get_preview_mesh_uid" default="-1">
+		</member>
+		<member name="animation_directory" type="String" setter="set_animation_directory" getter="get_animation_directory" default="&quot;&quot;">
+			The directory that holds this skeleton's clip files, relative to the skeleton file or as a [code]res://[/code] path. While empty, [code]&lt;skeleton file name&gt;_anims[/code] next to the skeleton is used, and that name is stored the first time the skeleton is saved.
+		</member>
+		<member name="animation_libraries" type="Dictionary" setter="set_baked_animation_libraries" getter="get_baked_animation_libraries" default="{}">
+			Animation libraries stored in the file instead of being listed from [member animation_directory]. Written by the exporter so that an exported project needs no directory listing. Empty in a project's own skeleton files.
+		</member>
+		<member name="bones" type="Dictionary[]" setter="_set_bones" getter="get_bones" default="[]">
+			A read-only snapshot of the bone hierarchy and rest transforms. Use [method set_bones] to replace the complete definition.
+		</member>
+		<member name="preview_mesh" type="String" setter="set_preview_mesh" getter="get_preview_mesh" default="&quot;&quot;">
+			Soft reference to the default [PackedScene] ([code].skmesh[/code]) used to preview animations. The scene must be a project [code].skmesh[/code] whose [AnimationPlayer] uses this skeleton. Resolved by UID when available. The preview model is loaded when opening the animation asset workspace.
+		</member>
+	</members>
+	<signals>
+		<signal name="animations_changed">
+			<description>
+				Emitted when [method rescan_animations] found added, removed, renamed or moved clip files.
+			</description>
+		</signal>
+	</signals>
+</class>

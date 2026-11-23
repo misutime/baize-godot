@@ -33,12 +33,17 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/io/dir_access.h"
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "editor/animation/animation_player_editor_plugin.h"
+#include "editor/animation/animation_workbench_editor_plugin.h"
+#include "editor/file_system/editor_file_system.h"
 #include "editor/docks/editor_dock_manager.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
+#include "editor/docks/scene_tree_dock.h"
 #include "editor/editor_main_screen.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
@@ -46,6 +51,7 @@
 #include "editor/gui/create_dialog.h"
 #include "editor/gui/editor_quick_open_dialog.h"
 #include "editor/gui/editor_toaster.h"
+#include "editor/import/3d/resource_importer_scene.h"
 #include "editor/inspector/editor_preview_plugins.h"
 #include "editor/inspector/editor_resource_preview.h"
 #include "editor/inspector/property_selector.h"
@@ -67,6 +73,7 @@
 #include "scene/main/window.h"
 #include "scene/resources/image_texture.h"
 #include "scene/resources/packed_scene.h"
+#include "scene/resources/skeleton_definition.h"
 #include "scene/resources/theme.h"
 #include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server.h"
@@ -418,6 +425,14 @@ Ref<Theme> EditorInterface::get_editor_theme() const {
 	return EditorNode::get_singleton()->get_editor_theme();
 }
 
+void EditorInterface::set_3d_asset_workspace(Control *p_workspace) {
+	Node3DEditor::get_singleton()->set_asset_workspace(p_workspace);
+}
+
+void EditorInterface::show_3d_asset_workspace(bool p_show) {
+	Node3DEditor::get_singleton()->show_asset_workspace(p_show);
+}
+
 void EditorInterface::open_editor_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document) {
 	EditorSceneTabs::get_singleton()->open_document(p_path, p_title, p_icon, p_activate, p_save, p_close, p_navigate, p_save_as, p_activate_document);
 }
@@ -729,6 +744,153 @@ void EditorInterface::inspect_object(Object *p_obj, const String &p_for_property
 	EditorNode::get_singleton()->push_item(p_obj, p_for_property, p_inspector_only);
 }
 
+bool EditorInterface::open_animation_node(Node *p_node) {
+	ERR_FAIL_NULL_V(p_node, false);
+	return SceneTreeDock::get_singleton()->_open_animation_node(p_node);
+}
+
+AnimationWorkbenchEditorPlugin *EditorInterface::get_animation_workbench() const {
+	return AnimationWorkbenchEditorPlugin::get_singleton();
+}
+
+Dictionary EditorInterface::import_animation_assets(const String &p_source, const String &p_destination, const Dictionary &p_settings) {
+	Dictionary result;
+	result["error"] = ERR_INVALID_PARAMETER;
+	result["warnings"] = PackedStringArray();
+	const String destination = p_destination.simplify_path();
+	if (!p_source.is_absolute_path() || p_source.begins_with("res://") || !p_source.has_extension("glb") || !destination.begins_with("res://") || destination.begins_with("res://.godot")) {
+		result["message"] = TTR("Select an external GLB source and a project destination folder.");
+		return result;
+	}
+	if (!FileAccess::exists(p_source)) {
+		result["error"] = ERR_FILE_NOT_FOUND;
+		result["message"] = vformat(TTR("Source file not found: %s"), p_source);
+		return result;
+	}
+	const bool animation_only = p_settings.get("animation_only", false);
+	const bool import_animations = p_settings.get("import_animations", true);
+	const bool create_skeleton = p_settings.get("create_skeleton", false);
+	const String skeleton = p_settings.get("skeleton", "");
+	const double fps = p_settings.get("fps", 30.0);
+	if ((animation_only && !import_animations) || !Math::is_finite(fps) || fps < 0.0) {
+		result["message"] = TTR("Choose the model, the animations or both, with automatic or positive sampling FPS.");
+		return result;
+	}
+	Error err = DirAccess::make_dir_recursive_absolute(destination);
+	if (err != OK) {
+		result["error"] = err;
+		result["message"] = vformat(TTR("Cannot create the destination folder: %s"), destination);
+		return result;
+	}
+	Ref<ResourceImporterScene> importer = memnew(ResourceImporterScene(animation_only ? "AnimationLibrary" : "PackedScene"));
+	List<ResourceImporter::ImportOption> defaults;
+	importer->get_import_options(p_source, &defaults);
+	HashMap<StringName, Variant> options;
+	for (const ResourceImporter::ImportOption &option : defaults) {
+		options[option.option.name] = option.default_value;
+	}
+	options["skeleton/definition"] = skeleton;
+	if (skeleton.is_empty() && !create_skeleton && !p_settings.has("_update_mesh")) {
+		// Without an explicit choice the importer picks the project skeleton that matches the file.
+		PackedStringArray candidates;
+		for (const String &file : DirAccess::get_files_at(destination)) {
+			if (file.has_extension("sk")) {
+				candidates.push_back(destination.path_join(file));
+			}
+		}
+		LocalVector<EditorFileSystemDirectory *> folders;
+		folders.push_back(EditorFileSystem::get_singleton()->get_filesystem());
+		for (uint32_t i = 0; i < folders.size(); i++) {
+			EditorFileSystemDirectory *folder = folders[i];
+			if (!folder) {
+				continue;
+			}
+			for (int d = 0; d < folder->get_subdir_count(); d++) {
+				folders.push_back(folder->get_subdir(d));
+			}
+			for (int f = 0; f < folder->get_file_count(); f++) {
+				const String path = folder->get_file_path(f);
+				if (path.has_extension("sk") && !candidates.has(path) && FileAccess::exists(path)) {
+					candidates.push_back(path);
+				}
+			}
+		}
+		options["_asset_skeleton_candidates"] = candidates;
+	}
+	options["animation/import"] = import_animations;
+	if (fps == 0.0) {
+		options["_asset_auto_animation_fps"] = true;
+	} else {
+		options["animation/fps"] = fps;
+	}
+	options["gltf/embedded_image_handling"] = 2; // Embedded with GPU compression; nothing is written next to the external source.
+	options["_asset_output_dir"] = destination;
+	if (p_settings.has("_update_mesh")) {
+		options["_asset_update_mesh"] = p_settings["_update_mesh"];
+		options["animation/import"] = false;
+	}
+	Variant asset_metadata;
+	List<String> variants;
+	err = importer->import(ResourceUID::INVALID_ID, p_source, "", options, &variants, nullptr, &asset_metadata);
+	result["error"] = err;
+	result["metadata"] = asset_metadata;
+	String message = err == OK ? TTR("Import complete.") : vformat(TTR("Import failed (%s)."), error_names[err]);
+	PackedStringArray warnings;
+	const Dictionary import_metadata = asset_metadata.get_type() == Variant::DICTIONARY ? Dictionary(asset_metadata) : Dictionary();
+	const Array reports = import_metadata.get("skeleton_validation", Array());
+	PackedStringArray retained;
+	for (const Variant &value : reports) {
+		const Dictionary report = value;
+		if (err != OK) {
+			retained.append_array(PackedStringArray(report.get("saved_files", Array())));
+			if (!bool(report.get("completed", false))) {
+				message = report.get("message", message);
+				if (report.has("source_skeleton")) {
+					message = vformat(TTR("Skeleton '%s': %s"), report["source_skeleton"], message);
+				}
+			}
+		}
+		warnings.append_array(PackedStringArray(report.get("warnings", PackedStringArray())));
+	}
+	if (err != OK && reports.is_empty()) {
+		message = TTR("The file contains no skeleton this import can use. A skeleton needs at least one skinned mesh in the file.");
+	}
+	if (!retained.is_empty()) {
+		const String paths = String("\n").join(retained.slice(0, 5)) + (retained.size() > 5 ? "\n…" : "");
+		message += "\n" + vformat(TTR("Files already saved (%d):\n%s\nRetrying the whole GLB can create numbered copies."), retained.size(), paths);
+	}
+	result["message"] = message;
+	result["warnings"] = warnings;
+	if (err == OK || !retained.is_empty()) {
+		EditorFileSystem::get_singleton()->scan();
+	}
+	return result;
+}
+
+Dictionary EditorInterface::update_skeletal_mesh(const String &p_source, const String &p_target) {
+	Dictionary failure;
+	failure["error"] = ERR_INVALID_PARAMETER;
+	failure["message"] = TTR("Select an existing SKMesh with a saved skeleton.");
+	if (!p_target.begins_with("res://") || !p_target.has_extension("skmesh") || !FileAccess::exists(p_target)) {
+		return failure;
+	}
+	Ref<PackedScene> packed = ResourceLoader::load(p_target);
+	if (packed.is_null()) {
+		return failure;
+	}
+	Node *root = packed->instantiate();
+	AnimationPlayer *player = Object::cast_to<AnimationPlayer>(root->get_node_or_null(NodePath("AnimationPlayer")));
+	Ref<SkeletonDefinition> definition = player ? player->get_skeleton_definition() : Ref<SkeletonDefinition>();
+	memdelete(root);
+	if (definition.is_null() || definition->get_path().is_empty()) {
+		return failure;
+	}
+	Dictionary settings;
+	settings["skeleton"] = definition->get_path();
+	settings["_update_mesh"] = p_target;
+	return import_animation_assets(p_source, p_target.get_base_dir(), settings);
+}
+
 void EditorInterface::edit_resource(const Ref<Resource> &p_resource) {
 	InspectorDock::get_singleton()->edit_resource(p_resource);
 }
@@ -908,6 +1070,13 @@ void EditorInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_editor_document_modified", "path", "modified"), &EditorInterface::set_editor_document_modified);
 	ClassDB::bind_method(D_METHOD("get_active_editor_document"), &EditorInterface::get_active_editor_document);
 	ClassDB::bind_method(D_METHOD("activate_scene_document"), &EditorInterface::activate_scene_document);
+	ClassDB::bind_method(D_METHOD("set_3d_asset_workspace", "workspace"), &EditorInterface::set_3d_asset_workspace);
+	ClassDB::bind_method(D_METHOD("show_3d_asset_workspace", "show"), &EditorInterface::show_3d_asset_workspace);
+	ClassDB::bind_method(D_METHOD("get_animation_workbench"), &EditorInterface::get_animation_workbench);
+	ClassDB::bind_method(D_METHOD("open_animation_node", "node"), &EditorInterface::open_animation_node);
+	ClassDB::bind_method(D_METHOD("save_scene_root", "root"), &EditorInterface::save_scene_root);
+	ClassDB::bind_method(D_METHOD("update_skeletal_mesh", "source", "target"), &EditorInterface::update_skeletal_mesh);
+	ClassDB::bind_method(D_METHOD("import_animation_assets", "source", "destination", "settings"), &EditorInterface::import_animation_assets, DEFVAL(Dictionary()));
 	ClassDB::bind_method(D_METHOD("is_exiting"), &EditorInterface::is_exiting);
 	ClassDB::bind_method(D_METHOD("restart_editor", "save"), &EditorInterface::restart_editor, DEFVAL(true));
 
@@ -1002,7 +1171,6 @@ void EditorInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_root_node", "node"), &EditorInterface::add_root_node);
 
 	ClassDB::bind_method(D_METHOD("save_scene"), &EditorInterface::save_scene);
-	ClassDB::bind_method(D_METHOD("save_scene_root", "root"), &EditorInterface::save_scene_root);
 	ClassDB::bind_method(D_METHOD("save_scene_as", "path", "with_preview"), &EditorInterface::save_scene_as, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("save_all_scenes"), &EditorInterface::save_all_scenes);
 	ClassDB::bind_method(D_METHOD("close_scene"), &EditorInterface::close_scene);

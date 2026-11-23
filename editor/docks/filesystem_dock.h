@@ -123,6 +123,7 @@ private:
 		FILE_MENU_REMOVE,
 		FILE_MENU_DUPLICATE,
 		FILE_MENU_REIMPORT,
+		FILE_MENU_UPDATE_SKMESH,
 		FILE_MENU_NEW,
 		FILE_MENU_SHOW_IN_EXPLORER,
 		FILE_MENU_OPEN_EXTERNAL,
@@ -283,7 +284,7 @@ private:
 	void _tree_mouse_exited();
 	void _reselect_items_selected_on_drag_begin(bool reset = false);
 
-	Ref<Texture2D> _get_tree_item_icon(bool p_is_valid, const String &p_file_type, const String &p_icon_path);
+	Ref<Texture2D> _get_tree_item_icon(bool p_is_valid, const String &p_file_type, const String &p_icon_path, const String &p_file_path);
 	void _create_tree(TreeItem *p_parent, EditorFileSystemDirectory *p_dir, const Vector<String> &p_uncollapsed_paths, const Vector<String> &p_selected_paths);
 	void _update_tree(const Vector<String> &p_uncollapsed_paths = Vector<String>(), bool p_uncollapse_root = false, bool p_scroll_to_selected = true, const Vector<String> &p_override_selection = Vector<String>());
 	void _navigate_to_path(const String &p_path, bool p_select_in_favorites = false, bool p_grab_focus = false);

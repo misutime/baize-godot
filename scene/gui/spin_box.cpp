@@ -97,6 +97,13 @@ Size2 SpinBox::get_minimum_size() const {
 }
 
 void SpinBox::_update_text(bool p_only_update_if_value_changed) {
+	if (value_hidden) {
+		// Leave pending input alone before committing a value on focus loss.
+		if (!p_only_update_if_value_changed && !line_edit->is_editing() && !line_edit->get_text().is_empty()) {
+			line_edit->set_text_with_selection(String());
+		}
+		return;
+	}
 	if (!line_edit->is_editing() && !format.is_empty() && !use_default_format) {
 		const Variant current_value = get_value();
 		bool error = false;
@@ -109,9 +116,11 @@ void SpinBox::_update_text(bool p_only_update_if_value_changed) {
 		return;
 	}
 
-	double step = get_step();
-	String value = String::num(get_value(), Math::range_step_decimals(step));
-	if (is_localizing_numeral_system()) {
+	const int decimals = Math::range_step_decimals(get_step());
+	const String number = String::num(get_value(), decimals);
+	String value = number;
+	const bool localized = is_localizing_numeral_system();
+	if (localized) {
 		value = TranslationServer::get_singleton()->format_number(value, _get_locale());
 	}
 
@@ -121,6 +130,12 @@ void SpinBox::_update_text(bool p_only_update_if_value_changed) {
 	last_text_value = value;
 
 	if (!line_edit->is_editing()) {
+		if (fixed_decimals) {
+			value = number.pad_decimals(decimals);
+			if (localized) {
+				value = TranslationServer::get_singleton()->format_number(value, _get_locale());
+			}
+		}
 		if (!format.is_empty()) {
 			const Variant current_value = value;
 			bool error = false;
@@ -196,7 +211,12 @@ void SpinBox::_text_submitted(const String &p_string) {
 
 	Variant value = expr->execute(Array(), nullptr, false, true);
 	if (value.get_type() != Variant::NIL) {
+		const double previous = get_value();
 		set_value(value);
+		if (value_hidden && get_value() == previous) {
+			// An explicitly entered value can match the numeric value hidden by the placeholder.
+			emit_signal(SceneStringName(value_changed), get_value());
+		}
 	}
 	_update_text();
 }
@@ -627,6 +647,27 @@ void SpinBox::set_horizontal_alignment(HorizontalAlignment p_alignment) {
 
 HorizontalAlignment SpinBox::get_horizontal_alignment() const {
 	return line_edit->get_horizontal_alignment();
+}
+
+void SpinBox::set_value_hidden(bool p_hidden) {
+	if (value_hidden == p_hidden) {
+		return;
+	}
+	value_hidden = p_hidden;
+	if (value_hidden) {
+		line_edit->set_text_with_selection(String());
+	} else {
+		_update_text();
+	}
+}
+
+void SpinBox::set_fixed_decimals(bool p_enabled) {
+	if (fixed_decimals == p_enabled) {
+		return;
+	}
+
+	fixed_decimals = p_enabled;
+	_update_text();
 }
 
 void SpinBox::set_format(const String &p_format) {

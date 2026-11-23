@@ -251,7 +251,7 @@ public:
 	void _generate_scene_node_compat_4pt4(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root);
 	void _generate_skeleton_bone_node_compat_4pt4(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root);
 	void _import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_animation_player,
-			const GLTFAnimationIndex p_index, const bool p_trimming, const bool p_remove_immutable_tracks);
+			const GLTFAnimationIndex p_index, double p_bake_fps, bool p_trimming, bool p_remove_immutable_tracks);
 	void _convert_mesh_instances(Ref<GLTFState> p_state);
 	GLTFCameraIndex _convert_camera(Ref<GLTFState> p_state, Camera3D *p_camera);
 	void _convert_light_to_gltf(Light3D *p_light, Ref<GLTFState> p_state, Ref<GLTFNode> p_gltf_node);

@@ -1512,7 +1512,11 @@ void AnimationNodeStateMachineEditor::_state_machine_draw() {
 		nr.name.position = offset + Vector2(0, (h - theme_cache.node_title_font->get_height(theme_cache.node_title_font_size)) / 2).floor();
 		nr.name.size = Vector2(name_string_size, theme_cache.node_title_font->get_height(theme_cache.node_title_font_size));
 
-		Color font_color = theme_cache.node_title_font_color;
+		// A state whose clip was renamed or removed keeps the old name and never plays.
+		Ref<AnimationNodeAnimation> state_animation = state_machine->get_node(name);
+		AnimationTree *state_tree = AnimationTreeEditor::get_singleton()->get_animation_tree();
+		const bool missing_animation = state_animation.is_valid() && state_tree && state_animation->get_animation() != StringName() && !state_tree->has_animation(state_animation->get_animation());
+		Color font_color = missing_animation ? theme_cache.error_color : theme_cache.node_title_font_color;
 		font_color.a *= opacity;
 		state_machine_draw->draw_string(theme_cache.node_title_font, nr.name.position + Vector2(0, theme_cache.node_title_font->get_ascent(theme_cache.node_title_font_size)), name, HORIZONTAL_ALIGNMENT_LEFT, -1, theme_cache.node_title_font_size, font_color);
 		offset.x += name_string_size + sep;
@@ -2184,6 +2188,11 @@ AnimationNodeStateMachineEditor::AnimationNodeStateMachineEditor() {
 }
 
 void EditorAnimationMultiTransitionEdit::add_transition(const StringName &p_from, const StringName &p_to, Ref<AnimationNodeStateMachineTransition> p_transition) {
+	EditorUndoRedoManager *undo = EditorUndoRedoManager::get_singleton();
+	const int history = undo->get_history_id_for_object(p_transition.ptr());
+	if (history < EditorUndoRedoManager::INVALID_HISTORY) {
+		undo->register_document_object(this, history);
+	}
 	Transition tr;
 	tr.from = p_from;
 	tr.to = p_to;

@@ -35,6 +35,7 @@
 				global_library.add_animation("animation_name", animation_resource)
 				[/gdscript]
 				[/codeblocks]
+				An [AnimationPlayer] with a [member AnimationPlayer.skeleton_definition] only exposes the libraries derived from that skeleton and returns [constant ERR_UNAUTHORIZED] when another library is added. Remove the skeleton binding before using standalone libraries.
 			</description>
 		</method>
 		<method name="advance">

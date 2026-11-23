@@ -1017,7 +1017,10 @@ void EditorSceneTabs::_update_tab_titles() {
 		Node *type_node = EditorNode::get_editor_data().get_edited_scene_root(i);
 		const String scene_path = EditorNode::get_editor_data().get_scene_path(i);
 		Ref<Texture2D> icon;
-		if (type_node) {
+		Ref<Texture2D> custom_icon = EditorNode::get_singleton()->get_custom_resource_file_icon(scene_path);
+		if (custom_icon.is_valid()) {
+			icon = custom_icon;
+		} else if (type_node) {
 			icon = EditorNode::get_singleton()->get_object_icon(type_node);
 		}
 		scene_tabs->set_tab_icon(tab, icon);

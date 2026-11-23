@@ -70,7 +70,7 @@
 			<param index="3" name="remove_immutable_tracks" type="bool" default="true" />
 			<description>
 				Takes a [GLTFState] object through the [param state] parameter and returns a Godot Engine scene node.
-				The [param bake_fps] parameter overrides the bake_fps in [param state].
+				The [param bake_fps] parameter overrides the bake_fps in [param state]. Pass [code]0[/code] to infer a baking rate for each animation from recurring keyframe intervals, with a fallback of 30 FPS.
 			</description>
 		</method>
 		<method name="get_supported_gltf_extensions" qualifiers="static">

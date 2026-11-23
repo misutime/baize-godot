@@ -33,6 +33,7 @@
 #include "core/templates/a_hash_map.h"
 #include "scene/3d/node_3d.h"
 #include "scene/resources/3d/skin.h"
+#include "scene/resources/skeleton_definition.h"
 
 typedef int BoneId;
 
@@ -238,6 +239,7 @@ public:
 	};
 
 	// Skeleton creation API
+	Ref<SkeletonDefinition> create_skeleton_definition() const;
 	uint64_t get_version() const;
 	int add_bone(const String &p_name);
 	int find_bone(const String &p_name) const;

@@ -5602,7 +5602,44 @@ Ref<GLTFObjectModelProperty> GLTFDocument::export_object_model_property(Ref<GLTF
 	return ret;
 }
 
-void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_animation_player, const GLTFAnimationIndex p_index, const bool p_trimming, const bool p_remove_immutable_tracks) {
+static double gltf_detect_animation_fps(const Ref<GLTFAnimation> &p_animation) {
+	int detected_fps = 0;
+	auto consider_channel = [&detected_fps](const Vector<double> &p_times) {
+		if (p_times.size() < 3) {
+			return;
+		}
+		constexpr int MAX_FPS = 240;
+		int interval_counts[MAX_FPS + 1] = {};
+		int most_common_fps = 0;
+		for (int i = 1; i < p_times.size(); i++) {
+			const double interval = p_times[i] - p_times[i - 1];
+			if (interval > 0.0 && Math::is_finite(interval)) {
+				const int fps = int(Math::round(CLAMP(1.0 / interval, 1.0, double(MAX_FPS))));
+				if (++interval_counts[fps] > interval_counts[most_common_fps]) {
+					most_common_fps = fps;
+				}
+			}
+		}
+		// Require a recurring interval so that isolated closely spaced keys do not set the bake rate.
+		if (interval_counts[most_common_fps] > (p_times.size() - 1) / 2) {
+			detected_fps = MAX(detected_fps, most_common_fps);
+		}
+	};
+	for (const KeyValue<int, GLTFAnimation::NodeTrack> &track : p_animation->get_node_tracks()) {
+		consider_channel(track.value.position_track.times);
+		consider_channel(track.value.rotation_track.times);
+		consider_channel(track.value.scale_track.times);
+		for (const GLTFAnimation::Channel<real_t> &weights : track.value.weight_tracks) {
+			consider_channel(weights.times);
+		}
+	}
+	for (const KeyValue<String, GLTFAnimation::Channel<Variant>> &track : p_animation->get_pointer_tracks()) {
+		consider_channel(track.value.times);
+	}
+	return detected_fps > 0 ? detected_fps : 30.0;
+}
+
+void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_animation_player, const GLTFAnimationIndex p_index, double p_bake_fps, bool p_trimming, bool p_remove_immutable_tracks) {
 	ERR_FAIL_COND(p_state.is_null());
 	Node *scene_root = p_animation_player->get_parent();
 	ERR_FAIL_NULL(scene_root);
@@ -5617,7 +5654,8 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 	Ref<Animation> animation;
 	animation.instantiate();
 	animation->set_name(anim_name);
-	animation->set_step(1.0 / p_state->get_bake_fps());
+	const double bake_fps = p_bake_fps == 0.0 ? gltf_detect_animation_fps(anim) : p_bake_fps;
+	animation->set_step(1.0 / bake_fps);
 
 	if (anim->get_loop()) {
 		animation->set_loop_mode(Animation::LOOP_LINEAR);
@@ -5782,7 +5820,7 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 				}
 			}
 
-			const double increment = 1.0 / p_state->get_bake_fps();
+			const double increment = 1.0 / bake_fps;
 			double time = anim_start;
 
 			Vector3 base_pos;
@@ -5859,7 +5897,7 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 				}
 			} else {
 				// CATMULLROMSPLINE or CUBIC_SPLINE have to be baked, apologies.
-				const double increment = 1.0 / p_state->get_bake_fps();
+				const double increment = 1.0 / bake_fps;
 				double time = 0.0;
 				bool last = false;
 				while (true) {
@@ -7251,13 +7289,14 @@ Error GLTFDocument::write_to_filesystem(Ref<GLTFState> p_state, const String &p_
 
 Node *GLTFDocument::generate_scene(Ref<GLTFState> p_state, float p_bake_fps, bool p_trimming, bool p_remove_immutable_tracks) {
 	ERR_FAIL_COND_V(p_state.is_null(), nullptr);
+	ERR_FAIL_COND_V(!Math::is_finite(p_bake_fps) || p_bake_fps < 0.0f, nullptr);
 	// The glTF file must have nodes, and have some marked as root nodes, in order to generate a scene.
 	if (p_state->nodes.is_empty()) {
 		WARN_PRINT("glTF: This glTF file has no nodes, the generated Godot scene will be empty.");
 	}
 	// Now that we know that we have glTF nodes, we can begin generating a scene from the parsed glTF data.
 	Error err = OK;
-	p_state->set_bake_fps(p_bake_fps);
+	p_state->set_bake_fps(p_bake_fps == 0.0f ? 30.0 : p_bake_fps);
 	Node *godot_root_node = _generate_scene_node_tree(p_state);
 	ERR_FAIL_NULL_V(godot_root_node, nullptr);
 	_process_mesh_instances(p_state, godot_root_node);
@@ -7266,7 +7305,7 @@ Node *GLTFDocument::generate_scene(Ref<GLTFState> p_state, float p_bake_fps, boo
 		godot_root_node->add_child(anim_player, true);
 		anim_player->set_owner(godot_root_node);
 		for (int i = 0; i < p_state->animations.size(); i++) {
-			_import_animation(p_state, anim_player, i, p_trimming, p_remove_immutable_tracks);
+			_import_animation(p_state, anim_player, i, p_bake_fps, p_trimming, p_remove_immutable_tracks);
 		}
 	}
 	for (KeyValue<GLTFNodeIndex, Node *> E : p_state->scene_nodes) {
