@@ -94,6 +94,8 @@ private:
 	struct ResourceDocument {
 		String path;
 		String restore_path;
+		ObjectID scene_root;
+		ObjectID scene_node;
 		String title;
 		String tooltip;
 		Ref<Texture2D> icon;
@@ -165,7 +167,10 @@ public:
 	int get_option_tab() const;
 
 	void update_scene_tabs();
-	void open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path = String());
+	String get_node_document_path(Node *p_root, Node *p_node, const String &p_kind) const;
+	void close_node_documents(Node *p_root);
+	void restore_active_document(bool p_save_current);
+	void open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path = String(), Node *p_scene_root = nullptr, Node *p_scene_node = nullptr);
 	void set_document_title(const String &p_path, const String &p_title);
 	void set_document_tooltip(const String &p_path, const String &p_tooltip);
 	void set_document_restore_path(const String &p_path, const String &p_restore_path);

@@ -283,7 +283,7 @@
 			<param index="0" name="for_scene" type="String" />
 			<description>
 				Override this method to provide a custom message that lists unsaved changes. The editor will call this method when exiting or when closing a scene, and display the returned string in a confirmation dialog. Return empty string if the plugin has no unsaved changes.
-				When closing a scene, [param for_scene] is the path to the scene being closed. You can use it to handle built-in resources in that scene.
+				An empty [param for_scene] requests the overall status. For a scene-specific query the editor supplies its saved path and skips this callback for untitled scenes. You can use it to handle built-in resources in that scene.
 				If the user confirms saving, [method _save_external_data] will be called, before closing the editor.
 				[codeblock]
 				func _get_unsaved_status(for_scene):

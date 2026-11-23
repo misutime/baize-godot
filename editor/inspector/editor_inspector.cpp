@@ -866,8 +866,9 @@ Variant EditorProperty::get_edited_property_display_value() const {
 		MultiNodeEdit *multi = Object::cast_to<MultiNodeEdit>(object);
 		if (multi) {
 			Node *root = EditorNode::get_singleton()->get_edited_scene();
-			NodePath np = multi->get_node(0);
-			control = Object::cast_to<Control>(root->get_node_or_null(np));
+			if (root && multi->get_node_count() > 0) {
+				control = Object::cast_to<Control>(root->get_node_or_null(multi->get_node(0)));
+			}
 		}
 	}
 

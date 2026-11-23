@@ -98,6 +98,9 @@ PackedStringArray SceneTreeEditor::_get_node_accessibility_configuration_warning
 }
 
 void SceneTreeEditor::_gui_input(const Ref<InputEvent> &p_event) {
+	if (reference_only) {
+		return;
+	}
 	if (connect_to_script_mode) {
 		return; // Don't do anything in this mode.
 	}
@@ -182,6 +185,9 @@ void SceneTreeEditor::_gui_input(const Ref<InputEvent> &p_event) {
 }
 
 void SceneTreeEditor::_cell_button_pressed(Object *p_item, int p_column, int p_id, MouseButton p_button) {
+	if (reference_only) {
+		return;
+	}
 	if (p_button != MouseButton::LEFT) {
 		return;
 	}
@@ -1399,6 +1405,9 @@ void SceneTreeEditor::_tree_changed() {
 }
 
 void SceneTreeEditor::_selected_changed() {
+	if (reference_only) {
+		return;
+	}
 	TreeItem *s = tree->get_selected();
 	ERR_FAIL_NULL(s);
 	NodePath np = s->get_metadata(0);
@@ -1417,6 +1426,9 @@ void SceneTreeEditor::_selected_changed() {
 }
 
 void SceneTreeEditor::_deselect_items() {
+	if (reference_only) {
+		return;
+	}
 	// Clear currently selected items in scene tree dock.
 	if (editor_selection) {
 		editor_selection->clear();
@@ -1425,6 +1437,9 @@ void SceneTreeEditor::_deselect_items() {
 }
 
 void SceneTreeEditor::_cell_multi_selected(Object *p_object, int p_cell, bool p_selected) {
+	if (reference_only) {
+		return;
+	}
 	TreeItem *item = Object::cast_to<TreeItem>(p_object);
 	ERR_FAIL_NULL(item);
 
@@ -1775,6 +1790,9 @@ void SceneTreeEditor::rename_node(Node *p_node, const String &p_name, TreeItem *
 }
 
 void SceneTreeEditor::_edited() {
+	if (reference_only) {
+		return;
+	}
 	TreeItem *which = tree->get_next_selected(nullptr);
 	ERR_FAIL_NULL(which);
 	TreeItem *edited = tree->get_edited();
@@ -1862,6 +1880,13 @@ void SceneTreeEditor::set_show_all_nodes(bool p_show_all_nodes) {
 
 void SceneTreeEditor::set_as_scene_tree_dock() {
 	is_scene_tree_dock = true;
+}
+
+void SceneTreeEditor::set_reference_only(bool p_enabled) {
+	reference_only = p_enabled;
+	if (p_enabled) {
+		_reset_visibility_drag();
+	}
 }
 
 void SceneTreeEditor::set_display_scene_root(Node *p_root) {
@@ -2243,6 +2268,9 @@ void SceneTreeEditor::_empty_clicked(const Vector2 &p_pos, MouseButton p_button)
 }
 
 void SceneTreeEditor::_rmb_select(const Vector2 &p_pos, MouseButton p_button) {
+	if (reference_only) {
+		return;
+	}
 	if (p_button != MouseButton::RIGHT) {
 		return;
 	}

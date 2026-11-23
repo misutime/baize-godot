@@ -404,6 +404,11 @@ String EditorPlugin::get_unsaved_status(const String &p_for_scene) const {
 	return ret;
 }
 
+String EditorPlugin::get_scene_unsaved_status(const Node *p_scene) const {
+	const String &path = p_scene->get_scene_file_path();
+	return path.is_empty() ? String() : get_unsaved_status(path);
+}
+
 void EditorPlugin::save_external_data() {
 	GDVIRTUAL_CALL(_save_external_data);
 }

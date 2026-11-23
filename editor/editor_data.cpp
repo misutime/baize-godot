@@ -44,6 +44,7 @@
 #include "editor/inspector/editor_context_menu_plugin.h"
 #include "editor/inspector/multi_node_edit.h"
 #include "editor/plugins/editor_plugin.h"
+#include "editor/scene/editor_scene_tabs.h"
 #include "scene/main/scene_tree.h"
 #include "scene/property_utils.h"
 #include "scene/resources/packed_scene.h"
@@ -671,6 +672,9 @@ int EditorData::add_edited_scene(int p_at_pos) {
 void EditorData::remove_scene(int p_idx) {
 	ERR_FAIL_INDEX(p_idx, edited_scene.size());
 	if (edited_scene[p_idx].root) {
+		if (EditorSceneTabs *tabs = EditorSceneTabs::get_singleton()) {
+			tabs->close_node_documents(edited_scene[p_idx].root);
+		}
 		for (int i = 0; i < editor_plugins.size(); i++) {
 			editor_plugins[i]->notify_scene_closed(edited_scene[p_idx].root->get_scene_file_path());
 		}

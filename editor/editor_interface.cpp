@@ -813,8 +813,18 @@ Error EditorInterface::save_scene() {
 		return ERR_CANT_CREATE;
 	}
 
-	save_scene_as(get_edited_scene_root()->get_scene_file_path());
-	return OK;
+	return EditorNode::get_singleton()->save_scene_to_path(get_edited_scene_root()->get_scene_file_path());
+}
+
+Error EditorInterface::save_scene_root(Node *p_root) {
+	EditorData &scene_data = EditorNode::get_editor_data();
+	for (int scene = 0; scene < scene_data.get_edited_scene_count(); scene++) {
+		if (p_root && scene_data.get_edited_scene_root(scene) == p_root) {
+			ERR_FAIL_COND_V_MSG(p_root->get_scene_file_path().is_empty(), ERR_FILE_BAD_PATH, "Save the scene to a file before saving its animation document.");
+			return EditorNode::get_singleton()->save_scene_resources(p_root->get_scene_file_path(), false, scene);
+		}
+	}
+	return ERR_DOES_NOT_EXIST;
 }
 
 void EditorInterface::save_scene_as(const String &p_scene, bool p_with_preview) {
@@ -992,6 +1002,7 @@ void EditorInterface::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_root_node", "node"), &EditorInterface::add_root_node);
 
 	ClassDB::bind_method(D_METHOD("save_scene"), &EditorInterface::save_scene);
+	ClassDB::bind_method(D_METHOD("save_scene_root", "root"), &EditorInterface::save_scene_root);
 	ClassDB::bind_method(D_METHOD("save_scene_as", "path", "with_preview"), &EditorInterface::save_scene_as, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("save_all_scenes"), &EditorInterface::save_all_scenes);
 	ClassDB::bind_method(D_METHOD("close_scene"), &EditorInterface::close_scene);

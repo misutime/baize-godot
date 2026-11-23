@@ -533,6 +533,13 @@
 				Saves the currently active scene as a file at [param path].
 			</description>
 		</method>
+		<method name="save_scene_root">
+			<return type="int" enum="Error" />
+			<param index="0" name="root" type="Node" />
+			<description>
+				Saves the open scene identified by [param root], including an inactive scene that owns an animation document. The scene must already have a file path. Returns the actual save result and leaves the active document unchanged. Plugin external-data callbacks are skipped to avoid recursively saving the same document.
+			</description>
+		</method>
 		<method name="select_file">
 			<return type="void" />
 			<param index="0" name="file" type="String" />

@@ -3109,14 +3109,10 @@ void EditorHelp::_load_doc_thread(void *p_udata) {
 		for (int i = 0; i < classes.size(); i++) {
 			doc->add_doc(DocData::ClassDoc::from_dict(classes[i]));
 		}
-		if (use_script_cache) {
-			callable_mp_static(&EditorHelp::load_script_doc_cache).call_deferred();
-		}
-		// Extensions' docs are not cached. Generate them now (on the main thread).
-		callable_mp_static(&EditorHelp::_gen_extensions_docs).call_deferred();
+		callable_mp_static(&EditorHelp::_finish_doc_cache_load).call_deferred(true, use_script_cache);
 	} else {
 		// We have to go back to the main thread to start from scratch, bypassing any possibly existing cache.
-		callable_mp_static(&EditorHelp::generate_doc).call_deferred(false, use_script_cache);
+		callable_mp_static(&EditorHelp::_finish_doc_cache_load).call_deferred(false, use_script_cache);
 	}
 
 	OS::get_singleton()->benchmark_end_measure("EditorHelp", vformat("Generate Documentation (Run %d)", doc_generation_count));
@@ -3155,7 +3151,19 @@ void EditorHelp::_gen_doc_thread(void *p_udata) {
 	OS::get_singleton()->benchmark_end_measure("EditorHelp", vformat("Generate Documentation (Run %d)", doc_generation_count));
 }
 
-void EditorHelp::_gen_extensions_docs() {
+void EditorHelp::_finish_doc_cache_load(bool p_cache_valid, bool p_use_script_cache) {
+	// A command-line export can exit before the worker's deferred completion runs.
+	if (!doc) {
+		return;
+	}
+	if (!p_cache_valid) {
+		generate_doc(false, p_use_script_cache);
+		return;
+	}
+	if (p_use_script_cache) {
+		load_script_doc_cache();
+	}
+	// Extension docs are not cached and must be generated on the main thread.
 	doc->generate((DocTools::GENERATE_FLAG_SKIP_BASIC_TYPES | DocTools::GENERATE_FLAG_EXTENSION_CLASSES_ONLY));
 
 	// Append extra doc data, as it gets overridden by the generation step.
@@ -3168,6 +3176,9 @@ static void _load_script_doc_cache(bool p_changes) {
 }
 
 void EditorHelp::load_script_doc_cache() {
+	if (!doc) {
+		return;
+	}
 	if (!ProjectSettings::get_singleton()->is_project_loaded()) {
 		print_verbose("Skipping loading script doc cache since no project is open.");
 		return;

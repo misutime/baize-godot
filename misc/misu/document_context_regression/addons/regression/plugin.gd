@@ -190,6 +190,16 @@ func check_pinned_tab(p_tabs: TabBar, p_path: String) -> void:
 	check(false, "the pinned tab menu offers Close Tab")
 
 
+func run_history_command(shortcut_name: String) -> bool:
+	var shortcut := EditorInterface.get_editor_settings().get_shortcut(shortcut_name)
+	for menu: PopupMenu in EditorInterface.get_base_control().find_children("*", "PopupMenu", true, false):
+		for index: int in menu.item_count:
+			if menu.get_item_shortcut(index) == shortcut:
+				menu.id_pressed.emit(menu.get_item_id(index))
+				return true
+	return false
+
+
 func inspector_read_only() -> bool:
 	var properties := EditorInterface.get_inspector().find_children("*", "EditorProperty", true, false)
 	return properties.size() > 0 and (properties[0] as EditorProperty).read_only
@@ -313,6 +323,10 @@ func run() -> void:
 	check(EditorInterface.get_inspector().get_edited_object() == marker_a, "marker A is pinned before locking")
 	var undo_redo := EditorInterface.get_editor_undo_redo()
 	var history_a := undo_redo.get_object_history_id(marker_a)
+	undo_redo.create_action("Rename locked marker")
+	undo_redo.add_do_property(marker_a, "editor_description", "edited while locked")
+	undo_redo.add_undo_property(marker_a, "editor_description", marker_a.editor_description)
+	undo_redo.commit_action()
 	if lock_button:
 		lock_button.button_pressed = true
 		lock_button.pressed.emit()
@@ -334,18 +348,27 @@ func run() -> void:
 	await settle()
 	check(EditorInterface.get_inspector().get_edited_object() == marker_a, "locked inspector ignores selection changes")
 	check(scene_tree_root_name() == "SceneA", "locked scene tree ignores scene B selection changes")
+	var locked_tree := EditorInterface.get_base_control().find_child("SceneTreeEditorTree", true, false) as Tree
+	locked_tree.nothing_selected.emit()
+	check(EditorInterface.get_selection().get_selected_nodes().has(marker_b), "clicking empty space in the reference tree keeps the active scene selection")
+	var locked_item := locked_tree.get_root()
+	if locked_item:
+		locked_tree.multi_selected.emit(locked_item, 0, true)
+	check(EditorInterface.get_selection().get_selected_nodes() == [marker_b], "reference tree selection never inserts a detached node")
 	check(inspector_read_only(), "the locked scene is read-only while another scene is current")
 	check(undo_redo.get_object_history_id(marker_a) == history_a, "locked scene nodes keep their own scene history, got %d instead of %d" % [undo_redo.get_object_history_id(marker_a), history_a])
 	var history_b := undo_redo.get_object_history_id(marker_b) if marker_b else -1
 	check(history_b != history_a, "the two scenes use different histories")
-	undo_redo.create_action("Rename locked marker")
-	undo_redo.add_do_property(marker_a, "editor_description", "edited while locked")
-	undo_redo.add_undo_property(marker_a, "editor_description", marker_a.editor_description)
-	undo_redo.commit_action()
-	check(undo_redo.get_history_undo_redo(history_a).has_undo(), "an edit of the locked scene lands in the locked scene history")
+	check(undo_redo.get_history_undo_redo(history_a).has_undo(), "the reference scene retains its previous history")
 	check(history_b < 0 or not undo_redo.get_history_undo_redo(history_b).has_undo(), "the active scene history stays untouched")
-	undo_redo.get_history_undo_redo(history_a).undo()
-	check(marker_a.editor_description == "", "undo while locked reverts the locked scene edit")
+	undo_redo.create_action("Edit active marker")
+	undo_redo.add_do_property(marker_b, "editor_description", "active edit")
+	undo_redo.add_undo_property(marker_b, "editor_description", marker_b.editor_description)
+	undo_redo.commit_action()
+	check(run_history_command("ui_undo") and marker_b.editor_description.is_empty(), "editor Undo targets the active scene")
+	check(marker_a.editor_description == "edited while locked", "global Undo leaves the locked reference intact")
+	check(run_history_command("ui_redo") and marker_b.editor_description == "active edit", "editor Redo targets the active scene")
+	run_history_command("ui_undo")
 	if lock_button:
 		lock_button.button_pressed = false
 		lock_button.pressed.emit()
@@ -389,6 +412,77 @@ func run() -> void:
 	else:
 		check(false, "scene tab bar exists")
 
+	begin("closing the background edited scene preserves the resource workspace")
+	EditorInterface.save_scene_as("res://scene_b.tscn", false)
+	EditorInterface.open_editor_document("editor://context-resource", "ContextResource", null, inspect_context_resource, Callable(), Callable(), Callable(), Callable(), true)
+	await settle()
+	for index in tabs.tab_count:
+		if tabs.get_tab_tooltip(index).ends_with("scene_b.tscn"):
+			tabs.tab_close_pressed.emit(index)
+			break
+	await settle(15)
+	check(not EditorInterface.get_open_scenes().has("res://scene_b.tscn"), "background scene was closed")
+	check(EditorInterface.get_active_editor_document() == "editor://context-resource", "resource tab remains active")
+	check(EditorInterface.get_inspector().get_edited_object() == resource_document, "resource inspector is restored")
+
+	if OS.get_name() == "Windows" and EditorInterface.get_editor_settings().get_setting("filesystem/on_save/safe_save_on_backup_then_rename"):
+		EditorInterface.activate_scene_document()
+		await settle()
+		for scene in EditorInterface.get_open_scene_roots():
+			if not scene.scene_file_path.is_empty():
+				check(EditorInterface.save_scene_root(scene) == OK, "earlier fixture saved")
+		for action: String in ["editor/reload_saved_scene", "editor/close_all_scenes", "editor/file_quit"]:
+			begin("failed save cancels " + action + " and permits a retry")
+			await check_failed_scene_save(action)
+
 	write_results()
 	var failed := results.filter(func(entry: Dictionary) -> bool: return not entry["passed"])
 	get_tree().quit(0 if failed.is_empty() else 1)
+
+
+func check_failed_scene_save(action: String) -> void:
+	var path := "res://" + action.get_file() + ".tscn"
+	var other := "res://" + action.get_file() + "_other.tscn"
+	make_scene(path, "Pending", "Marker")
+	make_scene(other, "Other", "Marker")
+	EditorInterface.open_scene_from_path(path)
+	await settle()
+	var scene := EditorInterface.get_edited_scene_root()
+	scene.editor_description = "pending edit"
+	EditorInterface.mark_scene_as_unsaved()
+	if action != "editor/reload_saved_scene":
+		EditorInterface.open_scene_from_path(other)
+		await settle()
+	var lock := FileAccess.open(path, FileAccess.READ)
+	check(lock != null, "hold target file open")
+	check(run_history_command(action), "menu command dispatched")
+	await settle()
+	var confirmed := false
+	for dialog: ConfirmationDialog in get_tree().root.find_children("*", "ConfirmationDialog", true, false):
+		if dialog.visible:
+			confirmed = true
+			dialog.get_ok_button().pressed.emit()
+			break
+	check(confirmed, "save confirmation appeared")
+	await settle()
+	lock.close()
+	for dialog: AcceptDialog in get_tree().root.find_children("*", "AcceptDialog", true, false):
+		if dialog.visible:
+			dialog.hide()
+	if not is_instance_valid(scene):
+		check(false, "failed save destroyed the edited scene")
+		return
+	check(scene.editor_description == "pending edit", "failed save preserved the edit")
+	if action != "editor/reload_saved_scene":
+		var tabs := find_scene_tabs()
+		for index in tabs.tab_count:
+			if tabs.get_tab_tooltip(index).ends_with(other.get_file()):
+				tabs.tab_close_pressed.emit(index)
+				break
+		await settle()
+		check(not EditorInterface.get_open_scenes().has(other), "the clean tab closes independently")
+		check(EditorInterface.get_open_scenes().has(path), "the failed tab remains open")
+	check(EditorInterface.save_scene_root(scene) == OK, "retry saves the edited scene")
+	var fresh := (ResourceLoader.load(path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate()
+	check(fresh.editor_description == "pending edit", "reload from disk confirms retry")
+	fresh.free()

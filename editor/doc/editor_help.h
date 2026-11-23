@@ -198,7 +198,7 @@ class EditorHelp : public VBoxContainer {
 	static void _wait_for_thread(Thread &p_thread = worker_thread);
 	static void _load_doc_thread(void *p_udata);
 	static void _gen_doc_thread(void *p_udata);
-	static void _gen_extensions_docs();
+	static void _finish_doc_cache_load(bool p_cache_valid, bool p_use_script_cache);
 	static void _process_postponed_docs();
 	static void _load_script_doc_cache_thread(void *p_udata);
 	static void _regen_script_doc_thread(void *p_udata);

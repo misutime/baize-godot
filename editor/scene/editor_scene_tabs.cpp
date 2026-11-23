@@ -247,7 +247,17 @@ void EditorSceneTabs::save_layout_to_config(const Ref<ConfigFile> &p_config) {
 				continue;
 			}
 			entry["type"] = documents[document].path.begins_with("editor://") ? "workspace" : "resource";
-			entry["path"] = documents[document].path;
+			const ResourceDocument &doc = documents[document];
+			String path = doc.path;
+			if (doc.scene_node.is_valid()) {
+				Node *root = ObjectDB::get_instance<Node>(doc.scene_root);
+				Node *node = ObjectDB::get_instance<Node>(doc.scene_node);
+				if (!root || !node || root->get_scene_file_path().is_empty() || (root != node && !root->is_ancestor_of(node))) {
+					continue;
+				}
+				path = root->get_scene_file_path() + "::" + path.get_slice("::", 1).get_slice("/", 0) + "/" + String(root->get_path_to(node));
+			}
+			entry["path"] = path;
 			if (!documents[document].restore_path.is_empty()) {
 				entry["restore_path"] = documents[document].restore_path;
 			}
@@ -347,6 +357,20 @@ void EditorSceneTabs::_activate_document(const String &p_path) {
 	_save_layout_delayed();
 }
 
+void EditorSceneTabs::restore_active_document(bool p_save_current) {
+	const String path = active_document;
+	const int index = _find_document(path);
+	if (index < 0) {
+		return;
+	}
+	EditorNode::get_singleton()->_begin_document_activation(path, p_save_current);
+	const Callable activate = documents[index].activate;
+	activate.call();
+	if (active_document == path) {
+		EditorNode::get_singleton()->_finish_document_activation(path);
+	}
+}
+
 void EditorSceneTabs::_restore_main_screen() {
 	EditorDock *screen = Object::cast_to<EditorDock>(ObjectDB::get_instance(previous_main_screen));
 	previous_main_screen = ObjectID();
@@ -385,13 +409,55 @@ void EditorSceneTabs::_scene_tab_changed(int p_tab) {
 	}
 }
 
-void EditorSceneTabs::open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path) {
+String EditorSceneTabs::get_node_document_path(Node *p_root, Node *p_node, const String &p_kind) const {
+	for (const ResourceDocument &document : documents) {
+		if (document.scene_root == p_root->get_instance_id() && document.scene_node == p_node->get_instance_id() && document.path.get_slice("::", 1).get_slice("/", 0) == p_kind) {
+			return document.path;
+		}
+	}
+	const String scene = p_root->get_scene_file_path().is_empty() ? "unsaved://" + itos(p_root->get_instance_id()) : p_root->get_scene_file_path();
+	const String suffix = "::" + p_kind + "/" + String(p_root->get_path_to(p_node));
+	const String path = scene + suffix;
+	// A renamed node may still own this session key. The layout records both live paths.
+	return _find_document(path) < 0 ? path : "node://" + itos(p_node->get_instance_id()) + suffix;
+}
+
+void EditorSceneTabs::close_node_documents(Node *p_root) {
+	Vector<String> paths;
+	for (const ResourceDocument &document : documents) {
+		if (document.scene_root == p_root->get_instance_id()) {
+			paths.push_back(document.path);
+		}
+	}
+	const bool active_removed = paths.has(active_document);
+	for (const String &path : paths) {
+		const int index = _find_document(path);
+		if (index < 0) {
+			continue;
+		}
+		const Callable close = documents[index].close;
+		remove_document(path, false);
+		if (close.is_valid()) {
+			close.call();
+		}
+	}
+	// Switching to the next tab during teardown could reactivate the scene being freed.
+	if (active_removed && !EditorNode::get_singleton()->is_exiting() && EditorNode::get_editor_data().get_edited_scene_root() != p_root) {
+		_activate_scene(EditorNode::get_editor_data().get_edited_scene());
+	}
+}
+
+void EditorSceneTabs::open_document(const String &p_path, const String &p_title, const Ref<Texture2D> &p_icon, const Callable &p_activate, const Callable &p_save, const Callable &p_close, const Callable &p_navigate, const Callable &p_save_as, bool p_activate_document, const String &p_restore_path, Node *p_scene_root, Node *p_scene_node) {
 	ERR_FAIL_COND(p_path.is_empty() || !p_activate.is_valid());
 	const int index = _find_document(p_path);
 	if (index < 0) {
 		ResourceDocument document;
 		document.path = p_path;
 		document.restore_path = p_restore_path;
+		if (p_scene_root && p_scene_node) {
+			document.scene_root = p_scene_root->get_instance_id();
+			document.scene_node = p_scene_node->get_instance_id();
+		}
 		document.title = p_title;
 		document.icon = p_icon;
 		document.activate = p_activate;
@@ -411,9 +477,7 @@ void EditorSceneTabs::open_document(const String &p_path, const String &p_title,
 	if (active_document != p_path) {
 		_request_navigation(callable_mp(this, &EditorSceneTabs::_activate_document).bind(p_path));
 	} else {
-		EditorNode::get_singleton()->_begin_document_activation(p_path);
-		documents[_find_document(p_path)].activate.call();
-		EditorNode::get_singleton()->_finish_document_activation(p_path);
+		restore_active_document(true);
 	}
 }
 

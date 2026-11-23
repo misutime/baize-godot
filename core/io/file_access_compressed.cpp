@@ -42,6 +42,8 @@ void FileAccessCompressed::configure(const String &p_magic, Compression::Mode p_
 
 Error FileAccessCompressed::open_after_magic(Ref<FileAccess> p_base) {
 	f = p_base;
+	writing = false;
+	write_error = OK;
 	cmode = (Compression::Mode)f->get_32();
 	block_size = f->get_32();
 	if (block_size == 0) {
@@ -80,6 +82,7 @@ Error FileAccessCompressed::open_after_magic(Ref<FileAccess> p_base) {
 Error FileAccessCompressed::open_internal(const String &p_path, int p_mode_flags) {
 	ERR_FAIL_COND_V(p_mode_flags == READ_WRITE, ERR_UNAVAILABLE);
 	_close();
+	write_error = OK;
 
 	Error err;
 	f = FileAccess::open(p_path, p_mode_flags, &err);
@@ -92,6 +95,7 @@ Error FileAccessCompressed::open_internal(const String &p_path, int p_mode_flags
 	if (p_mode_flags & WRITE) {
 		buffer.clear();
 		writing = true;
+		read_eof = false;
 		write_pos = 0;
 		write_buffer_size = 256;
 		buffer.resize(256);
@@ -158,6 +162,8 @@ void FileAccessCompressed::_close() {
 		}
 		f->seek_end();
 		f->store_buffer((const uint8_t *)mgc.get_data(), mgc.length()); //magic at the end too
+		f->close();
+		write_error = f->get_error();
 	} else {
 		comp_buffer.clear();
 		read_blocks.clear();
@@ -302,7 +308,7 @@ uint64_t FileAccessCompressed::get_buffer(uint8_t *p_dst, uint64_t p_length) con
 }
 
 Error FileAccessCompressed::get_error() const {
-	return read_eof ? ERR_FILE_EOF : OK;
+	return read_eof ? ERR_FILE_EOF : write_error;
 }
 
 void FileAccessCompressed::flush() {

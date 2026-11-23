@@ -352,7 +352,6 @@ private:
 	DocumentContext active_document_context;
 	DocumentContext locked_document_context;
 	ObjectID locked_scene_root;
-	int history_before_lock = EditorUndoRedoManager::INVALID_HISTORY;
 	HashMap<String, SavedDocumentState> document_states;
 	String pending_document_path;
 	bool pending_document_context = false;
@@ -364,7 +363,7 @@ private:
 	uint64_t document_activation_serial = 0;
 
 	int tab_closing_idx = 0;
-	List<String> tabs_to_close;
+	List<int> tabs_to_close;
 	List<int> scenes_to_save_as;
 	int tab_closing_menu_option = -1;
 
@@ -645,7 +644,7 @@ private:
 
 	void _update_undo_redo_allowed();
 
-	int _save_external_resources(bool p_also_save_external_data = false);
+	Error _save_external_resources(bool p_also_save_external_data = false, int *r_saved = nullptr);
 	void _save_scene_silently();
 
 	void _set_current_scene(int p_idx);
@@ -658,14 +657,13 @@ private:
 	void _restore_scene_document_context(int p_scene);
 	void _inspect_locked_object(Object *p_object, const String &p_property, bool p_inspector_only);
 	bool _object_belongs_to_locked_scene(const Object *p_object) const;
-	void _apply_locked_history();
 	void _save_document_state(const String &p_path);
 	bool _restore_document_state(const String &p_path);
 	void _forget_document_state(const String &p_path);
 	void _refresh_document_context_title();
 	void _reapply_locked_context();
 	void _update_document_context_lock();
-	void _begin_document_activation(const String &p_path);
+	void _begin_document_activation(const String &p_path, bool p_save_current = true);
 	void _finish_document_activation(const String &p_path);
 	void _begin_scene_document_activation();
 	void _finish_scene_document_activation(int p_scene);
@@ -673,12 +671,14 @@ private:
 	String _get_document_context_description() const;
 	void _nav_to_selected_scene();
 	bool _validate_scene_recursive(const String &p_filename, Node *p_node);
-	void _save_scene(String p_file, int idx = -1);
+	Error _save_scene(String p_file, int idx = -1, bool p_save_plugin_data = true);
 	void _save_all_scenes();
 	int _next_unsaved_scene(bool p_valid_filename, int p_start = 0);
 	void _discard_changes(const String &p_str = String());
 	void _scene_tab_closed(int p_tab);
 	void _cancel_close_scene_tab();
+	void _cancel_scene_save_as();
+	String _get_scene_plugin_unsaved_status(const Node *p_scene);
 	void _cancel_confirmation();
 
 	void _prepare_save_confirmation_popup();
@@ -728,7 +728,7 @@ private:
 	void _mark_unsaved_scenes();
 
 	void _find_node_types(Node *p_node, int &count_2d, int &count_3d);
-	void _save_scene_with_preview(String p_file, int p_idx = -1);
+	Error _save_scene_with_preview(String p_file, int p_idx = -1);
 	void _close_save_scene_progress();
 
 	bool _find_scene_in_use(Node *p_node, const String &p_path) const;
@@ -1067,15 +1067,13 @@ public:
 
 	Control *get_gui_base() { return gui_base; }
 
-	void save_scene_to_path(String p_file, bool p_with_preview = true) {
-		if (p_with_preview) {
-			_save_scene_with_preview(p_file);
-		} else {
-			_save_scene(p_file);
-		}
+	Error save_scene_to_path(const String &p_file, bool p_with_preview = true) {
+		return p_with_preview ? _save_scene_with_preview(p_file) : _save_scene(p_file);
 	}
 
+	Error save_scene_resources(const String &p_file, bool p_save_plugin_data = true, int p_scene_idx = -1) { return _save_scene(p_file, p_scene_idx, p_save_plugin_data); }
 
+	bool is_saving_scene() const { return !saving_scene.is_empty(); }
 	bool close_scene();
 
 	bool is_scene_in_use(const String &p_path);

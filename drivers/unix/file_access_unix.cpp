@@ -200,7 +200,9 @@ void FileAccessUnix::_close() {
 		return;
 	}
 
-	fclose(f);
+	if (fclose(f) != 0) {
+		last_error = ERR_FILE_CANT_WRITE;
+	}
 	f = nullptr;
 
 	if (close_notification_func) {
@@ -208,10 +210,13 @@ void FileAccessUnix::_close() {
 	}
 
 	if (!save_path.is_empty()) {
-		int rename_error = rename(path.utf8().get_data(), save_path.utf8().get_data());
+		const bool rename_error = last_error == ERR_FILE_CANT_WRITE || rename(path.utf8().get_data(), save_path.utf8().get_data()) != 0;
 
-		if (rename_error && close_fail_notify) {
-			close_fail_notify(save_path);
+		if (rename_error) {
+			last_error = ERR_FILE_CANT_WRITE;
+			if (close_fail_notify) {
+				close_fail_notify(save_path);
+			}
 		}
 
 		save_path = "";

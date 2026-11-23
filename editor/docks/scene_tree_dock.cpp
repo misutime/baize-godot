@@ -108,6 +108,9 @@ static void _restore_treeitem_custom_color(TreeItem *p_item) {
 }
 
 void SceneTreeDock::_inspect_hovered_node() {
+	if (locked_read_only) {
+		return;
+	}
 	Tree *tree = scene_tree->get_scene_tree();
 	if (!tree->get_rect().has_point(tree->get_local_mouse_position())) {
 		return;
@@ -156,6 +159,9 @@ void SceneTreeDock::_reset_hovering_timer() {
 }
 
 void SceneTreeDock::input(const Ref<InputEvent> &p_event) {
+	if (locked_read_only) {
+		return;
+	}
 	ERR_FAIL_COND(p_event.is_null());
 
 	Ref<InputEventMouseButton> mb = p_event;
@@ -187,6 +193,9 @@ void SceneTreeDock::input(const Ref<InputEvent> &p_event) {
 }
 
 void SceneTreeDock::shortcut_input(const Ref<InputEvent> &p_event) {
+	if (locked_read_only) {
+		return;
+	}
 	ERR_FAIL_COND(p_event.is_null());
 
 	Control *focus_owner = get_viewport()->gui_get_focus_owner();
@@ -292,6 +301,9 @@ void SceneTreeDock::shortcut_input(const Ref<InputEvent> &p_event) {
 }
 
 void SceneTreeDock::_scene_tree_gui_input(Ref<InputEvent> p_event) {
+	if (locked_read_only) {
+		return;
+	}
 	Ref<InputEventKey> key = p_event;
 
 	if (key.is_null() || !key->is_pressed() || key->is_echo()) {
@@ -655,6 +667,9 @@ bool SceneTreeDock::_track_inherit(const String &p_target_scene_path, Node *p_de
 }
 
 void SceneTreeDock::_tool_selected(int p_tool, bool p_confirm_override) {
+	if (locked_read_only) {
+		return;
+	}
 	current_option = p_tool;
 
 	switch (p_tool) {
@@ -1978,6 +1993,9 @@ void SceneTreeDock::_handle_select(Node *p_node) {
 }
 
 void SceneTreeDock::_node_selected() {
+	if (locked_read_only) {
+		return;
+	}
 	Node *node = scene_tree->get_selected();
 
 	if (!node) {
@@ -4617,6 +4635,9 @@ void SceneTreeDock::save_branch_to_file(const String &p_directory) {
 }
 
 void SceneTreeDock::_focus_node() {
+	if (locked_read_only) {
+		return;
+	}
 	Node *node = scene_tree->get_selected();
 	// This method handles the item_icon_double_clicked signal and there is no guarantee anything is actually selected.
 	if (!node) {
@@ -5147,6 +5168,7 @@ void SceneTreeDock::set_locked_read_only(bool p_read_only) {
 		return;
 	}
 	locked_read_only = p_read_only;
+	scene_tree->set_reference_only(p_read_only);
 	_feature_profile_changed();
 }
 

@@ -239,7 +239,9 @@ void FileAccessWindows::_close() {
 		return;
 	}
 
-	fclose(f);
+	if (fclose(f) != 0) {
+		last_error = ERR_FILE_CANT_WRITE;
+	}
 	f = nullptr;
 
 	if (!save_path.is_empty()) {
@@ -250,7 +252,7 @@ void FileAccessWindows::_close() {
 		bool rename_error = true;
 		const Char16String &path_utf16 = path.utf16();
 		const Char16String &save_path_utf16 = save_path.utf16();
-		for (int i = 0; i < 1000; i++) {
+		for (int i = 0; i < 1000 && last_error != ERR_FILE_CANT_WRITE; i++) {
 			if (ReplaceFileW((LPCWSTR)(save_path_utf16.get_data()), (LPCWSTR)(path_utf16.get_data()), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, nullptr, nullptr)) {
 				rename_error = false;
 			} else {
@@ -267,6 +269,7 @@ void FileAccessWindows::_close() {
 		}
 
 		if (rename_error) {
+			last_error = ERR_FILE_CANT_WRITE;
 			if (close_fail_notify) {
 				close_fail_notify(save_path);
 			}
